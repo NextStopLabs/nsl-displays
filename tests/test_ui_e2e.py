@@ -83,25 +83,26 @@ def test_full_user_journey(server, tmp_path):
         pg.locator("[data-open]").first.click()
         pg.locator("#progdetail").wait_for()
 
-        # 5. add service
+        # 5. add service (lives in the collapsed Services section)
+        pg.locator("#svc-details > summary").click()
         pg.fill("#ns-num", "100")
         pg.fill("#ns-name", "Town loop")
         pg.click("#ns-add")
-        pg.get_by_text("Service 100 Town loop").wait_for()
+        pg.wait_for_function("document.querySelectorAll('#nd-service option').length > 1", timeout=10000)
 
-        # 6. bad code flagged live, good code accepted
-        pg.locator("[data-ncode]").first.fill("123")
+        # 6. bad code flagged live, good code accepted (one form for the program)
+        pg.fill("#nd-code", "123")
         pg.locator("text=Code must be exactly 8 digits").wait_for()
-        pg.locator("[data-ncode]").first.fill("10000001")
-        pg.locator('[data-nname]').first.fill("Burton")
-        pg.locator("[data-nvia]").first.fill("Branston")
-        pg.locator("[data-ndest]").first.fill("BURTON")
-        pg.locator("[data-adddest]").first.click()
+        pg.fill("#nd-code", "10000001")
+        pg.fill("#nd-name", "Burton")
+        pg.fill("#nd-via", "Branston")
+        pg.fill("#nd-dest", "BURTON")
+        pg.click("#nd-add")
         pg.get_by_text("10000001").first.wait_for()
-        pg.locator("[data-ncode]").first.fill("10000002")
-        pg.locator("[data-nname]").first.fill("Lichfield")
-        pg.locator("[data-ndest]").first.fill("LICHFIELD")
-        pg.locator("[data-adddest]").first.click()
+        pg.fill("#nd-code", "10000002")
+        pg.fill("#nd-name", "Lichfield")
+        pg.fill("#nd-dest", "LICHFIELD")
+        pg.click("#nd-add")
         pg.get_by_text("10000002").first.wait_for()
         pg.screenshot(path=f"{shot}/03-destinations.png")
 
@@ -155,6 +156,7 @@ def test_full_user_journey(server, tmp_path):
         # 11. queue upload (reopen program so controller checkbox exists)
         pg.click("#tabs .tab[data-tab=programs]")
         pg.locator("[data-open]").first.click()
+        pg.locator("#up-details > summary").click()
         pg.locator("#pd-ctls input").first.check()
         pg.click("#pd-upload")  # alert auto-accepted
 
@@ -178,7 +180,10 @@ def test_full_user_journey(server, tmp_path):
         wav = str(tmp_path / "tone.wav")
         with wave.open(wav, "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
-            w.writeframes(b"\x00\x00" * 2205)
+            import math as _m
+            import struct as _s
+            n = 2205
+            w.writeframes(_s.pack(f"<{n}h", *[int(8000 * _m.sin(2 * _m.pi * 440 * i / 22050)) for i in range(n)]))
         pg.set_input_files("#au-file", wav)
         pg.click("#btn-upload")  # alert auto-accepted
         pg.screenshot(path=f"{shot}/05-audio.png")

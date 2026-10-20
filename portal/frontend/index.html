@@ -87,9 +87,10 @@
 </div>
 </div>
 <div class=group><div class=grouptitle>Generate with Piper</div>
+<p class=hint>Without an uploaded voice this saves an audible preview tone (not silence) so you can test playback. Upload a voice below for real speech.</p>
 <div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
 <div class=row>
-<div style="flex:2"><label for=gen-name>Display name <span class=req>(required)</span></label><input id=gen-name></div>
+<div style="flex:2"><label for=gen-name>Clip name <span class=req>(required)</span></label><input id=gen-name><div class=hint>e.g. derby-bus-station. Auto-suggested from the text — edit before generating.</div><div class=err id=gen-name-err></div></div>
 <div style="flex:1"><label for=gen-voice>Voice</label><select id=gen-voice></select></div>
 <div style="flex:1"><label for=gen-speed>Speed</label><input id=gen-speed type=number step=0.1 value=1.0></div>
 <div style="align-self:end"><button id=btn-generate class=primary>Generate</button></div>

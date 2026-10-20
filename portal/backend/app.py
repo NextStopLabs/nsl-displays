@@ -273,6 +273,71 @@ def add_destination(sid: str, body: dict, u: dict = Depends(current_user)):
     return {"destination_id": did}
 
 
+@app.put("/api/destinations/{did}")
+def update_destination(did: str, body: dict, u: dict = Depends(current_user)):
+    """Edit code / service / board fields of one destination (HELEN Edit dialog)."""
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor")
+    code = (body.get("code") or d["code"]).strip()
+    if len(code) != 8 or not code.isdigit():
+        raise HTTPException(400, "code must be exactly 8 digits")
+    if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=? AND id<>?",
+                   (d["program_id"], code, did)).fetchone():
+        raise HTTPException(400, "duplicate code in program")
+    sid = body.get("service_id", d["service_id"])
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (sid,)).fetchone()
+    if not s or s["program_id"] != d["program_id"]:
+        raise HTTPException(400, "service must be in the same program")
+    pos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=? AND id<>?",
+                      (sid, did)).fetchone()[0]
+    if sid != d["service_id"]:
+        pos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=?", (sid,)).fetchone()[0]
+    else:
+        pos = d["position"]
+    con.execute("UPDATE p_destinations SET service_id=?, code=?, name=?, position=?, num=?, via=?, dest=? WHERE id=?",
+                (sid, code, body.get("name", d["name"]), pos,
+                 body.get("num", d["num"]), body.get("via", d["via"]), body.get("dest", d["dest"]), did))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/destinations/{did}")
+def delete_destination(did: str, u: dict = Depends(current_user)):
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor")
+    con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
+    con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
+    con.execute("DELETE FROM p_destinations WHERE id=?", (did,))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/services/{sid}")
+def delete_service(sid: str, u: dict = Depends(current_user)):
+    con = db()
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (sid,)).fetchone()
+    if not s:
+        raise HTTPException(404, "no service")
+    require_role(u["id"], s["organisation_id"], "owner", "editor")
+    dids = [r[0] for r in con.execute("SELECT id FROM p_destinations WHERE service_id=?", (sid,))]
+    for did in dids:
+        con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
+        con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
+    con.execute("DELETE FROM p_destinations WHERE service_id=?", (sid,))
+    con.execute("DELETE FROM p_services WHERE id=?", (sid,))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], s["program_id"]))
+    con.commit()
+    return {"ok": True, "deleted_destinations": len(dids)}
+
+
 @app.get("/api/programs/{pid}/destinations/check-code")
 def check_code(pid: str, code: str, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
@@ -342,6 +407,94 @@ def get_layout(did: str, display: str, u: dict = Depends(current_user)):
     return {"layout": None, "source": "auto-fit"}
 
 
+@app.get("/api/destinations/{did}/preview")
+def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user)):
+    """Stop-by-stop preview snapshot (mirrors Pi Core logic on draft tables).
+
+    Returns fields, per-display layouts, and ordered announcement clip
+    hashes for next/approaching at stop `pos` (1-based).
+    """
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor", "viewer")
+    d = dict(d)
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (d["service_id"],)).fetchone()
+    s = dict(s) if s else {}
+    stops = [dict(r) for r in con.execute(
+        "SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (did,))]
+    displays = [dict(r) for r in con.execute(
+        "SELECT * FROM program_displays WHERE program_id=? ORDER BY position", (d["program_id"],))]
+    count = len(stops)
+    if count == 0:
+        return {"destination": d, "service": s, "stop": None, "pos": 0, "count": 0,
+                "stops": [], "fields": {}, "layouts": {}, "displays": displays,
+                "next": [], "approaching": []}
+    pos = max(1, min(pos, count))
+    stop = stops[pos - 1]
+    fields = {"num": d.get("num") or s.get("number") or "",
+              "via": d.get("via") or "", "dest": d.get("dest") or ""}
+    try:
+        extra = json.loads(d.get("extra_fields") or "{}")
+        for k, v in (extra.items() if isinstance(extra, dict) else []):
+            fields[k] = v
+    except Exception:
+        pass
+    fields["__stop_name"] = stop.get("name") or ""
+    fields["__board_text"] = stop.get("board_text") or stop.get("name") or ""
+    board_override = stop.get("board_override") or ""
+    layouts = {}
+    for disp in displays:
+        row = con.execute("SELECT layout FROM p_layouts WHERE destination_id=? AND display_id=?",
+                          (did, disp["id"])).fetchone()
+        if row:
+            layouts[disp["name"]] = {"layout": json.loads(row[0]), "source": "destination"}
+            continue
+        t = con.execute("SELECT layout FROM p_templates WHERE program_id=? AND display_id=? AND is_default=1",
+                        (d["program_id"], disp["id"])).fetchone()
+        if t:
+            layouts[disp["name"]] = {"layout": json.loads(t[0]), "source": "template"}
+        else:
+            layouts[disp["name"]] = {"layout": None, "source": "auto-fit"}
+    clips = {r["sha256"]: dict(r) for r in con.execute(
+        "SELECT sha256, filename, duration_ms FROM audio_files WHERE organisation_id=?",
+        (d["organisation_id"],))}
+    def _meta(h):
+        c = clips.get(h or "")
+        return {"sha": h, "label": (c["filename"] if c else h or "—"),
+                "duration_ms": (c["duration_ms"] if c else None)} if h else None
+    def _seq(moment):
+        seq = []
+        head = s.get("next_stop_audio") if moment == "next" else s.get("approaching_audio")
+        if head:
+            m = _meta(head)
+            if m:
+                m["kind"] = "intro"
+                seq.append(m)
+        if stop.get("audio"):
+            m = _meta(stop["audio"])
+            if m:
+                m["kind"] = "stop"
+                seq.append(m)
+        if stop.get("is_terminus"):
+            mode = s.get("terminus_clip_mode") or "both"
+            if (moment == "next" and mode in ("next", "both")) or \
+               (moment == "approaching" and mode in ("approaching", "both")):
+                if s.get("last_stop_audio"):
+                    m = _meta(s["last_stop_audio"])
+                    if m:
+                        m["kind"] = "terminus"
+                        seq.append(m)
+        return seq
+    return {"destination": d, "service": s, "stop": stop, "pos": pos, "count": count,
+            "stops": [{"position": x["position"], "name": x["name"],
+                       "is_terminus": bool(x["is_terminus"])} for x in stops],
+            "fields": fields, "board_override": board_override,
+            "layouts": layouts, "displays": displays,
+            "next": _seq("next"), "approaching": _seq("approaching")}
+
+
 @app.put("/api/destinations/{did}/layouts/{display}")
 def put_layout(did: str, display: str, body: dict, u: dict = Depends(current_user)):
     con = db()
@@ -382,7 +535,12 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
     for a in con.execute("SELECT * FROM audio_files WHERE organisation_id=?", (p["organisation_id"],)):
         audio_needed[a["sha256"]] = dict(a)
     for a in audio_needed.values():
-        b.add_audio(a["sha256"], a["filename"], a["duration_ms"] or 1000, 1000)
+        fp = _resolve_clip_path(a) or os.path.join(STORAGE_DIR, str(a.get("storage_key") or ""))
+        try:
+            size = os.path.getsize(fp)
+        except OSError:
+            size = 0
+        b.add_audio(a["sha256"], a["filename"], a["duration_ms"] or 1000, size)
     for s in con.execute("SELECT * FROM p_services WHERE program_id=? ORDER BY position", (pid,)):
         b.add_service(s["number"], s["name"] or "", s["position"], s["next_stop_audio"],
                       s["approaching_audio"], s["last_stop_audio"], s["terminus_clip_mode"] or "both",
@@ -492,6 +650,206 @@ def _unique_clip_name(con, organisation_id: str, want: str, sha: str) -> str:
     return f"{want}-{i}"
 
 
+# ---------- audio normalisation (fixes silent/unplayable .flac previews) ----------
+# Root causes of "play is silent even on my system":
+#  1. generate_audio wrote 1s of digital silence (zeros) as a stub.
+#  2. upload_audio stored raw bytes (MP3/WAV/...) under a `.flac` name, so
+#     players expecting FLAC got undecodable data.
+# Canonical form is now: mono 16-bit WAV @ 22050 Hz. Browsers, `wave`,
+# `aplay` and the Pi player all handle it with no extra codec.
+_CANON_RATE = 22050
+
+
+def _wav_bytes_from_pcm(pcm: bytes, rate: int = _CANON_RATE) -> bytes:
+    import io as _io
+    import wave as _w
+    buf = _io.BytesIO()
+    with _w.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, int]:
+    """Decode arbitrary audio bytes -> (pcm mono s16 @22050, duration_ms).
+
+    Raises HTTPException(400) with a user-actionable message when undecodable.
+    """
+    import io as _io
+    import shutil as _sh
+    import struct as _st
+    import subprocess as _sp
+    import tempfile as _tf
+    import wave as _wv
+    if not raw or len(raw) < 100:
+        raise HTTPException(400, "that file is empty or too small to be audio")
+    # Fast path: real WAV parses with stdlib (no ffmpeg needed).
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+        try:
+            with _wv.open(_io.BytesIO(raw), "rb") as w:
+                n, ch, sw, sr = w.getnframes(), w.getnchannels(), w.getsampwidth(), w.getframerate()
+                frames = w.readframes(n)
+            if n == 0:
+                raise HTTPException(400, "that WAV contains no audio frames")
+            # bytes -> samples, downmix + resample handling
+            if sw == 1:  # 8-bit unsigned
+                samples = [(b - 128) * 256 for b in frames]
+            elif sw == 2:
+                samples = list(_st.unpack(f"<{len(frames)//2}h", frames))
+            else:
+                raise ValueError(f"unsupported WAV depth {sw*8}-bit")
+            if ch == 2:
+                samples = [int((samples[i] + samples[i + 1]) / 2) for i in range(0, len(samples), 2)]
+            elif ch > 2:
+                raise HTTPException(400, f"that WAV has {ch} channels — export mono or stereo")
+            if sr != _CANON_RATE:
+                ff = _sh.which("ffmpeg")
+                if not ff:
+                    raise HTTPException(400, f"that WAV is {sr} Hz — export 22050 Hz mono WAV (or install ffmpeg)")
+                with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
+                    t.write(raw)
+                    tmp = t.name
+                try:
+                    p = _sp.run([ff, "-v", "error", "-i", tmp, "-ac", "1", "-ar", str(_CANON_RATE),
+                                 "-f", "s16le", "-"], capture_output=True)
+                finally:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+                if not p.stdout:
+                    raise HTTPException(400, "could not resample that WAV to 22050 Hz")
+                pcm = p.stdout
+            else:
+                pcm = _st.pack(f"<{len(samples)}h", *[max(-32768, min(32767, s)) for s in samples])
+            peak = max((abs(s) for s in _st.unpack(f"<{len(pcm)//2}h", pcm)), default=0) if pcm else 0
+            if peak < 100:
+                raise HTTPException(400, "that file is digital silence — nothing would play")
+            return pcm, int(len(pcm) / 2 / _CANON_RATE * 1000)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"could not read that WAV ({e})")
+    # General path: needs ffmpeg (MP3/OGG/M4A/FLAC/etc).
+    ff = _sh.which("ffmpeg")
+    if not ff:
+        raise HTTPException(400, "that format needs ffmpeg to decode — upload a 22050 Hz mono WAV instead")
+    suffix = os.path.splitext(hint_name or "upload")[1] or ".bin"
+    with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as t:
+        t.write(raw)
+        tmp = t.name
+    try:
+        p = _sp.run([ff, "-v", "error", "-i", tmp, "-ac", "1", "-ar", str(_CANON_RATE),
+                     "-f", "s16le", "-"], capture_output=True)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if not p.stdout or len(p.stdout) < 200:
+        msg = (p.stderr or b"").decode(errors="ignore")[-300:]
+        raise HTTPException(400, "could not decode that file as audio. Upload MP3/WAV/OGG/M4A/FLAC. " + msg)
+    import struct as _st2
+    peak = max((abs(s) for s in _st2.unpack(f"<{len(p.stdout)//2}h", p.stdout)), default=0)
+    if peak < 100:
+        raise HTTPException(400, "that file decodes to silence — nothing would play")
+    return p.stdout, int(len(p.stdout) / 2 / _CANON_RATE * 1000)
+
+
+def _placeholder_tts_wav(text: str) -> tuple[bytes, int]:
+    """Audible stand-in until a real Piper voice is configured.
+
+    Old stub wrote 1s of zeros (pure silence). This plays a two-tone chime
+    whose length scales with the text, so the play chain is verifiable.
+    """
+    import math as _m
+    import struct as _st
+    n_chars = max(1, min(len(text), 60))
+    secs = min(4.0, 0.6 + 0.06 * n_chars)
+    n = int(_CANON_RATE * secs)
+    out = []
+    for i in range(n):
+        t = i / _CANON_RATE
+        # 660 Hz then 880 Hz halves + gentle decay so it sounds like a chime
+        f = 660.0 if t < secs / 2 else 880.0
+        env = 0.6 + 0.4 * _m.sin(_m.pi * t / secs)
+        out.append(int(12000 * env * _m.sin(2 * _m.pi * f * t)))
+    pcm = _st.pack(f"<{n}h", *out)
+    return _wav_bytes_from_pcm(pcm), int(secs * 1000)
+
+
+def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tuple[tuple[bytes, int] | None, str]:
+    """Run the `piper` binary with the uploaded ONNX voice.
+
+    Returns (result, reason). result is None when falling back to the
+    preview tone; reason explains why (surfaced to the UI).
+    """
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    if not voice_id:
+        return None, "no voice selected — pick a voice in the Voice dropdown"
+    if not _sh.which("piper"):
+        return None, "piper binary not found on server PATH — install piper-tts (pip install piper-tts) + espeak-ng"
+    con = db()
+    v = con.execute("SELECT * FROM voices WHERE id=? AND (organisation_id=? OR organisation_id IS NULL)",
+                    (voice_id, organisation_id)).fetchone()
+    if not v:
+        return None, "selected voice not found for this organisation — re-select it"
+    model = os.path.join(STORAGE_DIR, str(v["model_key"]))
+    config = os.path.join(STORAGE_DIR, str(v["config_key"]))
+    # piper1-gpl __main__.py ignores --config and always loads
+    # f"{model}.json" (PiperVoice.load(model_path) with no config_path).
+    # Heal both old and new layouts: ensure model.onnx.json exists.
+    expected_cfg = model + ".json"
+    try:
+        if not os.path.exists(expected_cfg) and os.path.exists(config):
+            import shutil as _shutil
+            _shutil.copyfile(config, expected_cfg)
+        if os.path.exists(expected_cfg):
+            config = expected_cfg
+    except OSError:
+        pass
+    if not (os.path.exists(model) and os.path.exists(config)):
+        return None, "voice files missing on server disk (STORAGE_DIR mismatch?) — re-upload the voice"
+    with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
+        tmp = t.name
+    try:
+        p = _sp.run(["piper", "--model", model, "--config", config, "--output_file", tmp],
+                    input=text.encode(), capture_output=True, timeout=120)
+        if p.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 200:
+            err = (p.stderr or b"").decode(errors="ignore")[-300:] if p else ""
+            return None, f"piper failed (exit {p.returncode if p else '?'}) {err}".strip()
+        with open(tmp, "rb") as f:
+            raw = f.read()
+        pcm, _ = _decode_to_mono22050(raw, "piper.wav")
+        wav = _wav_bytes_from_pcm(pcm)
+        return (wav, int(len(pcm) / 2 / _CANON_RATE * 1000)), ""
+    except Exception as e:
+        return None, f"piper error: {e}"
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _resolve_clip_path(row) -> str | None:
+    """Find the actual file for a clip row (new .wav + legacy .flac names)."""
+    candidates = [os.path.join(STORAGE_DIR, str(row["storage_key"]))]
+    sk = str(row["storage_key"])
+    if sk.endswith(".flac"):
+        candidates.append(os.path.join(STORAGE_DIR, sk[:-5] + ".wav"))
+    elif sk.endswith(".wav"):
+        candidates.append(os.path.join(STORAGE_DIR, sk[:-4] + ".flac"))
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+
 @app.post("/api/audio")
 def upload_audio(organisation_id: str = Form(...), file: UploadFile = File(...),
                  name: str = Form(default=""),
@@ -500,64 +858,72 @@ def upload_audio(organisation_id: str = Form(...), file: UploadFile = File(...),
     raw = file.file.read()
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(400, "file too large")
-    h = hashlib.sha256(raw).hexdigest()
     # Friendly clip name, e.g. derby-bus-station (never show the hash to users).
     want = _slugify_clip(name) or _slugify_clip(os.path.splitext(file.filename or "")[0])
     if not want or len(want) < 2:
         raise HTTPException(400, "give this clip a name, e.g. derby-bus-station")
-    # transcode stub: store as-is under hash name; real pipeline normalises to mono FLAC
+    # Normalise to canonical playable WAV; rejects undecodable/silent files
+    # (old code stored raw bytes under a .flac name -> silent/unplayable).
+    pcm, duration_ms = _decode_to_mono22050(raw, file.filename or "upload")
+    wav = _wav_bytes_from_pcm(pcm)
+    h = hashlib.sha256(wav).hexdigest()
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
-    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".flac")
+    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
     if not os.path.exists(sp):
         with open(sp, "wb") as f:
-            f.write(raw)
+            f.write(wav)
     con = db()
     friendly = _unique_clip_name(con, organisation_id, want, h)
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), organisation_id, h, friendly, f"audio/{h[:2]}/{h}.flac",
-                 1000, "upload", None, None, None, _utcnow()))
+                (str(uuid.uuid4()), organisation_id, h, friendly, f"audio/{h[:2]}/{h}.wav",
+                 duration_ms, "upload", None, None, None, _utcnow()))
     con.commit()
-    row = con.execute("SELECT filename FROM audio_files WHERE organisation_id=? AND sha256=?",
+    row = con.execute("SELECT filename, duration_ms FROM audio_files WHERE organisation_id=? AND sha256=?",
                       (organisation_id, h)).fetchone()
     final = row[0] if row else friendly
-    return {"sha256": h, "bytes": len(raw), "name": final, "filename": final}
+    dur = row[1] if row else duration_ms
+    return {"sha256": h, "bytes": len(wav), "name": final, "filename": final,
+            "duration_ms": dur}
 
 
 @app.post("/api/audio/generate")
 def generate_audio(body: dict, u: dict = Depends(current_user)):
-    """Piper TTS stub: synthesises placeholder tone WAV (real Piper runs in tts worker)."""
+    """Piper TTS. Fails loudly — no preview-tone fallback."""
     require_role(u["id"], body["organisation_id"], "owner", "editor")
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "type the text to speak first")
+    if not body.get("voice_id"):
+        raise HTTPException(400, "select a voice — no preview tones, generation needs a real voice")
     want = _slugify_clip(body.get("name") or "")
     if not want:
         # suggest from the text: first few words -> derby-bus-station style
         want = _slugify_clip("-".join(text.split()[:5]))
     if not want or len(want) < 2:
         raise HTTPException(400, "give this clip a name, e.g. derby-bus-station")
-    h = hashlib.sha256(f"tts:{body.get('voice_id')}:{text}".encode()).hexdigest()
+    real, tts_error = _try_piper_wav(text, body.get("voice_id"), body["organisation_id"])
+    if real is None:
+        raise HTTPException(500, tts_error or "voice generation failed")
+    wav, duration_ms = real
+    h = hashlib.sha256(wav).hexdigest()
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
-    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".flac")
+    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
     if not os.path.exists(sp):
-        import wave as _w
-        import struct as _s
-        with _w.open(sp, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(22050)
-            w.writeframes(_s.pack(f"<{22050}h", *[0] * 22050))  # 1 s silence placeholder
+        with open(sp, "wb") as f:
+            f.write(wav)
     con = db()
     friendly = _unique_clip_name(con, body["organisation_id"], want, h)
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), body["organisation_id"], h, friendly,
-                 f"audio/{h[:2]}/{h}.flac", 1000, "tts", text, body.get("voice_id"),
-                 json.dumps({"speed": body.get("speed", 1.0)}), _utcnow()))
+                 f"audio/{h[:2]}/{h}.wav", duration_ms, "tts", text, body.get("voice_id"),
+                 json.dumps({"speed": body.get("speed", 1.0), "placeholder": False}), _utcnow()))
     con.commit()
-    row = con.execute("SELECT filename FROM audio_files WHERE organisation_id=? AND sha256=?",
+    row = con.execute("SELECT filename, duration_ms FROM audio_files WHERE organisation_id=? AND sha256=?",
                       (body["organisation_id"], h)).fetchone()
     final = row[0] if row else friendly
-    return {"sha256": h, "name": final, "filename": final}
+    dur = row[1] if row else duration_ms
+    return {"sha256": h, "name": final, "filename": final, "duration_ms": dur,
+            "placeholder": False}
 
 
 @app.post("/api/voices")
@@ -575,6 +941,10 @@ def upload_voice(organisation_id: str = Form(...), name: str = Form(...),
     vid = str(uuid.uuid4())
     os.makedirs(os.path.join(STORAGE_DIR, "voices", vid), exist_ok=True)
     open(os.path.join(STORAGE_DIR, "voices", vid, "model.onnx"), "wb").write(mraw)
+    # NOTE: piper1-gpl ignores --config and loads f"{model}.json",
+    # so the config MUST live at model.onnx.json. Keep config.json as a
+    # copy for backwards compat with older rows.
+    open(os.path.join(STORAGE_DIR, "voices", vid, "model.onnx.json"), "wb").write(craw)
     open(os.path.join(STORAGE_DIR, "voices", vid, "config.json"), "wb").write(craw)
     # Piper .onnx.json uses nested shapes: language is an object like
     # {"code": "en_US", ...} and sample_rate lives under audio.sample_rate.
@@ -595,7 +965,7 @@ def upload_voice(organisation_id: str = Form(...), name: str = Form(...),
     con = db()
     con.execute("INSERT INTO voices VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (vid, organisation_id, name, f"voices/{vid}/model.onnx",
-                 f"voices/{vid}/config.json", lang, sr,
+                 f"voices/{vid}/model.onnx.json", lang, sr,
                  0, "", u["id"], len(mraw), _utcnow()))
     con.commit()
     return {"voice_id": vid, "sample_rate": sr}
@@ -604,9 +974,10 @@ def upload_voice(organisation_id: str = Form(...), name: str = Form(...),
 @app.get("/api/voices")
 def list_voices(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    import shutil as _sh
     rows = db().execute(
         "SELECT * FROM voices WHERE organisation_id IS NULL OR organisation_id=?", (organisation_id,)).fetchall()
-    return {"voices": [dict(r) for r in rows]}
+    return {"voices": [dict(r) for r in rows], "piper_available": bool(_sh.which("piper"))}
 
 
 # ---------- device API (Pi, token auth) ----------
@@ -907,12 +1278,22 @@ def delete_program(pid: str, u: dict = Depends(current_user)):
 @app.get("/api/audio")
 def list_audio(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
-    rows = db().execute("SELECT sha256, filename, duration_ms, source FROM audio_files WHERE organisation_id=? ORDER BY filename",
+    rows = db().execute("SELECT sha256, filename, duration_ms, source, tts_params FROM audio_files WHERE organisation_id=? ORDER BY filename",
                         (organisation_id,)).fetchall()
     clips = []
     for r in rows:
         d = dict(r)
         d["name"] = d.get("filename", "")
+        raw_params = d.pop("tts_params", None)
+        try:
+            params = json.loads(raw_params or "{}")
+        except Exception:
+            params = {}
+        d["placeholder"] = bool(params.get("placeholder"))
+        # Old stub wrote 1s of zeros with params like {"speed": 1.0} and no
+        # placeholder marker — flag so the UI can say "silent, regenerate".
+        d["silent_legacy"] = (d.get("source") == "tts" and "placeholder" not in params
+                              and (d.get("duration_ms") or 0) == 1000)
         clips.append(d)
     return {"clips": clips}
 
@@ -920,15 +1301,49 @@ def list_audio(organisation_id: str, u: dict = Depends(current_user)):
 @app.get("/api/audio/{sha}/file")
 def preview_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)):
     """Stream a clip for the portal preview player (user auth, not device token)."""
+    import subprocess as _sp
+    import tempfile as _tf
     row = db().execute("SELECT * FROM audio_files WHERE sha256=? AND organisation_id=?",
                        (sha, organisation_id)).fetchone()
     if not row:
         raise HTTPException(404, "no clip")
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
-    path = os.path.join(STORAGE_DIR, str(row["storage_key"]))
-    if not os.path.exists(path):
-        raise HTTPException(404, "file missing")
-    return FileResponse(path, filename=f"{row['filename']}.flac")
+    path = _resolve_clip_path(row)
+    if not path:
+        raise HTTPException(404, "file missing — re-upload or regenerate this clip")
+    with open(path, "rb") as f:
+        magic = f.read(12)
+    # Canonical WAV (and legacy WAV-data-with-.flac-name) -> audio/wav.
+    if magic[:4] == b"RIFF":
+        return FileResponse(path, media_type="audio/wav", filename=f"{row['filename']}.wav")
+    if magic[:4] == b"fLaC":
+        return FileResponse(path, media_type="audio/flac", filename=f"{row['filename']}.flac")
+    # Legacy raw uploads stored under a .flac name (e.g. MP3 bytes) — transcode
+    # on the fly so old clips play instead of staying silent.
+    import shutil as _sh
+    from fastapi.responses import Response as _Response
+    ff = _sh.which("ffmpeg")
+    if not ff:
+        raise HTTPException(404, "stored file is not directly playable and ffmpeg is missing — re-upload as WAV")
+    with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
+        tmp = t.name
+    try:
+        p = _sp.run([ff, "-v", "error", "-i", path, "-ac", "1", "-ar", str(_CANON_RATE),
+                     "-f", "wav", "-y", tmp], capture_output=True)
+        if p.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 100:
+            raise HTTPException(404, "stored file is corrupt — re-upload or regenerate this clip")
+        with open(tmp, "rb") as f:
+            data = f.read()
+        return _Response(content=data, media_type="audio/wav")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(404, "stored file is corrupt — re-upload or regenerate this clip")
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 @app.patch("/api/audio/{sha}")
@@ -973,10 +1388,14 @@ def delete_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)
     con.commit()
     # remove the stored file only when no org references it any more
     if not con.execute("SELECT 1 FROM audio_files WHERE sha256=? LIMIT 1", (sha,)).fetchone():
-        try:
-            os.remove(os.path.join(STORAGE_DIR, str(row["storage_key"])))
-        except OSError:
-            pass
+        for cand in {os.path.join(STORAGE_DIR, str(row["storage_key"])),
+                     os.path.join(STORAGE_DIR, str(row["storage_key"])[:-5] + ".wav")
+                     if str(row["storage_key"]).endswith(".flac") else ""}:
+            if cand:
+                try:
+                    os.remove(cand)
+                except OSError:
+                    pass
     return {"ok": True}
 
 

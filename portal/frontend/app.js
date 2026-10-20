@@ -4,7 +4,155 @@ const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const S = { token: localStorage.getItem("nsl_token") || "", orgs: [], org: localStorage.getItem("nsl_org") || "",
-  programs: [], controllers: [], curProg: null, curDest: null };
+  programs: [], controllers: [], curProg: null, curDest: null, clips: [] };
+
+function slugifyClip(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-{2,}/g, "-").replace(/^-|-$/g, "").slice(0, 64);
+}
+function clipLabel(a) { return (a && (a.name || a.filename)) || "(unnamed)"; }
+function audioOptions(selected, { allowEmpty = true, emptyLabel = "No audio — silent" } = {}) {
+  const opts = (S.clips || []).map((a) =>
+    `<option value="${esc(a.sha256)}"${a.sha256 === selected ? " selected" : ""}>${esc(clipLabel(a))}</option>`).join("");
+  return (allowEmpty ? `<option value="">${esc(emptyLabel)}</option>` : "") + opts;
+}
+async function playClip(sha) {
+  try {
+    const r = await fetch(PREFIX + `/api/audio/${encodeURIComponent(sha)}/file?organisation_id=${encodeURIComponent(S.org)}`,
+      { headers: apiHeaders() });
+    if (!r.ok) {
+      let msg = "HTTP " + r.status;
+      try { msg = (await r.json()).detail || msg; } catch (e) { /* keep status */ }
+      throw new Error(msg);
+    }
+    const blob = await r.blob();
+    if (!blob.size) throw new Error("empty audio file — re-upload or regenerate this clip");
+    const url = URL.createObjectURL(blob);
+    const el = new Audio(url);
+    el.onended = () => URL.revokeObjectURL(url);
+    await el.play();
+  } catch (e) { err("Play failed: " + String(e.message || e)); }
+}
+async function playSequence(shas) {
+  for (const sha of (shas || [])) {
+    const r = await fetch(PREFIX + `/api/audio/${encodeURIComponent(sha)}/file?organisation_id=${encodeURIComponent(S.org)}`,
+      { headers: apiHeaders() });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || ("HTTP " + r.status));
+    const blob = await r.blob();
+    if (!blob.size) throw new Error("empty audio file in sequence");
+    const url = URL.createObjectURL(blob);
+    await new Promise((res, rej) => {
+      const el = new Audio(url);
+      el.onended = () => { URL.revokeObjectURL(url); res(); };
+      el.onerror = (e) => { URL.revokeObjectURL(url); rej(new Error("audio playback failed")); };
+      el.play().catch(rej);
+    });
+  }
+}
+
+// ---------- stop-by-stop preview (all screens + announcements) ----------
+const Preview = (() => {
+  let raf = 0, snap = null;
+  const AMBER = "#FFB000";
+  function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; snap = null; }
+  function autofit(w, h) {
+    const nw = Math.min(56, Math.floor(w / 4));
+    return { schema: 1, width: w, height: h, background: "#000000", page_seconds: 3,
+      override: { mode: "replace", replaces: "dest", hide: [] },
+      elements: [
+        { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "pixel-large", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always" },
+        { type: "field", field: "dest", x: nw + 4, y: 0, w: w - nw - 4, h: h, font: "pixel-medium", colour: AMBER,
+          align: "left", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" } ] };
+  }
+  function drawOne(cv, lay, fields, ovText, t) {
+    const scale = parseInt(cv.dataset.scale || "3", 10);
+    const off = document.createElement("canvas");
+    off.width = lay.width; off.height = lay.height;
+    const g = off.getContext("2d");
+    g.fillStyle = lay.background || "#000000";
+    g.fillRect(0, 0, off.width, off.height);
+    const ovActive = !!ovText;
+    const ov = lay.override || {};
+    const pages = [...new Set((lay.elements || []).map((e) => parseInt(e.page || 1, 10)))].sort((a, b) => a - b);
+    const page = pages.length <= 1 ? (pages[0] || 1) : pages[Math.floor(t / (parseFloat(lay.page_seconds) || 3)) % pages.length];
+    const hide = new Set();
+    if (ovActive) {
+      if (ov.mode === "hide_others") {
+        const keep = ov.replaces || "dest";
+        for (const e of (lay.elements || [])) if (e.field !== keep) hide.add(e.field);
+      } else hide.add(...(ov.hide || []));
+    }
+    const show = (el) => {
+      const sh = el.show_if || "always";
+      if (sh === "always") return true;
+      if (sh === "has_text") return el.type === "field" ? !!fields[el.field] : !!el.text;
+      if (sh === "override_active") return ovActive;
+      if (sh === "override_inactive") return !ovActive;
+      return true;
+    };
+    if (!(ov.mode === "full" && ovActive)) {
+      for (const el of (lay.elements || [])) {
+        if (parseInt(el.page || 1, 10) !== page) continue;
+        if (el.field && hide.has(el.field)) continue;
+        if (!show(el)) continue;
+        if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
+        let text = "";
+        if (ovText && el.type === "field" && (ov.replaces || "dest") === el.field &&
+            ["replace", "hide_others", "full"].includes(ov.mode || "replace")) text = ovText;
+        else text = el.type === "text" ? (el.text || "") : (fields[el.field] || "");
+        if (!text) continue;
+        g.font = "12px monospace";
+        g.fillStyle = el.colour || AMBER;
+        g.textBaseline = el.valign === "middle" ? "middle" : (el.valign === "bottom" ? "bottom" : "top");
+        g.textAlign = el.align === "centre" || el.align === "center" ? "center" : (el.align === "right" ? "right" : "left");
+        const bx = el.x, by = el.y, bw = el.w, bh = el.h;
+        const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
+        const tw = g.measureText(text).width;
+        const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
+        g.save();
+        g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+        let tx = bx + 1;
+        if (g.textAlign === "center") tx = bx + bw / 2;
+        if (g.textAlign === "right") tx = bx + bw - 1;
+        if (needScroll) {
+          const offx = Math.floor(t * 20) % Math.max(1, Math.floor(tw + bw));
+          tx = g.textAlign === "center" ? bx + bw / 2 - offx + (tw + bw) / 2 - tw / 2
+            : g.textAlign === "right" ? bx + bw - offx : bx - offx;
+        }
+        g.fillText(text, tx, ty);
+        g.restore();
+      }
+    } else {
+      g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
+      g.textBaseline = "middle"; g.textAlign = "left";
+      g.fillText(ovText, 2, lay.height / 2);
+    }
+    cv.width = lay.width * scale; cv.height = lay.height * scale;
+    const p = cv.getContext("2d");
+    p.imageSmoothingEnabled = false;
+    p.drawImage(off, 0, 0, cv.width, cv.height);
+    p.fillStyle = "rgba(0,0,0,.45)";
+    for (let x = 0; x < cv.width; x += scale) p.fillRect(x, 0, 1, cv.height);
+    for (let y = 0; y < cv.height; y += scale) p.fillRect(0, y, cv.width, 1);
+  }
+  function loop(t) {
+    if (!snap) return;
+    const secs = t / 1000;
+    for (const disp of (snap.displays || [])) {
+      const cv = document.getElementById("pv-cv-" + disp.name);
+      if (!cv) continue;
+      const entry = (snap.layouts || {})[disp.name] || {};
+      drawOne(cv, entry.layout || autofit(disp.width_px, disp.height_px), snap.fields || {}, snap.board_override || "", secs);
+    }
+    raf = requestAnimationFrame(loop);
+  }
+  function start(s) {
+    stop();
+    snap = s;
+    raf = requestAnimationFrame(loop);
+  }
+  return { start, stop };
+})();
 
 function err(msg) { $("err").textContent = msg || ""; }
 function apiHeaders(json) {
@@ -132,35 +280,97 @@ async function openProgram(pid) {
 }
 function renderProgram() {
   LayoutEditor.stop();
+  Preview.stop();
   const p = S.curProg;
-  let h = `<p class=hint>id ${esc(p.id)} · width ${esc(p.px_width)} · published v${esc(p.published_version || 0)}</p>`;
+  const flat = [];
+  for (const s of (p.services || [])) for (const d of (s.destinations || [])) flat.push({ s, d });
+  flat.sort((a, b) => (a.d.code < b.d.code ? -1 : 1));
+  const dispName = (d, s) => [d.num || s.number, d.via, d.dest].filter(Boolean).join(" · ") || d.name;
+
+  let h = `<p class=hint>${esc(p.name)} · width ${esc(p.px_width)} · published v${esc(p.published_version || 0)}</p>`;
   h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
   h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
-  h += `<div class=row><div style="flex:1"><label>Upload to controllers (version defaults to published)</label><div id=pd-ctls>` +
+  h += `<details id=up-details><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers (version defaults to published)</label><div id=pd-ctls>` +
     S.controllers.map((c) => `<label style="font-weight:normal"><input type=checkbox value="${c.id}"> ${esc(c.name)}</label>`).join("") +
     `</div></div><div style="flex:1;min-width:120px"><label for=pd-ver>Version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
-    <div style="align-self:end"><button id=pd-upload>Queue upload</button></div></div>`;
-  h += `<h3>Services</h3><div class=row>
+    <div style="align-self:end"><button id=pd-upload>Queue upload</button></div></div></details>`;
+
+  // ---- HELEN-style destination list: one table, one add form ----
+  h += `<h3>Destinations (${flat.length})</h3>`;
+  h += `<div class=row><div style="flex:1"><label for=dest-filter>Filter</label><input id=dest-filter></div></div>`;
+  h += `<table><thead><tr><th>Code</th><th>Service</th><th>Destination</th><th>Stops</th><th>Actions</th></tr></thead><tbody id=destrows>`;
+  for (const { s, d } of flat) {
+    h += `<tr data-code="${esc(d.code)}" data-name="${esc((d.name + " " + (d.via || "") + " " + (d.dest || "")).toLowerCase())}">` +
+      `<td class=kbd>${esc(d.code)}</td><td>${esc(s.number)}</td><td>${esc(dispName(d, s))}</td>` +
+      `<td>${(d.stops || []).length}</td>` +
+      `<td class=row><button data-edit="${d.id}">Edit</button><button data-stops="${d.id}">Stops</button><button data-layout="${d.id}">Display</button><button data-del="${d.id}">Delete</button></td></tr>`;
+  }
+  h += `</tbody></table>`;
+  h += `<div class=group><div class=grouptitle>New destination</div><div class=row>
+    <div style="flex:1;min-width:140px"><label for=nd-service>Service</label><select id=nd-service>` +
+    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " — " + esc(s.name) : ""}</option>`).join("") +
+    `<option value="__new__">New service…</option></select></div>
+    <div style="flex:1;min-width:120px"><label for=nd-code>Code (8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
+    <div style="align-self:end" class=row><button id=nd-suggest type=button>Suggest</button></div></div>
+    <div class=row id=nd-newsvc style="display:none">
+      <div style="flex:1"><label for=nd-newsvc-num>New service number <span class=req>(required)</span></label><input id=nd-newsvc-num></div>
+      <div style="flex:2"><label for=nd-newsvc-name>New service name</label><input id=nd-newsvc-name></div></div>
+    <div class=row>
+      <div style="flex:2"><label for=nd-name>Name <span class=req>(required)</span></label><input id=nd-name></div>
+      <div style="flex:1"><label for=nd-via>Via</label><input id=nd-via></div>
+      <div style="flex:1"><label for=nd-dest>Dest</label><input id=nd-dest></div>
+      <div style="align-self:end"><button id=nd-add class=primary>Add destination</button></div></div>
+    <div class=err id=nd-err></div></div>`;
+
+  // ---- services tucked away: rename / announcements / delete ----
+  h += `<details id=svc-details><summary>Services (${(p.services || []).length}) — announcements &amp; rename</summary>`;
+  h += `<div class=row>
     <div style="flex:1"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num></div>
     <div style="flex:2"><label for=ns-name>Service name</label><input id=ns-name></div>
     <div style="align-self:end"><button id=ns-add>Add service</button></div></div><div id=pd-services>`;
   for (const s of (p.services || [])) {
     h += `<div class=group><div class=grouptitle>Service ${esc(s.number)} ${esc(s.name || "")}</div>`;
-    h += `<table><thead><tr><th>Code</th><th>Name</th><th>Via</th><th>Dest</th><th>Stops</th><th>Actions</th></tr></thead><tbody>`;
-    for (const d of (s.destinations || [])) {
-      h += `<tr><td class=kbd>${esc(d.code)}</td><td>${esc(d.name)}</td><td>${esc(d.via || "")}</td><td>${esc(d.dest || "")}</td>` +
-        `<td>${(d.stops || []).length}</td><td class=row><button data-stops="${d.id}">Stops</button><button data-layout="${d.id}">Layouts</button></td></tr>`;
-    }
-    h += `</tbody></table><div class=row>
-      <div style="flex:1"><label>Code (8 digits) for service ${esc(s.number)}</label><input data-ncode="${s.id}" maxlength=8 inputmode=numeric></div>
-      <div style="flex:2"><label>Name</label><input data-nname="${s.id}"></div>
-      <div style="flex:1"><label>Via</label><input data-nvia="${s.id}"></div>
-      <div style="flex:1"><label>Dest</label><input data-ndest="${s.id}"></div>
-      <div style="align-self:end"><button data-adddest="${s.id}">Add destination</button></div></div>
-      <div class=err data-codeerr="${s.id}"></div></div>`;
+    h += `<div class=row>
+      <div style="flex:1"><label>Number</label><input data-svc-num="${s.id}" value="${esc(s.number)}"></div>
+      <div style="flex:2"><label>Name</label><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></div></div>`;
+    h += `<div class=row>
+      <div style="flex:1"><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default — the next stop is…" })}</select></div>
+      <div style="flex:1"><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default — approaching…" })}</select></div>
+      <div style="flex:1"><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default — …where this service terminates" })}</select></div>
+      <div style="flex:1;min-width:140px"><label>Terminus suffix plays on</label><select data-svc-mode="${s.id}">
+        <option value="both"${(s.terminus_clip_mode || "both") === "both" ? " selected" : ""}>Next stop + approaching</option>
+        <option value="next"${s.terminus_clip_mode === "next" ? " selected" : ""}>Next stop only</option>
+        <option value="approaching"${s.terminus_clip_mode === "approaching" ? " selected" : ""}>Approaching only</option>
+      </select></div></div>`;
+    h += `<div class=row><button data-svc-save="${s.id}">Save service</button><button data-svc-del="${s.id}">Delete service</button></div>`;
+    h += `<div class=err data-svc-err="${s.id}"></div></div>`;
   }
-  h += `</div><div id=pd-edit></div>`;
+  h += `</div></details>`;
+
+  // ---- preview: all screens stop-by-stop + announcements ----
+  h += `<div class=group><div class=grouptitle>Preview — screens + announcements (stop by stop)</div>`;
+  h += `<div class=row><div style="flex:2;min-width:200px"><label for=pv-dest>Destination</label><select id=pv-dest>` +
+    flat.map(({ s, d }) => `<option value="${d.id}">${esc(d.code)} · ${esc(s.number)} · ${esc(dispName(d, s))}</option>`).join("") +
+    `</select></div><div style="flex:1;min-width:140px"><label for=pv-pos>Stop</label><div class=row><button id=pv-first>|◀</button><button id=pv-prev>◀</button><button id=pv-next>▶</button></div></div></div>`;
+  h += `<div id=pv-meta class=hint></div><div id=pv-screens class=row style="align-items:flex-start"></div>`;
+  h += `<div class=row><div style="flex:1"><label>Next-stop announcement</label><div id=pv-next-list class=row></div><div class=row><button id=pv-play-next class=primary>Play next-stop</button></div></div>`;
+  h += `<div style="flex:1"><label>Approaching announcement</label><div id=pv-appr-list class=row></div><div class=row><button id=pv-play-appr class=primary>Play approaching</button></div></div></div>`;
+  h += `<div class=err id=pv-err></div></div>`;
+
+  // ---- HELEN "Enter Route Code and Name" dialog ----
+  h += `<dialog id=dest-dialog><form method=dialog>
+    <h3 style="margin-top:0">Edit destination</h3>
+    <div class=row><div style="flex:1"><label for=ed-code>Code (8 digits) <span class=req>(required)</span></label><input id=ed-code maxlength=8 inputmode=numeric></div>
+    <div style="flex:1"><label for=ed-service>Service</label><select id=ed-service></select></div></div>
+    <div><label for=ed-name>Name <span class=req>(required)</span></label><input id=ed-name></div>
+    <div class=row><div style="flex:1"><label for=ed-via>Via</label><input id=ed-via></div>
+    <div style="flex:1"><label for=ed-dest>Dest</label><input id=ed-dest></div></div>
+    <div class=err id=ed-err></div>
+    <div class=row><button id=ed-save class=primary value=default>Save</button><button id=ed-close value=cancel>Cancel</button></div>
+    </form></dialog>`;
+
+  h += `<div id=pd-edit></div>`;
   $("pd-body").innerHTML = h;
   // wire
   $("pd-publish").onclick = async () => {
@@ -177,34 +387,145 @@ function renderProgram() {
       alert("Queued for " + r.queued.length + " controller(s).");
     } catch (e) { err(String(e.message || e)); }
   };
+  $("dest-filter").addEventListener("input", () => {
+    const q = $("dest-filter").value.trim().toLowerCase();
+    document.querySelectorAll("#destrows tr").forEach((tr) => {
+      tr.style.display = !q || (tr.dataset.code + " " + tr.dataset.name).includes(q) ? "" : "none";
+    });
+  });
+  // new destination: single form for the whole program
+  const svcSel = $("nd-service");
+  const syncNewSvc = () => { $("nd-newsvc").style.display = svcSel.value === "__new__" ? "" : "none"; };
+  svcSel.addEventListener("change", syncNewSvc); syncNewSvc();
+  const checkNewCode = async () => {
+    const code = $("nd-code").value.trim();
+    const box = $("nd-err");
+    if (!code) { box.textContent = ""; return null; }
+    if (!/^[0-9]{8}$/.test(code)) { box.textContent = "Code must be exactly 8 digits 0-9."; return null; }
+    try {
+      const r = await api(`/api/programs/${p.id}/destinations/check-code?code=${code}`);
+      box.textContent = r.unique ? "" : `Code ${code} is already used in this program.` + (r.suggestion ? ` Suggestion: ${r.suggestion}.` : "");
+      return r;
+    } catch (e) { return null; }
+  };
+  $("nd-code").addEventListener("input", checkNewCode);
+  $("nd-suggest").onclick = async () => {
+    try {
+      const r = await api(`/api/programs/${p.id}/destinations/check-code?code=00000000`);
+      if (r.suggestion) { $("nd-code").value = r.suggestion; checkNewCode(); }
+    } catch (e) { err(String(e.message || e)); }
+  };
+  $("nd-add").onclick = async () => {
+    try {
+      let sid = svcSel.value;
+      if (sid === "__new__") {
+        const num = $("nd-newsvc-num").value.trim(), nm = $("nd-newsvc-name").value.trim();
+        if (!num) throw new Error("Enter the new service number first.");
+        sid = (await api(`/api/programs/${p.id}/services`, { method: "POST", body: { number: num, name: nm } })).service_id;
+      }
+      if (!sid) throw new Error("Create a service first (Services section below).");
+      await api(`/api/services/${sid}/destinations`, { method: "POST",
+        body: { code: $("nd-code").value.trim(), name: $("nd-name").value.trim() || $("nd-code").value.trim(),
+                via: $("nd-via").value.trim(), dest: $("nd-dest").value.trim() } });
+      openProgram(p.id);
+    } catch (e) { $("nd-err").textContent = String(e.message || e); }
+  };
   $("ns-add").onclick = async () => {
     try {
       await api(`/api/programs/${p.id}/services`, { method: "POST", body: { number: $("ns-num").value, name: $("ns-name").value } });
       openProgram(p.id); loadPrograms();
     } catch (e) { err(String(e.message || e)); }
   };
-  $("pd-body").querySelectorAll("[data-adddest]").forEach((b) => b.onclick = async () => {
-    const sid = b.dataset.adddest;
+  // row actions: edit dialog / stops / display / delete
+  const dlg = $("dest-dialog");
+  const openEdit = (did) => {
+    const found = findDest(did); if (!found) return;
+    $("ed-service").innerHTML = (p.services || []).map((s) =>
+      `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " — " + esc(s.name) : ""}</option>`).join("");
+    $("ed-code").value = found.d.code; $("ed-name").value = found.d.name;
+    $("ed-via").value = found.d.via || ""; $("ed-dest").value = found.d.dest || "";
+    $("ed-err").textContent = ""; dlg.dataset.did = did;
+    (dlg.showModal ? dlg.showModal() : null);
+  };
+  $("ed-close").onclick = () => { };
+  $("ed-save").onclick = async (e) => {
+    e.preventDefault();
+    const did = dlg.dataset.did;
     try {
-      await api(`/api/services/${sid}/destinations`, { method: "POST",
-        body: { code: document.querySelector(`[data-ncode="${sid}"]`).value, name: document.querySelector(`[data-nname="${sid}"]`).value,
-                via: document.querySelector(`[data-nvia="${sid}"]`).value, dest: document.querySelector(`[data-ndest="${sid}"]`).value } });
-      openProgram(p.id);
-    } catch (e) { err(String(e.message || e)); }
+      await api(`/api/destinations/${did}`, { method: "PUT", body: {
+        code: $("ed-code").value.trim(), service_id: $("ed-service").value,
+        name: $("ed-name").value.trim(), via: $("ed-via").value.trim(), dest: $("ed-dest").value.trim() } });
+      dlg.close(); openProgram(p.id);
+    } catch (ex) { $("ed-err").textContent = String(ex.message || ex); }
+  };
+  $("pd-body").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); openEdit(b.dataset.edit); });
+  $("pd-body").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
+    const found = findDest(b.dataset.del); if (!found) return;
+    if (!confirm(`Delete destination ${found.d.code} ${found.d.name}? Its stops and layouts go too.`)) return;
+    try { await api(`/api/destinations/${b.dataset.del}`, { method: "DELETE" }); openProgram(p.id); }
+    catch (e) { err(String(e.message || e)); }
   });
-  // live code check
-  $("pd-body").querySelectorAll("[data-ncode]").forEach((inp) => inp.addEventListener("input", async () => {
-    const sid = inp.dataset.ncode;
-    const box = document.querySelector(`[data-codeerr="${sid}"]`);
-    const code = inp.value;
-    if (!/^[0-9]{8}$/.test(code)) { box.textContent = code ? "Code must be exactly 8 digits 0-9." : ""; return; }
-    try {
-      const r = await api(`/api/programs/${p.id}/destinations/check-code?code=${code}`);
-      box.textContent = r.unique ? "" : `Code ${code} is already used in this program.` + (r.suggestion ? ` Suggestion: ${r.suggestion}.` : "");
-    } catch (e) { /* ignore */ }
-  }));
   $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editStops(b.dataset.stops); });
   $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout));
+  $("pd-body").querySelectorAll("[data-svc-save]").forEach((b) => b.onclick = async () => {
+    const sid = b.dataset.svcSave;
+    const get = (k) => document.querySelector(`[data-svc-audio="${k}"][data-svc="${sid}"]`).value || null;
+    try {
+      await api(`/api/services/${sid}`, { method: "PUT", body: {
+        number: document.querySelector(`[data-svc-num="${sid}"]`).value,
+        name: document.querySelector(`[data-svc-name="${sid}"]`).value,
+        next_stop_audio: get("next_stop_audio"), approaching_audio: get("approaching_audio"),
+        last_stop_audio: get("last_stop_audio"),
+        terminus_clip_mode: document.querySelector(`[data-svc-mode="${sid}"]`).value } });
+      err(""); openProgram(p.id);
+    } catch (e) { document.querySelector(`[data-svc-err="${sid}"]`).textContent = String(e.message || e); }
+  });
+  $("pd-body").querySelectorAll("[data-svc-del]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Delete this service and ALL its destinations, stops and layouts?")) return;
+    try { await api(`/api/services/${b.dataset.svcDel}`, { method: "DELETE" }); openProgram(p.id); }
+    catch (e) { err(String(e.message || e)); }
+  });
+  // preview wiring
+  Preview.stop();
+  const pvErr = (m) => { $("pv-err").textContent = m || ""; };
+  async function loadPreview() {
+    const did = $("pv-dest").value;
+    if (!did) return;
+    const cur = Preview._pos && Preview._did === did ? Preview._pos : 1;
+    try {
+      pvErr("");
+      const s = await api(`/api/destinations/${did}/preview?pos=${cur}`);
+      Preview._did = did; Preview._pos = s.pos;
+      $("pv-meta").textContent = s.count
+        ? `Stop ${s.pos}/${s.count}: ${s.stop.name}${s.stop.is_terminus ? " (terminus)" : ""} · board: "${s.fields.__board_text}"${s.board_override ? ` · override: "${s.board_override}"` : ""}`
+        : "No stops yet — add stops to preview.";
+      $("pv-screens").innerHTML = (s.displays || []).map((dp) => {
+        const e = (s.layouts || {})[dp.name] || {};
+        return `<div style="flex:1;min-width:180px"><label>${esc(dp.name)} ${esc(dp.width_px)}×${esc(dp.height_px)} <span class=hint>${esc(e.source || "")}</span></label><br><canvas id="pv-cv-${esc(dp.name)}" data-scale="3" style="border:1px solid #444;max-width:100%"></canvas></div>`;
+      }).join("") || `<span class=hint>No displays in this program.</span>`;
+      const seqHtml = (seq) => seq.length
+        ? seq.map((c) => `<button data-pv-clip="${esc(c.sha)}" title="${esc(c.kind)}">${esc(c.label)}</button>`).join("")
+        : `<span class=hint>No clips — silent.</span>`;
+      $("pv-next-list").innerHTML = seqHtml(s.next || []);
+      $("pv-appr-list").innerHTML = seqHtml(s.approaching || []);
+      $("pv-next-list").querySelectorAll("[data-pv-clip]").forEach((b) => b.onclick = () => playClip(b.dataset.pvClip));
+      $("pv-appr-list").querySelectorAll("[data-pv-clip]").forEach((b) => b.onclick = () => playClip(b.dataset.pvClip));
+      $("pv-play-next").onclick = async () => {
+        try { pvErr(""); await playSequence((s.next || []).map((c) => c.sha)); }
+        catch (e) { pvErr(String(e.message || e)); }
+      };
+      $("pv-play-appr").onclick = async () => {
+        try { pvErr(""); await playSequence((s.approaching || []).map((c) => c.sha)); }
+        catch (e) { pvErr(String(e.message || e)); }
+      };
+      Preview.start(s);
+    } catch (e) { pvErr(String(e.message || e)); }
+  }
+  $("pv-dest").addEventListener("change", () => { Preview._pos = 1; loadPreview(); });
+  $("pv-first").onclick = () => { Preview._pos = 1; loadPreview(); };
+  $("pv-prev").onclick = () => { Preview._pos = Math.max(1, (Preview._pos || 1) - 1); loadPreview(); };
+  $("pv-next").onclick = () => { Preview._pos = (Preview._pos || 1) + 1; loadPreview(); };
+  if ($("pv-dest").value) { Preview._did = $("pv-dest").value; Preview._pos = 1; loadPreview(); }
 }
 function findDest(did) {
   for (const s of (S.curProg.services || [])) for (const d of (s.destinations || [])) if (d.id === did) return { s, d };
@@ -213,18 +534,18 @@ function findDest(did) {
 function editStops(did) {
   const found = findDest(did); if (!found) return;
   const d = found.d;
-  let h = `<h3>Stops — ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio SHA</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
+  let h = `<h3>Stops — ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio clip</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
   (d.stops || []).forEach((st, i) => {
     h += `<tr><td>${i + 1}</td>
       <td><input data-f=name value="${esc(st.name)}"></td>
-      <td><input data-f=audio value="${esc(st.audio || "")}" size=12></td>
+      <td><select data-f=audio>${audioOptions(st.audio || "")}</select></td>
       <td><input data-f=board_text value="${esc(st.board_text || "")}"></td>
       <td><input data-f=board_override value="${esc(st.board_override || "")}"></td>
       <td><input data-f=is_terminus type=checkbox${st.is_terminus ? " checked" : ""}></td>
       <td><button data-delstop="${i}">✕</button></td></tr>`;
   });
   h += `</tbody></table><div class=row><button id=stop-add>Add stop</button><button id=stop-save class=primary>Save stops</button></div>
-    <p class=hint>Terminus must be the last stop. Positions are assigned in order.</p>`;
+    <p class=hint>Pick a clip by name for each stop, or leave it silent. Terminus must be the last stop. Positions are assigned in order.</p>`;
   $("pd-edit").innerHTML = h;
   $("pd-edit").scrollIntoView();
   const collect = () => [...document.querySelectorAll("#stoprows tr")].map((tr) => {
@@ -235,7 +556,9 @@ function editStops(did) {
   $("pd-edit").querySelectorAll("[data-delstop]").forEach((b) => b.onclick = () => { b.closest("tr").remove(); });
   $("stop-add").onclick = () => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>new</td><td><input data-f=name></td><td><input data-f=audio size=12></td><td><input data-f=board_text></td><td><input data-f=board_override></td><td><input data-f=is_terminus type=checkbox></td><td></td>`;
+    const sel = document.createElement("select"); sel.setAttribute("data-f", "audio"); sel.innerHTML = audioOptions("");
+    tr.innerHTML = `<td>new</td><td><input data-f=name></td><td></td><td><input data-f=board_text></td><td><input data-f=board_override></td><td><input data-f=is_terminus type=checkbox></td><td></td>`;
+    tr.children[2].appendChild(sel);
     $("stoprows").appendChild(tr);
   };
   $("stop-save").onclick = async () => {
@@ -303,42 +626,111 @@ $("btn-sim").addEventListener("click", async () => {
 // ---------- audio & voices ----------
 async function loadAudio() {
   const r = await api("/api/audio?organisation_id=" + encodeURIComponent(S.org));
-  $("audiorows").innerHTML = (r.clips || []).map((a) =>
-    `<tr><td class=kbd>${esc((a.sha256 || "").slice(0, 12))}…</td><td>${esc(a.filename)}</td><td>${esc(a.source)}</td></tr>`).join("");
+  S.clips = r.clips || [];
+  const srcLabel = (a) => a.source === "tts"
+    ? (a.placeholder ? "text-to-speech (preview tone)" : "text-to-speech")
+    : (a.source || "upload");
+  const durLabel = (a) => (a.duration_ms != null ? (Number(a.duration_ms) / 1000).toFixed(1) + "s" : "—");
+  $("audiorows").innerHTML = S.clips.map((a) =>
+    `<tr><td><b>${esc(clipLabel(a))}</b>` +
+    (a.placeholder ? ` <span class=hint>preview tone</span>` : "") +
+    (a.silent_legacy ? ` <span class=err>silent — regenerate</span>` : "") + `</td>` +
+    `<td>${esc(srcLabel(a))} · ${esc(durLabel(a))}</td>` +
+    `<td><button data-play="${esc(a.sha256)}">Play</button></td>` +
+    `<td class=row><button data-rename="${esc(a.sha256)}">Rename</button><button data-delclip="${esc(a.sha256)}">Delete</button></td></tr>`).join("") ||
+    `<tr><td colspan=4 class=hint>No clips yet — upload one or generate it from text below.</td></tr>`;
   const v = await api("/api/voices?organisation_id=" + encodeURIComponent(S.org));
-  $("voicerows").innerHTML = (v.voices || []).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.language || "")}</td><td>${esc(x.sample_rate || "")}</td></tr>`).join("");
-  $("gen-voice").innerHTML = `<option value="">(default)</option>` + (v.voices || []).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  $("voicerows").innerHTML = (v.voices || []).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.language || "")}</td><td>${esc(x.sample_rate || "")}</td></tr>`).join("") ||
+    `<tr><td colspan=3 class=hint>No voices uploaded yet.</td></tr>`;
+  if (v.piper_available === false) {
+    err("Piper binary not found on the server — voice generation will fall back to preview tone. Install piper-tts + espeak-ng on the server.");
+  }
+  const prevVoice = $("gen-voice").value || localStorage.getItem("nsl_voice") || "";
+  const voices = v.voices || [];
+  const stillThere = voices.some((x) => x.id === prevVoice);
+  const sel = stillThere ? prevVoice : (voices.length === 1 ? voices[0].id : "");
+  const emptyLabel = voices.length ? "Preview tone (no voice) — select a voice for real speech"
+    : "Preview tone (no voice installed)";
+  $("gen-voice").innerHTML = `<option value="">${esc(emptyLabel)}</option>` + voices.map((x) => `<option value="${x.id}"${x.id === sel ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+  if (sel) localStorage.setItem("nsl_voice", sel);
 }
+$("gen-voice").addEventListener("change", () => localStorage.setItem("nsl_voice", $("gen-voice").value || ""));
 async function loadVoices() { /* folded into loadAudio */ }
+$("audiorows").addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.play) return playClip(b.dataset.play);
+    const sha = b.dataset.rename || b.dataset.delclip;
+    const clip = S.clips.find((a) => a.sha256 === sha);
+    if (b.dataset.rename) {
+      const next = prompt("Clip name (lowercase, numbers, dashes):", clipLabel(clip));
+      if (!next) return;
+      const r = await api(`/api/audio/${encodeURIComponent(sha)}`, { method: "PATCH",
+        body: { organisation_id: S.org, name: next } });
+      err(""); loadAudio();
+      if (S.curProg) openProgram(S.curProg.id);
+      alert(`Renamed to ${r.name}.`);
+    }
+    if (b.dataset.delclip) {
+      if (!confirm(`Delete clip "${clipLabel(clip)}"?`)) return;
+      await api(`/api/audio/${encodeURIComponent(sha)}?organisation_id=${encodeURIComponent(S.org)}`, { method: "DELETE" });
+      loadAudio();
+    }
+  } catch (ex) { err(String(ex.message || ex)); }
+});
+$("au-file").addEventListener("change", () => {
+  if ($("au-name").value.trim()) return;
+  const f = $("au-file").files[0]; if (!f) return;
+  $("au-name").value = slugifyClip(f.name.replace(/\.[^.]+$/, ""));
+});
+$("gen-text").addEventListener("input", () => {
+  if ($("gen-name").value.trim()) return;
+  $("gen-name").value = slugifyClip($("gen-text").value.split(/\s+/).slice(0, 5).join("-"));
+});
+function assertClipName(v, box) {
+  const s = slugifyClip(v);
+  const ok = s.length >= 2;
+  if (box) box.textContent = ok || !v ? "" : "Use lowercase letters, numbers and dashes, e.g. derby-bus-station.";
+  return ok ? s : null;
+}
 $("btn-upload").addEventListener("click", async () => {
   try {
     const f = $("au-file").files[0]; if (!f) throw new Error("Choose a file first.");
-    const fd = new FormData(); fd.append("organisation_id", S.org); fd.append("file", f);
+    const s = assertClipName($("au-name").value, $("au-name-err"));
+    if (!s) throw new Error("Give this clip a name, e.g. derby-bus-station.");
+    const fd = new FormData(); fd.append("organisation_id", S.org); fd.append("file", f); fd.append("name", s);
     const r = await fetch(PREFIX + "/api/audio", { method: "POST", headers: apiHeaders(), body: fd }).then(async (x) => {
       if (!x.ok) throw new Error((await x.json()).detail || ("HTTP " + x.status)); return x.json();
     });
-    alert("Uploaded, sha " + r.sha256.slice(0, 12) + "…"); $("au-file").value = ""; loadAudio();
+    alert(`Saved as "${r.name}".`); $("au-file").value = ""; $("au-name").value = ""; loadAudio();
   } catch (e) { err(String(e.message || e)); }
 });
 $("btn-generate").addEventListener("click", async () => {
   try {
+    if (!$("gen-text").value.trim()) throw new Error("Type the text to speak first.");
+    const s = assertClipName($("gen-name").value, $("gen-name-err"));
+    if (!s) throw new Error("Give this clip a name, e.g. derby-bus-station.");
     const r = await api("/api/audio/generate", { method: "POST", body: { organisation_id: S.org,
-      text: $("gen-text").value, name: $("gen-name").value, voice_id: $("gen-voice").value || null,
+      text: $("gen-text").value, name: s, voice_id: $("gen-voice").value || null,
       speed: parseFloat($("gen-speed").value || "1") } });
-    alert("Generated, sha " + r.sha256.slice(0, 12) + "…"); loadAudio();
+    alert(r.placeholder
+      ? `Saved as "${r.name}" (preview tone — ${r.note || "upload a Piper voice for real speech"}).`
+      : `Saved as "${r.name}".`);
+    loadAudio();
   } catch (e) { err(String(e.message || e)); }
 });
 $("btn-voice").addEventListener("click", async () => {
   try {
     const m = $("vv-model").files[0], c = $("vv-config").files[0];
     if (!m || !c) throw new Error("Choose both model and config files.");
+    if (!$("vv-name").value.trim()) throw new Error("Give the voice a name first.");
     const fd = new FormData();
-    fd.append("organisation_id", S.org); fd.append("name", $("vv-name").value);
+    fd.append("organisation_id", S.org); fd.append("name", $("vv-name").value.trim());
     fd.append("model", m); fd.append("config", c);
     const r = await fetch(PREFIX + "/api/voices", { method: "POST", headers: apiHeaders(), body: fd }).then(async (x) => {
       if (!x.ok) throw new Error((await x.json()).detail || ("HTTP " + x.status)); return x.json();
     });
-    alert("Voice uploaded."); loadAudio();
+    alert(`Voice "${$("vv-name").value.trim()}" uploaded.`); $("vv-name").value = ""; $("vv-model").value = ""; $("vv-config").value = ""; loadAudio();
   } catch (e) { err(String(e.message || e)); }
 });
 
