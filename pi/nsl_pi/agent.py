@@ -150,9 +150,12 @@ class Agent:
                          con.execute("SELECT program_id, version, status FROM installed_programs")]
             outbox = [dict(zip(["id", "kind", "payload"], r)) for r in
                       con.execute("SELECT id, kind, payload FROM outbox WHERE sent_at IS NULL LIMIT 100")]
+            st = con.execute("SELECT program_id, program_version FROM state WHERE id=1").fetchone()
+            active = {"program_id": st[0], "program_version": st[1]} if st else None
         finally:
             con.close()
-        body = json.dumps({"installed": installed, "events": outbox, **(extra or {})}).encode()
+        body = json.dumps({"installed": installed, "events": outbox, "state": active,
+                           **(extra or {})}).encode()
         try:
             _, raw, _ = _req(self._api("/api/device/heartbeat"), token=self.token, data=body,
                              headers={"Content-Type": "application/json"})

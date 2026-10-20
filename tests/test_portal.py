@@ -61,6 +61,14 @@ def test_signup_pair_publish_sync(tmp_path, monkeypatch):
     assert "offline" in r.json()["detail"]
     r = c.post("/api/device/heartbeat", json={"installed": []}, headers=DH)
     assert r.json()["accepted"] is True
+    # active version reported by the bus shows up in the controller list
+    r = c.post("/api/device/heartbeat",
+               json={"installed": [{"program_id": pid, "version": ver, "status": "installed"}],
+                     "state": {"program_id": pid, "program_version": ver}}, headers=DH)
+    assert r.json()["accepted"] is True
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"][0]
+    prog = [p for p in ctl["programs"] if p["program_id"] == pid][0]
+    assert prog["installed_version"] == ver and prog["active_version"] == ver
     # now online: command queues, persists, and arrives on next heartbeat
     r = c.post(f"/api/controllers/{cid}/command", json={"command": "stop_next"}, headers=H)
     assert r.json() == {"queued": True, "online": True, "pending": 1}, r.text

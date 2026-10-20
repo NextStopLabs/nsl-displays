@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS controllers (
   config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS controller_programs (
   controller_id TEXT NOT NULL, program_id TEXT NOT NULL,
-  desired_version INTEGER, installed_version INTEGER,
+  desired_version INTEGER, installed_version INTEGER, active_version INTEGER,
   status TEXT DEFAULT 'pending', last_error TEXT, updated_at TEXT NOT NULL,
   PRIMARY KEY (controller_id, program_id));
 CREATE TABLE IF NOT EXISTS voices (
@@ -126,6 +126,12 @@ def connect(url: str | None = None) -> sqlite3.Connection:
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys = ON")
         con.executescript(SCHEMA)
+        # lightweight migration for DBs created before active_version existed
+        try:
+            con.execute("ALTER TABLE controller_programs ADD COLUMN active_version INTEGER")
+            con.commit()
+        except Exception:
+            pass
         return con
     # Postgres via psycopg if configured (same logical schema applied by migrations)
     raise RuntimeError("Postgres needs DATABASE_URL postgres://... and migrations; see deploy/")

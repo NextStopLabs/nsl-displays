@@ -593,10 +593,15 @@ async function loadControllers() {
   $("ctlrows").innerHTML = S.controllers.map((c) => {
     const last = c.last_seen_at || "never";
     const status = c.online ? `<b class=ok>ONLINE</b>` : `offline<br><span class=hint>last seen ${esc(last)}</span>`;
-    const progs = (c.programs || []).map((p) =>
-      `${esc(p.name || p.program_id)}: want v${p.desired_version} / bus v${p.installed_version == null ? "—" : p.installed_version}` +
-      (p.status && p.status !== "installed" ? ` (${esc(p.status)})` : "") +
-      ((c.pending_commands && p.desired_version !== p.installed_version) ? " ⏳" : "")).join("<br>") || "—";
+    const progs = (c.programs || []).map((p) => {
+      const bits = [`want v${p.desired_version}`, `bus v${p.installed_version == null ? "—" : p.installed_version}`];
+      if (p.active_version != null) bits.push(`<b class=ok>active v${p.active_version}</b>`);
+      if (p.status && p.status !== "installed") bits.push(`(${esc(p.status)})`);
+      let warn = "";
+      if (p.active_version != null && p.desired_version != null && p.active_version !== p.desired_version)
+        warn = ` <span class=err>bus parked on v${p.active_version} — select a v${p.desired_version} destination to switch</span>`;
+      return `${esc(p.name || p.program_id)}: ${bits.join(" / ")}${warn}`;
+    }).join("<br>") || "—";
     const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
     return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
     <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}">Unpair</button></td></tr>`;

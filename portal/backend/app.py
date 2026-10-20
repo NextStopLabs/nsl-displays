@@ -156,7 +156,7 @@ def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
         c = dict(r)
         c["online"] = _controller_online(c)
         c["programs"] = [dict(x) for x in con.execute(
-            "SELECT cp.program_id, p.name, cp.desired_version, cp.installed_version, cp.status "
+            "SELECT cp.program_id, p.name, cp.desired_version, cp.installed_version, cp.active_version, cp.status "
             "FROM controller_programs cp LEFT JOIN programs p ON p.id=cp.program_id "
             "WHERE cp.controller_id=?", (c["id"],))]
         c["pending_commands"] = con.execute(
@@ -631,7 +631,9 @@ def upload(pid: str, body: dict, u: dict = Depends(current_user)):
         c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
         if not c or c["organisation_id"] != org:
             raise HTTPException(400, f"bad controller {cid}")
-        con.execute("INSERT OR REPLACE INTO controller_programs VALUES (?,?,?,?,?,?,?)",
+        con.execute("INSERT OR REPLACE INTO controller_programs "
+                    "(controller_id, program_id, desired_version, installed_version, status, last_error, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
                     (cid, pid, ver, None, "pending", None, _utcnow()))
     con.commit()
     return {"ok": True, "version": ver, "queued": body.get("controllers", [])}
@@ -1094,6 +1096,11 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
     for inst in body.get("installed", []):
         con.execute("UPDATE controller_programs SET installed_version=?, status=?, updated_at=? WHERE controller_id=? AND program_id=?",
                     (inst.get("version"), inst.get("status", "installed"), _utcnow(), c["id"], inst.get("program_id")))
+    st8 = body.get("state") or {}
+    if st8.get("program_id"):
+        con.execute("UPDATE controller_programs SET active_version=NULL WHERE controller_id=?", (c["id"],))
+        con.execute("UPDATE controller_programs SET active_version=? WHERE controller_id=? AND program_id=?",
+                    (st8.get("program_version"), c["id"], st8.get("program_id")))
     for ev in body.get("events", []):
         con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
                     (c["id"], None, "device", json.dumps(ev)[:500], _utcnow()))
