@@ -38,6 +38,26 @@ const LayoutEditor = (() => {
     if (pages.length <= 1) return pages[0] || 1;
     return pages[Math.floor(t / (parseFloat(lay.page_seconds) || 3)) % pages.length];
   }
+
+  // ---------- page tabs: jump the preview to a page, new elements land there ----------
+  function renderPageTabs() {
+    const box = document.getElementById("lay-pagetabs");
+    if (!box || !ed || !ed.lay) return;
+    const pages = pagesUsed(ed.lay);
+    const max = Math.max(ed.pageLock || 0, ...pages, 1);
+    let h = "";
+    for (let p = 1; p <= max; p++) {
+      const n = (ed.lay.elements || []).filter((e) => parseInt(e.page || 1, 10) === p).length;
+      h += `<button data-pg="${p}"${ed.pageLock === p ? " class=primary" : ""} title="${n} element(s)">p${p}</button>`;
+    }
+    h += `<button data-pg="${max + 1}" title="New empty page">+</button>`;
+    box.innerHTML = h;
+    box.querySelectorAll("[data-pg]").forEach((b) => b.onclick = () => {
+      const p = parseInt(b.dataset.pg, 10);
+      ed.pageLock = (ed.pageLock === p) ? null : p;  // click active tab to release
+      renderPageTabs();
+    });
+  }
   function visible(el, fields, ovActive) {
     const sh = el.show_if || "always";
     if (sh === "always") return true;
@@ -85,9 +105,10 @@ const LayoutEditor = (() => {
     for (let y = 0; y <= lay.height; y += 8) { g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cv.width, y * scale + .5); g.stroke(); }
     (lay.elements || []).forEach((el, i) => {
       const sel = i === ed.sel;
-      g.fillStyle = sel ? "rgba(255,176,0,.28)" : "rgba(255,176,0,.12)";
+      const other = ed.pageLock && parseInt(el.page || 1, 10) !== ed.pageLock;
+      g.fillStyle = sel ? "rgba(255,176,0,.28)" : (other ? "rgba(255,176,0,.04)" : "rgba(255,176,0,.12)");
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
-      g.strokeStyle = sel ? "#ff4444" : AMBER; g.lineWidth = sel ? 2 : 1;
+      g.strokeStyle = sel ? "#ff4444" : (other ? "#5a5348" : AMBER); g.lineWidth = sel ? 2 : 1;
       g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.fillStyle = sel ? "#fff" : AMBER;
       g.font = `${Math.max(9, 3 * scale)}px monospace`;
@@ -112,7 +133,7 @@ const LayoutEditor = (() => {
     g.fillRect(0, 0, off.width, off.height);
     const ovActive = !!ovText;
     const ov = lay.override || {};
-    const page = curPage(lay, t);
+    const page = ed.pageLock || curPage(lay, t);
     if (ov.mode === "full" && ovActive) {
       g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
       g.textBaseline = "middle"; g.textAlign = "left";
@@ -163,7 +184,8 @@ const LayoutEditor = (() => {
     for (let x = 0; x < cv.width; x += pscale) p.fillRect(x, 0, 1, cv.height);
     for (let y = 0; y < cv.height; y += pscale) p.fillRect(0, y, cv.width, 1);
     const pg = document.getElementById("lay-page");
-    if (pg) pg.textContent = "Page " + page + " of " + pagesUsed(lay).length;
+    if (pg) pg.textContent = "Page " + page + " of " + Math.max(pagesUsed(lay).length, ed.pageLock || 0) +
+      (ed.pageLock ? " (locked — click the tab again to release)" : "");
   }
 
   function loop(t) {
@@ -179,7 +201,7 @@ const LayoutEditor = (() => {
     if (!box) return;
     const els = ed.lay.elements || [];
     list.innerHTML = els.map((e, i) =>
-      `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}</option>`).join("");
+      `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")} · p${e.page || 1}</option>`).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
     const num = (k, label) => `<div style="flex:1;min-width:70px"><label>${label}</label><input data-p=${k} type=number value="${el[k] ?? 0}"></div>`;
@@ -217,6 +239,7 @@ const LayoutEditor = (() => {
   function updateStatus() {
     const s = document.getElementById("lay-status");
     if (s) s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height} · source: ${ed.src}`;
+    renderPageTabs();
   }
 
   function renderOverride() {
@@ -298,12 +321,12 @@ const LayoutEditor = (() => {
     const lay = ed.lay;
     const base = { type, x: 0, y: 0, w: Math.floor(lay.width / 2), h: lay.height,
       font: "pixel-medium", colour: AMBER, align: "left", valign: "middle",
-      scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" };
+      scroll: "if_too_long", flash_ms: 0, page: ed.pageLock || 1, show_if: "always" };
     if (type === "field") base.field = "dest";
     else base.text = "MESSAGE";
     lay.elements.push(base);
     ed.sel = lay.elements.length - 1;
-    updateStatus(); drawEditor(); renderProps();
+    updateStatus(); drawEditor(); renderProps(); renderPageTabs();
   }
 
   // ---------- open ----------
@@ -312,7 +335,7 @@ const LayoutEditor = (() => {
     const { did, dest, serviceNumber, displays, apiFn, errFn } = ctx;
     let extraKeys = [];
     try { extraKeys = Object.keys(JSON.parse(dest.extra_fields || "{}")); } catch (e) { /* ignore */ }
-    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2,
+    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: null,
            fields: { num: dest.num || serviceNumber || "", via: dest.via || "", dest: dest.dest || "" },
            ovText: "", extraKeys, displays, apiFn, errFn };
     for (const k of extraKeys) { try { ed.fields[k] = JSON.parse(dest.extra_fields)[k]; } catch (e) { /* ignore */ } }
@@ -325,7 +348,8 @@ const LayoutEditor = (() => {
       <div class=row>
       <div class=group style="flex:1"><div class=grouptitle>Edit (click selects, drag moves, red corner resizes)</div>
         <canvas id=lay-canvas style="max-width:100%;cursor:crosshair"></canvas>
-        <div class=row><button id=lay-addfield>Add field</button><button id=lay-addtext>Add fixed text</button>
+        <div class=row><div style="flex:1"><label>Pages (click to preview, + for new — new elements land on the shown page)</label><div id=lay-pagetabs class=row style="margin-top:0"></div></div></div>
+      <div class=row><button id=lay-addfield>Add field</button><button id=lay-addtext>Add fixed text</button>
         <div style="flex:1;min-width:120px"><label for=lay-ellist>Element</label><select id=lay-ellist></select></div></div>
       </div>
       <div class=group style="flex:1"><div class=grouptitle>Live LED preview <span id=lay-page class=hint></span></div>
@@ -373,6 +397,7 @@ const LayoutEditor = (() => {
         if (r.layout) { ed.lay = r.layout; ed.src = r.source; }
         else { ed.lay = blank(d.width_px, d.height_px); ed.src = "none yet (blank canvas)"; }
         ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+        ed.pageLock = null;
         loadFields(); readFields();
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = String(e.message || e); }
@@ -382,6 +407,7 @@ const LayoutEditor = (() => {
     document.getElementById("lay-autofit").onclick = () => {
       const d = disp(); fitScales();
       ed.lay = autofit(d.width_px, d.height_px); ed.src = "auto-fit starter (unsaved)"; ed.sel = 0;
+      ed.pageLock = null;
       updateStatus(); drawEditor(); renderProps(); renderOverride();
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
@@ -396,6 +422,7 @@ const LayoutEditor = (() => {
       try {
         const lj = JSON.parse(document.getElementById("lay-json").value);
         ed.lay = lj; ed.src = "from JSON (unsaved)"; ed.sel = (lj.elements || []).length ? 0 : -1;
+        ed.pageLock = null;
         document.getElementById("lay-err").textContent = "";
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = "Invalid JSON: " + e.message; }
