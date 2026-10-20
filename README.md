@@ -621,7 +621,13 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
 - Sources: file upload (MP3/WAV/OGG/M4A/FLAC, transcoded) or Piper TTS (type text → pick voice → generate → save; text+settings kept for regen; bulk generate per stop/service/program skipping existing).
 - Voices: built-in default + per-organisation uploads (`.onnx` + `.onnx.json` pair, validated, test-synthesised, size-limited, licence note + rights tick). Runs sandboxed on the server; Pi never runs Piper.
 - Player decodes to PCM and chains sample-accurately — no gapless-mode dependency.
-- Bus output is USB audio only: the 3.5 mm jack is dead by design (`dtparam=audio=off` — onboard audio shares PWM hardware with HUB75). Plug a USB sound card into the front Pi, then:
+- Bus output is USB audio by default: `dtparam=audio=off` kills the onboard jack because hardware pulsing shares PWM hardware with HUB75. The 3.5 mm jack works too, with a tradeoff: keep software pulsing (`no-hardware-pulse`, the default) and the jack stays usable at the cost of slightly more flicker. To use it: make sure `dtparam=audio=off` is **absent** from `/boot/firmware/config.txt` (and `/boot/config.txt`), reboot, confirm `aplay -l` lists the Headphones card, then:
+  ```bash
+  speaker-test -c1 -t wav -D plughw:0,0   # short test tone, Ctrl+C to stop
+  sqlite3 /var/lib/nsl/controller.db "UPDATE controller_config SET audio_device='plughw:0,0' WHERE id=1"
+  sudo systemctl restart nsl-player
+  ```
+  Never enable hardware pulsing while using the jack (best picture and onboard audio are mutually exclusive). USB audio has no such tradeoff, which is why it stays the default recommendation:
   ```bash
   aplay -l                       # note the card, e.g. card 1
   speaker-test -c1 -t wav -D plughw:1,0   # short test tone, Ctrl+C to stop
