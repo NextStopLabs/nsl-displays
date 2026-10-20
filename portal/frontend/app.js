@@ -47,31 +47,32 @@ function showAuth(on) {
   $("mainview").style.display = on ? "" : "none";
   $("authbar").style.display = on ? "" : "none";
 }
+function showAuthPage(which) {
+  $("auth-signin").style.display = which === "signin" ? "" : "none";
+  $("auth-signup").style.display = which === "signup" ? "" : "none";
+}
 async function doLogin() {
-  $("auth-err").textContent = "";
+  $("si-err").textContent = "";
+  if (!$("si-email").value.trim() || !$("si-pass").value) { $("si-err").textContent = "Enter your email and password."; return; }
   try {
-    const r = await api("/api/auth/login", { method: "POST", body: formData({ email: $("li-email").value, password: $("li-pass").value }) });
+    const r = await api("/api/auth/login", { method: "POST", body: formData({ email: $("si-email").value, password: $("si-pass").value }) });
     S.token = r.token; localStorage.setItem("nsl_token", S.token);
     await refreshMe();
-  } catch (e) { $("auth-err").textContent = String(e.message || e); }
-}
-async function doSignup() {
-  const extra = $("auth-signup-extra");
-  const open = extra.style.display !== "none";
-  extra.style.display = open ? "none" : "";
-  $("btn-signup").textContent = open ? "Sign up (new organisation)" : "Cancel sign up";
-  if (!open) $("su-name").focus();
+  } catch (e) { $("si-err").textContent = String(e.message || e); }
 }
 async function doCreate() {
-  $("auth-err").textContent = "";
-  if (!$("su-org").value.trim()) { $("auth-err").textContent = "Organisation name is required."; return; }
+  $("su-err").textContent = "";
+  if (!$("su-org").value.trim()) { $("su-err").textContent = "Organisation name is required."; return; }
+  if (!$("su-email").value.trim()) { $("su-err").textContent = "Email is required."; return; }
+  if (($("su-pass").value || "").length < 8) { $("su-err").textContent = "Password must be at least 8 characters."; return; }
+  if ($("su-pass").value !== $("su-pass2").value) { $("su-err").textContent = "Passwords do not match."; return; }
   try {
     const r = await api("/api/auth/signup", { method: "POST", body: formData({
-      email: $("li-email").value, password: $("li-pass").value,
+      email: $("su-email").value, password: $("su-pass").value,
       name: $("su-name").value, org: $("su-org").value }) });
     S.token = r.token; localStorage.setItem("nsl_token", S.token);
     await refreshMe();
-  } catch (e) { $("auth-err").textContent = String(e.message || e); }
+  } catch (e) { $("su-err").textContent = String(e.message || e); }
 }
 
 // ---------- tabs ----------
@@ -367,11 +368,12 @@ $("btn-rc-refresh").addEventListener("click", async () => {
 });
 
 // ---------- boot ----------
-$("btn-login").addEventListener("click", doLogin);
-$("btn-signup").addEventListener("click", doSignup);
-$("btn-create").addEventListener("click", doCreate);
+$("form-login").addEventListener("submit", (e) => { e.preventDefault(); doLogin(); });
+$("form-signup").addEventListener("submit", (e) => { e.preventDefault(); doCreate(); });
+$("link-signup").addEventListener("click", (e) => { e.preventDefault(); showAuthPage("signup"); $("su-name").focus(); });
+$("link-signin").addEventListener("click", (e) => { e.preventDefault(); showAuthPage("signin"); $("si-email").focus(); });
 $("btn-logout").addEventListener("click", () => {
-  S.token = ""; localStorage.removeItem("nsl_token"); showAuth(false);
+  S.token = ""; localStorage.removeItem("nsl_token"); showAuthPage("signin"); showAuth(false);
 });
 $("orgsel").addEventListener("change", () => {
   S.org = $("orgsel").value; localStorage.setItem("nsl_org", S.org); loadAll();

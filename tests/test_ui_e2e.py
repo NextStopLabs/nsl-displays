@@ -54,21 +54,24 @@ def test_full_user_journey(server, tmp_path):
         assert pg.locator("#authview").is_visible()
 
         # 2. bad login shows error (the 401 console noise below is expected)
-        pg.fill("#li-email", "driver@bus.co")
-        pg.fill("#li-pass", "wrong")
-        pg.click("#btn-login")
-        pg.locator("#auth-err:not(:empty)").wait_for(timeout=5000)
+        pg.fill("#si-email", "driver@bus.co")
+        pg.fill("#si-pass", "wrong")
+        pg.locator("#form-login button[type=submit]").click()
+        pg.locator("#si-err:not(:empty)").wait_for(timeout=5000)
         del failed[:]
 
-        # 3. sign up: reveal -> fill -> create
-        pg.fill("#li-email", "driver@bus.co")
-        pg.fill("#li-pass", "secret123")
-        pg.click("#btn-signup")
-        assert pg.locator("#auth-signup-extra").is_visible()
-        assert "Create account" in (pg.text_content("#btn-create") or "")
+        # 3. signup page: mismatched passwords rejected, then account created
+        pg.click("#link-signup")
+        pg.locator("#auth-signup").wait_for()
         pg.fill("#su-name", "Driver")
         pg.fill("#su-org", "Bus Co")
-        pg.click("#btn-create")
+        pg.fill("#su-email", "driver@bus.co")
+        pg.fill("#su-pass", "secret123")
+        pg.fill("#su-pass2", "different")
+        pg.locator("#form-signup button[type=submit]").click()
+        pg.locator("#su-err").get_by_text("do not match").wait_for(timeout=5000)
+        pg.fill("#su-pass2", "secret123")
+        pg.locator("#form-signup button[type=submit]").click()
         pg.locator("#mainview").wait_for(timeout=5000)
         assert "driver@bus.co" in (pg.text_content("#who") or "")
         pg.screenshot(path=f"{shot}/02-programs.png")
@@ -197,9 +200,9 @@ def test_full_user_journey(server, tmp_path):
         # 16. sign out + back in, session gone then restored via login
         pg.click("#btn-logout")
         assert pg.locator("#authview").is_visible()
-        pg.fill("#li-email", "driver@bus.co")
-        pg.fill("#li-pass", "secret123")
-        pg.click("#btn-login")
+        pg.fill("#si-email", "driver@bus.co")
+        pg.fill("#si-pass", "secret123")
+        pg.locator("#form-login button[type=submit]").click()
         pg.locator("#mainview").wait_for(timeout=5000)
         b.close()
     assert not errors, errors

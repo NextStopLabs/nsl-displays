@@ -8,20 +8,33 @@
 <span class=row><select id=orgsel aria-label="Organisation"></select>
 <button id=btn-logout>Sign out</button></span>
 </div>
-<div id=authview class=group><div class=grouptitle>Sign in / Sign up</div>
+<div id=authview>
+<div id=auth-signin class=group><div class=grouptitle>Sign in</div>
+<form id=form-login>
 <div class=row>
-<div style="flex:1;min-width:220px"><label for=li-email>Email</label><input id=li-email type=email autocomplete=username></div>
-<div style="flex:1;min-width:220px"><label for=li-pass>Password</label><input id=li-pass type=password autocomplete=current-password></div>
+<div style="flex:1;min-width:220px"><label for=si-email>Email <span class=req>(required)</span></label><input id=si-email type=email autocomplete=username></div>
+<div style="flex:1;min-width:220px"><label for=si-pass>Password <span class=req>(required)</span></label><input id=si-pass type=password autocomplete=current-password></div>
 </div>
-<div class=row><button id=btn-login class=primary>Sign in</button>
-<button id=btn-signup>Sign up (new organisation)</button></div>
-<div id=auth-signup-extra style="display:none">
-<p class=hint>New here? Fill these in, then press <b>Create account</b>.</p>
-<label for=su-name>Your name</label><input id=su-name>
-<label for=su-org>Organisation name <span class=req>(required)</span></label><input id=su-org>
-<div class=row><button id=btn-create class=primary>Create account &amp; organisation</button></div>
+<div class=row><button type=submit class=primary>Sign in</button>
+<span class=hint>New here? <a href="#" id=link-signup>Create an account</a></span></div>
+<div class=err id=si-err></div>
+</form>
 </div>
-<div class=err id=auth-err></div>
+<div id=auth-signup class=group style="display:none"><div class=grouptitle>Create account</div>
+<form id=form-signup>
+<p class=hint>Creates your login <b>and</b> a new organisation. You become its owner and can invite others later.</p>
+<div><label for=su-name>Your name</label><input id=su-name autocomplete=name></div>
+<div><label for=su-org>Organisation name <span class=req>(required)</span></label><input id=su-org></div>
+<div class=row>
+<div style="flex:1;min-width:220px"><label for=su-email>Email <span class=req>(required)</span></label><input id=su-email type=email autocomplete=email></div>
+<div style="flex:1;min-width:220px"><label for=su-pass>Password <span class=req>(required, min 8 characters)</span></label><input id=su-pass type=password autocomplete=new-password></div>
+</div>
+<div><label for=su-pass2>Confirm password <span class=req>(required)</span></label><input id=su-pass2 type=password autocomplete=new-password></div>
+<div class=row><button type=submit class=primary>Create account &amp; organisation</button>
+<span class=hint>Already have an account? <a href="#" id=link-signin>Sign in</a></span></div>
+<div class=err id=su-err></div>
+</form>
+</div>
 </div>
 <div id=mainview style="display:none">
 <div class=tabs id=tabs>
@@ -65,9 +78,11 @@
 </section>
 <section id=tab-audio style="display:none">
 <div class=group><div class=grouptitle>Audio clips</div>
-<table><thead><tr><th>SHA-256</th><th>File</th><th>Source</th></tr></thead><tbody id=audiorows></tbody></table>
+<p class=hint>Clips are picked by name everywhere — stops, services and announcements. Names use lowercase letters, numbers and dashes.</p>
+<table><thead><tr><th>Clip name</th><th>Source</th><th>Preview</th><th>Actions</th></tr></thead><tbody id=audiorows></tbody></table>
 <div class=row>
-<div style="flex:2"><label for=au-file>Upload clip (MP3/WAV/OGG/M4A/FLAC, max 50 MB)</label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
+<div style="flex:2;min-width:200px"><label for=au-name>Clip name <span class=req>(required)</span></label><input id=au-name><div class=hint>e.g. derby-bus-station. Auto-filled from the file — edit before uploading.</div><div class=err id=au-name-err></div></div>
+<div style="flex:2"><label for=au-file>Audio file (MP3/WAV/OGG/M4A/FLAC, max 50 MB) <span class=req>(required)</span></label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
 <div style="align-self:end"><button id=btn-upload>Upload</button></div>
 </div>
 </div>

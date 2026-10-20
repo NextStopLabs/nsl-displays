@@ -106,6 +106,8 @@ def signup(email: str = Form(...), password: str = Form(...), name: str = Form("
     con = db()
     if con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
         raise HTTPException(400, "email in use")
+    if len(password or "") < 8:
+        raise HTTPException(400, "password must be at least 8 characters")
     uid, oid = str(uuid.uuid4()), str(uuid.uuid4())
     con.execute("INSERT INTO users VALUES (?,?,?,?,?,?)", (uid, email, _hash_pw(password), name, None, _utcnow()))
     con.execute("INSERT INTO organisations VALUES (?,?,?,?)", (oid, org, "active", _utcnow()))
@@ -466,14 +468,43 @@ def export_pack_route(pid: str, v: int, u: dict = Depends(current_user)):
 
 
 # ---------- audio + voices (upload / Piper stub) ----------
+def _slugify_clip(name: str) -> str:
+    import re as _re
+    s = (name or "").strip().lower()
+    # drop extension if user pasted a filename
+    if "." in s:
+        s = s.rsplit(".", 1)[0]
+    s = _re.sub(r"[^a-z0-9]+", "-", s)
+    s = _re.sub(r"-{2,}", "-", s).strip("-")
+    return s[:64]
+
+
+def _unique_clip_name(con, organisation_id: str, want: str, sha: str) -> str:
+    """Keep friendly names unique per org; derby-bus-station, derby-bus-station-2, ..."""
+    rows = con.execute("SELECT sha256, filename FROM audio_files WHERE organisation_id=?",
+                       (organisation_id,)).fetchall()
+    taken = {r[1]: r[0] for r in rows}
+    if want not in taken or taken[want] == sha:
+        return want
+    i = 2
+    while f"{want}-{i}" in taken and taken[f"{want}-{i}"] != sha:
+        i += 1
+    return f"{want}-{i}"
+
+
 @app.post("/api/audio")
 def upload_audio(organisation_id: str = Form(...), file: UploadFile = File(...),
+                 name: str = Form(default=""),
                  u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor")
     raw = file.file.read()
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(400, "file too large")
     h = hashlib.sha256(raw).hexdigest()
+    # Friendly clip name, e.g. derby-bus-station (never show the hash to users).
+    want = _slugify_clip(name) or _slugify_clip(os.path.splitext(file.filename or "")[0])
+    if not want or len(want) < 2:
+        raise HTTPException(400, "give this clip a name, e.g. derby-bus-station")
     # transcode stub: store as-is under hash name; real pipeline normalises to mono FLAC
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
     sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".flac")
@@ -481,18 +512,30 @@ def upload_audio(organisation_id: str = Form(...), file: UploadFile = File(...),
         with open(sp, "wb") as f:
             f.write(raw)
     con = db()
+    friendly = _unique_clip_name(con, organisation_id, want, h)
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), organisation_id, h, file.filename, f"audio/{h[:2]}/{h}.flac",
+                (str(uuid.uuid4()), organisation_id, h, friendly, f"audio/{h[:2]}/{h}.flac",
                  1000, "upload", None, None, None, _utcnow()))
     con.commit()
-    return {"sha256": h, "bytes": len(raw)}
+    row = con.execute("SELECT filename FROM audio_files WHERE organisation_id=? AND sha256=?",
+                      (organisation_id, h)).fetchone()
+    final = row[0] if row else friendly
+    return {"sha256": h, "bytes": len(raw), "name": final, "filename": final}
 
 
 @app.post("/api/audio/generate")
 def generate_audio(body: dict, u: dict = Depends(current_user)):
     """Piper TTS stub: synthesises placeholder tone WAV (real Piper runs in tts worker)."""
     require_role(u["id"], body["organisation_id"], "owner", "editor")
-    text = body.get("text", "")
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "type the text to speak first")
+    want = _slugify_clip(body.get("name") or "")
+    if not want:
+        # suggest from the text: first few words -> derby-bus-station style
+        want = _slugify_clip("-".join(text.split()[:5]))
+    if not want or len(want) < 2:
+        raise HTTPException(400, "give this clip a name, e.g. derby-bus-station")
     h = hashlib.sha256(f"tts:{body.get('voice_id')}:{text}".encode()).hexdigest()
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
     sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".flac")
@@ -505,12 +548,16 @@ def generate_audio(body: dict, u: dict = Depends(current_user)):
             w.setframerate(22050)
             w.writeframes(_s.pack(f"<{22050}h", *[0] * 22050))  # 1 s silence placeholder
     con = db()
+    friendly = _unique_clip_name(con, body["organisation_id"], want, h)
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), body["organisation_id"], h, body.get("name", text[:40]),
+                (str(uuid.uuid4()), body["organisation_id"], h, friendly,
                  f"audio/{h[:2]}/{h}.flac", 1000, "tts", text, body.get("voice_id"),
                  json.dumps({"speed": body.get("speed", 1.0)}), _utcnow()))
     con.commit()
-    return {"sha256": h}
+    row = con.execute("SELECT filename FROM audio_files WHERE organisation_id=? AND sha256=?",
+                      (body["organisation_id"], h)).fetchone()
+    final = row[0] if row else friendly
+    return {"sha256": h, "name": final, "filename": final}
 
 
 @app.post("/api/voices")
@@ -529,13 +576,29 @@ def upload_voice(organisation_id: str = Form(...), name: str = Form(...),
     os.makedirs(os.path.join(STORAGE_DIR, "voices", vid), exist_ok=True)
     open(os.path.join(STORAGE_DIR, "voices", vid, "model.onnx"), "wb").write(mraw)
     open(os.path.join(STORAGE_DIR, "voices", vid, "config.json"), "wb").write(craw)
+    # Piper .onnx.json uses nested shapes: language is an object like
+    # {"code": "en_US", ...} and sample_rate lives under audio.sample_rate.
+    # Flatten both to TEXT / INTEGER for the voices table.
+    lang = cfg.get("language", "")
+    if isinstance(lang, dict):
+        lang = lang.get("code") or lang.get("name") or ""
+    if not isinstance(lang, str):
+        lang = str(lang or "")
+    sr = cfg.get("sample_rate")
+    if not isinstance(sr, int) or isinstance(sr, bool):
+        audio = cfg.get("audio")
+        sr = audio.get("sample_rate", 22050) if isinstance(audio, dict) else 22050
+    try:
+        sr = int(sr)
+    except Exception:
+        sr = 22050
     con = db()
     con.execute("INSERT INTO voices VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (vid, organisation_id, name, f"voices/{vid}/model.onnx",
-                 f"voices/{vid}/config.json", cfg.get("language", ""), cfg.get("sample_rate", 22050),
+                 f"voices/{vid}/config.json", lang, sr,
                  0, "", u["id"], len(mraw), _utcnow()))
     con.commit()
-    return {"voice_id": vid, "sample_rate": cfg.get("sample_rate", 22050)}
+    return {"voice_id": vid, "sample_rate": sr}
 
 
 @app.get("/api/voices")
@@ -844,9 +907,107 @@ def delete_program(pid: str, u: dict = Depends(current_user)):
 @app.get("/api/audio")
 def list_audio(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
-    rows = db().execute("SELECT sha256, filename, duration_ms, source FROM audio_files WHERE organisation_id=?",
+    rows = db().execute("SELECT sha256, filename, duration_ms, source FROM audio_files WHERE organisation_id=? ORDER BY filename",
                         (organisation_id,)).fetchall()
-    return {"clips": [dict(r) for r in rows]}
+    clips = []
+    for r in rows:
+        d = dict(r)
+        d["name"] = d.get("filename", "")
+        clips.append(d)
+    return {"clips": clips}
+
+
+@app.get("/api/audio/{sha}/file")
+def preview_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)):
+    """Stream a clip for the portal preview player (user auth, not device token)."""
+    row = db().execute("SELECT * FROM audio_files WHERE sha256=? AND organisation_id=?",
+                       (sha, organisation_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "no clip")
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    path = os.path.join(STORAGE_DIR, str(row["storage_key"]))
+    if not os.path.exists(path):
+        raise HTTPException(404, "file missing")
+    return FileResponse(path, filename=f"{row['filename']}.flac")
+
+
+@app.patch("/api/audio/{sha}")
+def rename_audio(sha: str, body: dict, u: dict = Depends(current_user)):
+    org = body.get("organisation_id", "")
+    row = db().execute("SELECT * FROM audio_files WHERE sha256=? AND organisation_id=?",
+                       (sha, org)).fetchone()
+    if not row:
+        raise HTTPException(404, "no clip")
+    require_role(u["id"], org, "owner", "editor")
+    want = _slugify_clip(body.get("name") or "")
+    if not want or len(want) < 2:
+        raise HTTPException(400, "use lowercase letters, numbers and dashes, e.g. derby-bus-station")
+    con = db()
+    friendly = _unique_clip_name(con, org, want, sha)
+    con.execute("UPDATE audio_files SET filename=? WHERE sha256=? AND organisation_id=?",
+                (friendly, sha, org))
+    con.commit()
+    return {"sha256": sha, "name": friendly, "filename": friendly}
+
+
+@app.delete("/api/audio/{sha}")
+def delete_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)):
+    row = db().execute("SELECT * FROM audio_files WHERE sha256=? AND organisation_id=?",
+                       (sha, organisation_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "no clip")
+    require_role(u["id"], organisation_id, "owner", "editor")
+    con = db()
+    used = []
+    if con.execute("SELECT 1 FROM p_stops WHERE audio=? AND organisation_id=? LIMIT 1",
+                   (sha, organisation_id)).fetchone():
+        used.append("stops")
+    for col in ("next_stop_audio", "approaching_audio", "last_stop_audio"):
+        if con.execute(f"SELECT 1 FROM p_services WHERE {col}=? AND organisation_id=? LIMIT 1",
+                       (sha, organisation_id)).fetchone():
+            used.append(col)
+            break
+    if used:
+        raise HTTPException(400, f"clip is used by {', '.join(used)} — change those first")
+    con.execute("DELETE FROM audio_files WHERE sha256=? AND organisation_id=?", (sha, organisation_id))
+    con.commit()
+    # remove the stored file only when no org references it any more
+    if not con.execute("SELECT 1 FROM audio_files WHERE sha256=? LIMIT 1", (sha,)).fetchone():
+        try:
+            os.remove(os.path.join(STORAGE_DIR, str(row["storage_key"])))
+        except OSError:
+            pass
+    return {"ok": True}
+
+
+@app.put("/api/services/{sid}")
+def update_service(sid: str, body: dict, u: dict = Depends(current_user)):
+    """Rename a service and pick its announcement clips from the library."""
+    con = db()
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (sid,)).fetchone()
+    if not s:
+        raise HTTPException(404, "no service")
+    require_role(u["id"], s["organisation_id"], "owner", "editor")
+    org = s["organisation_id"]
+    # validate clip hashes belong to this org (or are cleared)
+    for key in ("next_stop_audio", "approaching_audio", "last_stop_audio"):
+        v = body.get(key, s[key])
+        if v in (None, ""):
+            continue
+        if not con.execute("SELECT 1 FROM audio_files WHERE sha256=? AND organisation_id=?",
+                           (v, org)).fetchone():
+            raise HTTPException(400, f"unknown clip for {key}: pick one from your audio library")
+    con.execute("UPDATE p_services SET number=?, name=?, next_stop_audio=?, approaching_audio=?, "
+                "last_stop_audio=?, terminus_clip_mode=? WHERE id=?",
+                (body.get("number", s["number"]), body.get("name", s["name"]),
+                 body.get("next_stop_audio", s["next_stop_audio"]),
+                 body.get("approaching_audio", s["approaching_audio"]),
+                 body.get("last_stop_audio", s["last_stop_audio"]),
+                 body.get("terminus_clip_mode", s["terminus_clip_mode"] or "both"), sid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?",
+                (_utcnow(), u["id"], s["program_id"]))
+    con.commit()
+    return {"ok": True}
 
 
 @app.post("/api/programs/import")
