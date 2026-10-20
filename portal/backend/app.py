@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import connect
@@ -705,7 +705,8 @@ if os.path.isdir(FRONT):
 
     @app.get("/", include_in_schema=False)
     def _index():
-        return FileResponse(os.path.join(FRONT, "index.html"))
+        # relative target so it works with or without the /portal prefix
+        return RedirectResponse(url="static/", status_code=307)
 
 
 @app.get("/health")
