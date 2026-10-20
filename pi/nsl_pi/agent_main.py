@@ -10,6 +10,13 @@ import time
 BASE = os.environ.get("NSL_BASE", "/var/lib/nsl")
 
 
+def _poll_interval() -> int:
+    try:
+        return max(5, int(os.environ.get("NSL_POLL_S", "10")))
+    except ValueError:
+        return 10
+
+
 def _utcnow() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -24,8 +31,9 @@ def main():
     token = os.environ.get("NSL_TOKEN")
     ag = Agent(portal, BASE, token)
     core = Core(db, os.path.join(BASE, "programs"))
-    print(f"nsl-agent starting: portal={portal} base={BASE} token={'set' if token else 'MISSING'}",
-          flush=True)
+    interval = _poll_interval()
+    print(f"nsl-agent starting: portal={portal} base={BASE} token={'set' if token else 'MISSING'} "
+          f"poll={interval}s", flush=True)
     while True:
         try:
             hb = ag.heartbeat(db)
@@ -60,7 +68,7 @@ def main():
                 print("sync:", json.dumps(rep)[:2000], flush=True)
         except Exception as e:
             print("agent cycle failed:", e, flush=True)
-        time.sleep(60)
+        time.sleep(interval)
 
 
 if __name__ == "__main__":

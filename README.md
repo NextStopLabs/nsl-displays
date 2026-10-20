@@ -378,7 +378,7 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 
 Per-controller page. Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
 
-Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … — command not queued`) — it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (≤60 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY` — if they differ, the upload hasn't landed yet. Offline ⇒ keypad + local UI keep working.
+Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … — command not queued`) — it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (every `NSL_POLL_S`, default 10 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY` — if they differ, the upload hasn't landed yet. Offline ⇒ keypad + local UI keep working.
 
 ---
 
@@ -484,7 +484,7 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 
 - `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
 - `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
-- `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync runs every 60 s.
+- `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync polls every `NSL_POLL_S` (default 10 s).
 - `nsl-local-ui` serves the local controller on port 80 (all interfaces, but only AP-subnet/bus-LAN/loopback clients get answers, 403 otherwise).
 
 ```bash
