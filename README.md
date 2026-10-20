@@ -370,7 +370,7 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 - **Programs:** installed versions, active program, apply pending, roll back, **import `.nslpack`** (offline program install).
 - **Settings (login):** display outputs + matrix options, keypad map, GPIO bindings, audio device/volume, AP name/password, saved hotspot networks, join-hotspot-now, portal URL, release channel, startup program/destination.
 - **Diagnostics:** connection, last sync, pairing code, test pattern/message/announcement, live keypad/GPIO state, logs, check-for-updates, restart/shutdown.
-- Listens on all interfaces (`NSL_UI_HOST`/`NSL_UI_PORT`, default `0.0.0.0:80`) but only serves loopback, the AP subnet (`192.168.4.0/24`) and the bus LAN (`10.9.0.0/24`) — anything else gets 403. Extra subnets via `NSL_UI_ALLOW`. There is no login; the network boundary is the access control, so use `192.168.4.1` in AP mode and the portal page on hotspot.
+- Listens on all interfaces (`NSL_UI_HOST`/`NSL_UI_PORT`, default `0.0.0.0:80`) but only serves loopback, the AP subnet (`192.168.4.0/24`) and the bus LAN (`10.9.0.0/24`) — anything else gets 403. Extra subnets via `NSL_UI_ALLOW` (e.g. `NSL_UI_ALLOW=0.0.0.0/0` opens it fully — only on networks you trust: commands are unauthenticated). There is no login; the network boundary is the access control, so use `192.168.4.1` in AP mode and the portal page on hotspot.
 
 ---
 
