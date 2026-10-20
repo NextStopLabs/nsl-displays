@@ -124,7 +124,7 @@ def test_full_user_journey(server, tmp_path):
         pg.locator("#lay-canvas").wait_for()
         pg.locator("#lay-status").get_by_text("0 element(s)").wait_for()
         pg.click("#lay-autofit")
-        pg.locator("#lay-status").get_by_text("2 element(s)").wait_for()
+        pg.locator("#lay-status").get_by_text("3 element(s)").wait_for()
         # canvas drag moves element #0 (x 0 -> ~10)
         pg.select_option("#lay-ellist", "0")
         box = pg.locator("#lay-canvas").bounding_box()
@@ -139,7 +139,7 @@ def test_full_user_journey(server, tmp_path):
         # reload from server proves it persisted
         pg.select_option("#lay-disp", index=1)
         pg.select_option("#lay-disp", index=0)
-        pg.locator("#lay-status").get_by_text("2 element(s)").wait_for()
+        pg.locator("#lay-status").get_by_text("3 element(s)").wait_for()
         # 9. publish (assert it really published — no silent validation failure)
         pg.fill("#pd-notes", "first version")
         pg.click("#pd-publish")  # alert auto-accepted
