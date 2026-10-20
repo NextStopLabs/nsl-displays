@@ -482,7 +482,8 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 
 **4. Environment + services:**
 
-- `nsl-core`/`nsl-display` run `python3 -m nsl_pi.service_main` (`NSL_ROLE=front`, `NSL_BASE=/var/lib/nsl`): renders front 240x40, serves `http://10.9.0.1:8090/state` for receivers.
+- `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
+- `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
 - `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync runs every 60 s.
 - `nsl-local-ui` serves `http://192.168.4.1` on the AP interface only.
 
