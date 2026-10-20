@@ -21,7 +21,10 @@ class DisplayDriver:
         self.virtual_dir = virtual_dir
         self.matrix = None
         self.last_frames: dict[str, object] = {}
-        if HAS_MATRIX and not virtual_dir:
+        # Hardware wins whenever the module is importable; virtual PNGs are the
+        # fallback for dev machines. (An always-set virtual_dir must never
+        # silently disable the panels on a real bus.)
+        if HAS_MATRIX:
             o = RGBMatrixOptions()
             o.rows = int(matrix_options.get("led-rows", 40))
             o.cols = int(matrix_options.get("led-cols", 80))
@@ -33,6 +36,8 @@ class DisplayDriver:
             o.pwm_bits = int(matrix_options.get("led-pwm-bits", 11))
             o.disable_hardware_pulsing = bool(matrix_options.get("no-hardware-pulse", True))
             self.matrix = RGBMatrix(options=o)
+        print(f"display driver: {'HUB75 hardware' if self.matrix is not None else 'virtual PNG output ' + str(virtual_dir)} "
+              f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
 
     def show_snapshot(self, snapshot: dict):
         """snapshot from Core.display_snapshot(). Renders each enabled output."""

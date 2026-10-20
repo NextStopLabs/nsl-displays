@@ -308,8 +308,15 @@ class Core:
     # ---- unified command dispatch (local UI, keypad agent, portal agent) ----
     def apply_command(self, cmd: dict, source: str = "local", user_id: str | None = None) -> dict:
         """Apply one command dict. Raises ValueError on bad/unknown commands."""
+        if isinstance(cmd, str):
+            try:
+                cmd = json.loads(cmd)
+            except Exception:
+                raise ValueError(f"bad command payload {cmd!r}")
         cmd = cmd or {}
         action = cmd.get("command")
+        # aliases used by the portal remote page
+        action = {"destination_code": "select_code", "program_select": "select_program"}.get(action, action)
         if action == "select_code":
             return self.select_code(cmd.get("code", ""), source=source, user_id=user_id)
         if action == "select_destination":

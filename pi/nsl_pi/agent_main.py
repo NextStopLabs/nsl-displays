@@ -33,6 +33,11 @@ def main():
                 print("heartbeat failed:", hb["error"], flush=True)
             for pc in ((hb or {}).get("pending_commands") or []):
                 cmd = pc.get("command") or {}
+                if isinstance(cmd, str):
+                    try:
+                        cmd = json.loads(cmd)
+                    except Exception:
+                        cmd = {}
                 print("portal command received:", json.dumps(cmd)[:300], flush=True)
                 try:
                     res = core.apply_command(cmd, source="portal")

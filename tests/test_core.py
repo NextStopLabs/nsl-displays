@@ -122,3 +122,10 @@ def test_override_visible_without_program(tmp_path):
     from pi.nsl_pi.renderer import autofit_layout, render_frame
     img = render_frame(autofit_layout(240, 40), snap["fields"], snap["override"] or "")
     assert any(px[:3] != (0, 0, 0) for px in img.getdata())
+
+
+def test_apply_command_aliases_and_string_payload(tmp_path):
+    c, pid = _core(tmp_path)
+    c.apply_command('{"command": "program_select", "program_id": "%s"}' % pid, source="test")
+    c.apply_command({"command": "destination_code", "code": "10000001"}, source="test")
+    assert c.state()["destination_id"] is not None
