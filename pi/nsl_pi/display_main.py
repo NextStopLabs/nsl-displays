@@ -65,10 +65,13 @@ def main():
             try:
                 snap = core.display_snapshot()
             except Exception as e:
+                import traceback as _tb
                 fetch_fails += 1
                 if fetch_fails == 1 or fetch_fails % 20 == 0:
                     print(f"display: snapshot failed x{fetch_fails} ({e}) — holding last frame",
                           flush=True)
+                if fetch_fails == 1:
+                    print("".join(_tb.format_exception(type(e), e, e.__traceback__)), flush=True)
             last_fetch = now
         if snap:
             st = snap.get("state", {})
