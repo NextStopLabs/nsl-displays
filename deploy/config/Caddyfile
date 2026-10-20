@@ -1,0 +1,9 @@
+nslboards.com {
+  handle /portal/* {
+    reverse_proxy portal:8000
+  }
+  handle {
+    root * /srv/www
+    file_server
+  }
+}

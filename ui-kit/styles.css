@@ -1,0 +1,35 @@
+/* NSL UI kit — light modern, legacy transport flavour (Hanover Helon spirit).
+   Bevelled panels, grey chrome, titled group boxes, LED preview. */
+:root{
+  --chrome:#ECE9E2; --chrome-d:#CFC9BD; --ink:#1c1c1c; --accent:#1F3A93;
+  --amber:#FFB000; --warn:#B00020; --field:#fff;
+}
+*{box-sizing:border-box}
+body{background:#D8D4CA;color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,sans-serif;margin:0;padding:16px}
+.window{background:var(--chrome);border:1px solid #8f8a7d;border-top-color:#fff;border-left-color:#fff;
+  box-shadow:2px 2px 0 rgba(0,0,0,.25);max-width:1080px;margin:0 auto}
+.titlebar{background:var(--accent);color:#fff;font-weight:600;padding:6px 10px;font-size:14px}
+.body{padding:12px;display:grid;gap:12px}
+.group{background:var(--chrome);border:1px solid #8f8a7d;border-top-color:#fff;border-left-color:#fff;
+  padding:10px;position:relative;margin-top:8px}
+.grouptitle{position:absolute;top:-11px;left:8px;background:var(--chrome);padding:0 6px;font-weight:600;font-size:12px}
+label{display:block;font-weight:600;margin:8px 0 2px}
+label .req{color:var(--warn)}
+input,select,textarea{width:100%;background:var(--field);border:1px solid #8f8a7d;border-top-color:#6f6a5e;
+  border-left-color:#6f6a5e;padding:6px 8px;font-size:14px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0}
+.hint{font-size:12px;color:#555}.err{font-size:12px;color:var(--warn)}
+button{background:linear-gradient(#fff,#D9D4C7);border:1px solid #6f6a5e;border-top-color:#fff;border-left-color:#fff;
+  padding:7px 14px;font-size:14px;cursor:pointer}
+button:active{background:linear-gradient(#D9D4C7,#fff)}
+button.primary{background:var(--accent);color:#fff;border-color:#0e1f52}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+table{width:100%;border-collapse:collapse;background:#fff}
+th,td{border:1px solid #b7b1a3;padding:6px 8px;text-align:left}
+tr:nth-child(even){background:#F4F1EA}tr.sel{background:#cfe0ff}
+.tabs{display:flex;gap:2px}.tab{padding:6px 12px;background:var(--chrome-d);border:1px solid #8f8a7d;cursor:pointer}
+.tab.on{background:#fff;font-weight:700}
+.led{background:#0a0a0a;border:2px inset #555;padding:8px;display:inline-block}
+.led canvas{image-rendering:pixelated}
+.kbd{font-family:monospace;background:#222;color:var(--amber);padding:2px 6px}
+@media(max-width:640px){button{min-height:48px;font-size:16px}.body{padding:8px}}

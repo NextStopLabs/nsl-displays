@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>NSL Portal</title><link rel=stylesheet href="/portal/static/../frontend/styles.css">
+<style>@import url('/static/styles.css');</style>
+</head><body>
+<div class=window><div class=titlebar>NSL Boards — Portal</div>
+<div class=body>
+<div class=tabs><div class=tab on>Programs</div><div class=tab>Controllers</div><div class=tab>Audio</div><div class=tab>Remote</div></div>
+<div class=group><div class=grouptitle>Programs</div>
+<div class=row><button class=primary onclick="alert('Served by /portal/api — see plan.md §8 for endpoints')">New program</button>
+<button>Duplicate</button><button>Upload to controllers</button><button>Export .nslpack</button></div>
+<p class=hint>Build programs in tabs: General · Services · Codes · Uploads. Drafts never touch a bus until published + uploaded.</p>
+<table><tr><th>Program</th><th>Services</th><th>Published</th><th>Controllers</th></tr>
+<tr><td>Burton routes</td><td>100, 101</td><td>v7</td><td>bus-1 ✓</td></tr></table>
+</div>
+<div class=group><div class=grouptitle>Destination codes (8 digits, unique per program)</div>
+<label>Code entry<input id=code maxlength=8></label><div class=err id=codeerr></div>
+<div class=row><button onclick="check()">Check code</button></div>
+<p class=hint>Entering a code selects service + destination in one go. Same code may exist in another program.</p>
+</div>
+<div class=group><div class=grouptitle>Board preview (LED dot-matrix)</div>
+<div class=led><canvas id=led width=240 height=40></canvas></div>
+<p class=hint>Same Pillow renderer as the Pi (snapshot-tested identical).</p>
+</div>
+</div></div>
+<script>
+async function check(){const c=document.getElementById('code').value;
+document.getElementById('codeerr').textContent=(/^[0-9]{8}$/.test(c))?'':'Code must be exactly 8 digits 0-9.';}
+// demo LED preview
+const cv=document.getElementById('led'),g=cv.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,240,40);
+g.fillStyle='#FFB000';g.font='20px monospace';g.fillText('100',4,30);g.font='12px monospace';g.fillText('BURTON',56,18);g.fillText('via Branston',56,36);
+</script></body></html>
