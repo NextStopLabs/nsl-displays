@@ -169,11 +169,12 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
         font_id = el.get("font", DEFAULT_FONT)
         han = None
         if isinstance(font_id, str) and font_id.startswith("han-"):
-            from .hanover import get_font as _get_han
+            from .hanover import get_font as _get_han, warn_once_unknown as _han_warn
             try:
                 han = _get_han(font_id)
             except Exception:
                 han = None  # unknown han- id: fall back to default font below
+                _han_warn(font_id)
         if han is not None:
             from .hanover import text_width as _han_width
             fh = int(han["height"])

@@ -36,6 +36,12 @@ def main():
     if not mo:
         mo = {"led-chain": 3 if ROLE == "front" else (2 if ROLE == "side" else 1)}
     drv = DisplayDriver(mo, outputs, virtual_dir=os.path.join(BASE, "virtual"))
+    try:
+        from nsl_pi.hanover import fonts_dir as _han_dir, list_fonts as _han_list
+        _han_found = _han_list()
+        print(f"display: {len(_han_found)} Hanover fonts in {_han_dir()}", flush=True)
+    except Exception as e:
+        print(f"display: Hanover font scan failed ({e})", flush=True)
     # boot self-test: full-white 1.5 s proves panels/power/HAT before any content.
     # If this flash never appears, the fault is hardware, not software.
     try:

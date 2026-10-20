@@ -53,6 +53,7 @@ def parse_font(path: str) -> dict:
 
 
 _cache: dict[str, dict] = {}
+_warned_missing: set[str] = set()
 
 
 def _stem_of(path: str) -> str:
@@ -97,6 +98,14 @@ def get_font(font_id: str, directory: str | None = None) -> dict:
         parsed["name"] = _stem_of(match)
         _cache[key] = parsed
     return _cache[key]
+
+
+def warn_once_unknown(font_id: str):
+    """One log line per unknown id (services run for weeks; never spam)."""
+    if font_id not in _warned_missing:
+        _warned_missing.add(font_id)
+        print(f"display: unknown han font {font_id!r} in {fonts_dir()} — falling back to default font",
+              flush=True)
 
 
 def glyph_of(font: dict, ch: str) -> tuple[int, list[int]] | None:
