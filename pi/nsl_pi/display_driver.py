@@ -48,6 +48,11 @@ class DisplayDriver:
                     # never crash-loop the bus over a renamed option; shout instead
                     print(f"display driver: RGBMatrixOptions has no {attr!r} "
                           f"(library version?) — skipped", flush=True)
+            print(f"display driver: options rows={wanted['rows']} cols={wanted['cols']} "
+                  f"chain={wanted['chain_length']} parallel={wanted['parallel']} "
+                  f"brightness={wanted['brightness']} mapping={wanted['hardware_mapping']} "
+                  f"slowdown={wanted['gpio_slowdown']} pwm_bits={wanted['pwm_bits']} "
+                  f"no_hw_pulse={wanted['disable_hardware_pulsing']}", flush=True)
             self.matrix = RGBMatrix(options=o)
         print(f"display driver: {'HUB75 hardware' if self.matrix is not None else 'virtual PNG output ' + str(virtual_dir)} "
               f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
