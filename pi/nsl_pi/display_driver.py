@@ -23,6 +23,7 @@ class DisplayDriver:
         self.last_frames: dict[str, object] = {}
         self._push_failures: dict[str, int] = {}
         self._push_logged: dict[str, float] = {}
+        self._buf = None  # offscreen FrameCanvas, created on first hardware draw
         # Hardware wins whenever the module is importable; virtual PNGs are the
         # fallback for dev machines. (An always-set virtual_dir must never
         # silently disable the panels on a real bus.)
@@ -68,7 +69,12 @@ class DisplayDriver:
               f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
 
     def show_snapshot(self, snapshot: dict):
-        """snapshot from Core.display_snapshot(). Renders each enabled output."""
+        """snapshot from Core.display_snapshot(). Renders each LOCAL output.
+
+        Outputs with transport 'network' belong to other Pis (their own
+        nsl-display renders them) — drawing them here would composite several
+        frames at the same origin, i.e. garbled flickering text.
+        """
         from .renderer import autofit_layout, current_page, render_frame
         import json as _j
         fields = snapshot.get("fields", {})
@@ -78,11 +84,13 @@ class DisplayDriver:
         for out in self.outputs:
             if not out.get("enabled", 1):
                 continue
+            if (out.get("transport") or "local") != "local":
+                continue  # another Pi drives this sign over the bus LAN
             prog_display = out.get("program_display") or ""
             w, h = int(out["width_px"]), int(out["height_px"])
             layout = None
-            # layouts keyed by display *id*; also match by program display name via portal mapping.
-            # Here receivers/front pass layout json directly; fallback autofit.
+            # layouts keyed by display NAME (front/side/rear); fallback to default
+            # template, then auto-fit.
             cand = layouts.get(prog_display) or layouts.get(out.get("display_name"))
             if cand:
                 layout = _j.loads(cand) if isinstance(cand, str) else cand
@@ -101,36 +109,66 @@ class DisplayDriver:
             except Exception:
                 continue  # hold last frame on crash (spec)
             self.last_frames[out["display_name"]] = frame
-            self._push(out, frame)
+            self._draw(out, frame)
+        self.present()
+
+    def _draw(self, out: dict, frame):
+        """Draw one frame into the offscreen buffer (hardware) or a PNG (virtual)."""
+        name = out.get("display_name", "?")
+        if self.matrix is not None:
+            if self._buf is None:
+                try:
+                    self._buf = self.matrix.CreateFrameCanvas()
+                except Exception as e:
+                    self._push_failed(name, e)
+                    return
+            try:
+                self._buf.SetImage(frame, int(out.get("x_offset", 0) or 0), 0)
+            except Exception as e:
+                self._push_failed(name, e)
+            return
+        if self.virtual_dir:
+            import os
+            os.makedirs(self.virtual_dir, exist_ok=True)
+            try:
+                frame.save(os.path.join(self.virtual_dir, f"{name}.png"))
+            except Exception:
+                pass
+
+    def present(self):
+        """Swap the offscreen buffer live (vsync): one swap per frame, no tearing."""
+        if self.matrix is None or self._buf is None:
+            return
+        try:
+            self._buf = self.matrix.SwapOnVSync(self._buf)
+            if self._push_failures.pop("swap", 0):
+                print("display driver: SwapOnVSync recovered", flush=True)
+        except Exception as e:
+            self._push_failed("swap", e)
+
+    def _push_failed(self, name: str, e: Exception):
+        n = self._push_failures.get(name, 0) + 1
+        self._push_failures[name] = n
+        detail = "SwapOnVSync FAILED" if name == "swap" else f"{name} SetImage FAILED"
+        import time as _t
+        last = self._push_logged.get(name, 0)
+        if n == 1 or _t.time() - last > 60:
+            print(f"display driver: {detail} x{n} ({e}) — "
+                  f"panels dark but software alive; check power/HAT/ribbon", flush=True)
+            self._push_logged[name] = _t.time()
 
     def _push(self, out: dict, frame):
-        name = out.get("display_name", "?")
-        pushed_hw = False
-        if self.matrix is not None:
-            try:
-                xo = int(out.get("x_offset", 0) or 0)
-                self.matrix.SetImage(frame, xo, 0)
-                pushed_hw = True
-                if self._push_failures.get(name):
-                    print(f"display driver: {name} SetImage recovered after "
-                          f"{self._push_failures[name]} failures", flush=True)
-                    self._push_failures[name] = 0
-            except Exception as e:
-                n = self._push_failures.get(name, 0) + 1
-                self._push_failures[name] = n
-                import time as _t
-                last = self._push_logged.get(name, 0)
-                if n == 1 or _t.time() - last > 60:
-                    print(f"display driver: {name} SetImage FAILED x{n} ({e}) — "
-                          f"panels dark but software alive; check power/HAT/ribbon", flush=True)
-                    self._push_logged[name] = _t.time()
+        """Legacy single-frame push (draw + present). Prefer show_snapshot()."""
+        self._draw(out, frame)
+        self.present()
         # debug screenshots: NSL_DEBUG_PNG=1 writes what we SEND (proves content
         # vs hardware). Throttled; view at local-ui /api/debug.png?output=<name>.
         import os as _os
-        if self.virtual_dir and (_os.environ.get("NSL_DEBUG_PNG") or self.matrix is None):
+        if self.virtual_dir and _os.environ.get("NSL_DEBUG_PNG") and self.matrix is not None:
             import time as _t
+            name = out.get("display_name", "?")
             last_png = self._push_logged.get("png:" + name, 0)
-            if pushed_hw and _t.time() - last_png < 2.0:
+            if _t.time() - last_png < 2.0:
                 return
             self._push_logged["png:" + name] = _t.time()
             try:
