@@ -592,7 +592,7 @@ async function loadControllers() {
   S.controllers = r.controllers || [];
   $("ctlrows").innerHTML = S.controllers.map((c) =>
     `<tr><td>${esc(c.name)}</td><td>${esc(c.status)}</td><td>${esc(c.last_seen_at || "—")}</td><td>${esc(c.app_version || "")}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-unpair="${c.id}">Unpair</button></td></tr>`).join("");
+    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}">Unpair</button></td></tr>`).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${esc(c.status)})</option>`).join("");
 }
 $("ctlrows").addEventListener("click", async (e) => {
@@ -606,13 +606,44 @@ $("ctlrows").addEventListener("click", async (e) => {
     if (b.dataset.unpair && confirm("Unpair this controller? Its token is revoked.")) {
       await api(`/api/controllers/${b.dataset.unpair}`, { method: "DELETE" }); loadControllers();
     }
+    if (b.dataset.retoken) {
+      const c = S.controllers.find((x) => x.id === b.dataset.retoken);
+      if (confirm(`Issue a new device token for “${c ? c.name : b.dataset.retoken}”? The current token stops working immediately.`)) {
+        const r = await api(`/api/controllers/${b.dataset.retoken}/token`, { method: "POST", body: {} });
+        showTokenDialog(c ? c.name : "controller", r.device_token);
+      }
+    }
   } catch (ex) { err(String(ex.message || ex)); }
 });
+function showTokenDialog(name, token) {
+  $("token-value").value = token || "";
+  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. This token is shown <b>once</b> — the Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.`;
+  const base = location.origin + PREFIX;
+  $("token-pi").textContent =
+    `sudo systemctl edit nsl-agent   # add under [Service]:\nEnvironment="PORTAL_URL=${base}"\nEnvironment="NSL_TOKEN=${token}"\n` +
+    `sudo systemctl daemon-reload && sudo systemctl restart nsl-agent`;
+  const d = $("token-dialog");
+  if (d && d.showModal) d.showModal();
+}
+$("btn-token-copy").addEventListener("click", async () => {
+  const v = $("token-value").value;
+  try { await navigator.clipboard.writeText(v); $("btn-token-copy").textContent = "Copied"; }
+  catch (e) {
+    $("token-value").select();
+    try { document.execCommand("copy"); $("btn-token-copy").textContent = "Copied"; }
+    catch (e2) { err("Copy failed — select the token manually (Ctrl+C)."); }
+  }
+  setTimeout(() => { $("btn-token-copy").textContent = "Copy"; }, 2000);
+});
+$("btn-token-close").addEventListener("click", () => { const d = $("token-dialog"); if (d) d.close(); });
 $("btn-pair").addEventListener("click", async () => {
   try {
-    await api("/api/controllers/pair", { method: "POST",
+    const r = await api("/api/controllers/pair", { method: "POST",
       body: formData({ organisation_id: S.org, code: $("pair-code").value.trim().toUpperCase(), name: $("pair-name").value }) });
+    const name = $("pair-name").value;
     $("pair-code").value = ""; $("pair-name").value = ""; loadControllers();
+    if (r && r.device_token) showTokenDialog(name || "controller", r.device_token);
+    else err("Paired, but the server did not return a device token — use “Rotate token” to issue one.");
   } catch (e) { err(String(e.message || e)); }
 });
 $("btn-sim").addEventListener("click", async () => {

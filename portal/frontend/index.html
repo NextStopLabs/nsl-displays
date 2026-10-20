@@ -75,6 +75,14 @@
 </div>
 <table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
 </div>
+<dialog id=token-dialog>
+<div class=grouptitle>Device token — copy it now</div>
+<p class=hint id=token-sub>This token is shown <b>once</b>. The Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.</p>
+<div class=row><div style="flex:1"><label for=token-value>Device token</label><input id=token-value readonly></div>
+<div style="align-self:end"><button id=btn-token-copy>Copy</button></div></div>
+<div><label for=token-pi>On the Pi (replace the NSL_TOKEN line, keep PORTAL_URL)</label><pre id=token-pi></pre></div>
+<div class=row style="justify-content:flex-end"><button id=btn-token-close class=primary>Done</button></div>
+</dialog>
 </section>
 <section id=tab-audio style="display:none">
 <div class=group><div class=grouptitle>Audio clips</div>

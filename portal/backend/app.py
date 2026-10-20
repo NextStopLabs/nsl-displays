@@ -1216,6 +1216,26 @@ def unpair(cid: str, u: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@app.post("/api/controllers/{cid}/token")
+def rotate_device_token(cid: str, u: dict = Depends(current_user)):
+    """Issue a fresh device token for a paired controller (old one stops working).
+
+    The token is returned once and never stored — the UI must show it immediately.
+    """
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c or not c["organisation_id"]:
+        raise HTTPException(404, "no paired controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor")
+    token = secrets.token_urlsafe(32)
+    th = hashlib.sha256(token.encode()).hexdigest()
+    con.execute("UPDATE controllers SET device_token_hash=?, status='paired' WHERE id=?", (th, cid))
+    con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
+                (c["organisation_id"], u["id"], "controller.token.rotate", cid, _utcnow()))
+    con.commit()
+    return {"controller_id": cid, "device_token": token}
+
+
 # ---------- programs: duplicate / delete / templates / presets / import ----------
 @app.post("/api/programs/{pid}/duplicate")
 def duplicate_program(pid: str, u: dict = Depends(current_user)):

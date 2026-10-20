@@ -151,6 +151,10 @@ def test_full_user_journey(server, tmp_path):
         pg.click("#btn-sim")
         pg.fill("#pair-name", "bus-1")
         pg.click("#btn-pair")
+        pg.locator("#token-dialog[open]").wait_for()  # show-once token dialog
+        assert pg.locator("#token-value").input_value() != ""
+        pg.screenshot(path=f"{shot}/04b-token.png")
+        pg.click("#btn-token-close")
         pg.locator("#ctlrows").get_by_text("bus-1").wait_for()
 
         # 11. queue upload (reopen program so controller checkbox exists)
