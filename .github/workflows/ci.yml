@@ -1,0 +1,22 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - run: python -m pytest tests/ -q
+      - run: python scripts/bench_test.py
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres: {image: postgres:16-alpine, env: {POSTGRES_PASSWORD: nsl, POSTGRES_USER: nsl, POSTGRES_DB: nsl}, ports: ["5432:5432"]}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt psycopg[binary]
+      - run: python -m pytest tests/test_format.py -q  # contract: same content_hash both DBs

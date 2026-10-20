@@ -707,3 +707,197 @@ if os.path.isdir(FRONT):
 @app.get("/health")
 def health():
     return {"ok": True, "version": APP_VERSION}
+
+
+# ---------- controller config / keypad / networks / startup (plan.md 5.2a) ----------
+@app.get("/api/controllers/{cid}/config")
+def get_controller_config(cid: str, u: dict = Depends(current_user)):
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
+    cfg = con.execute("SELECT * FROM controller_config WHERE controller_id=?", (cid,)).fetchone()
+    outs = [dict(r) for r in con.execute("SELECT * FROM display_outputs WHERE controller_id=?", (cid,))]
+    kp = con.execute("SELECT * FROM keypad_config WHERE controller_id=?", (cid,)).fetchone()
+    nets = [dict(r) for r in con.execute("SELECT ssid, priority, kind FROM wifi_networks WHERE controller_id=?", (cid,))]
+    return {"controller": dict(c), "config": dict(cfg) if cfg else None,
+            "outputs": outs, "keypad": dict(kp) if kp else None, "networks": nets}
+
+
+@app.put("/api/controllers/{cid}/config")
+def put_controller_config(cid: str, body: dict, u: dict = Depends(current_user)):
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor")
+    import json as _j
+    con.execute("INSERT INTO controller_config VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(controller_id) DO UPDATE SET version=version+1, matrix_options=excluded.matrix_options, audio_device=excluded.audio_device, ap_name=excluded.ap_name, startup_program_id=excluded.startup_program_id, startup_code=excluded.startup_code, portal_url=excluded.portal_url, channel=excluded.channel, updated_at=excluded.updated_at",
+                (cid, 1, _j.dumps(body.get("matrix_options", {})), body.get("audio_device", "default"),
+                 body.get("ap_name", "NSL-unit"), body.get("startup_program_id"), body.get("startup_code"),
+                 body.get("portal_url", "https://nslboards.com/portal"), body.get("channel", "stable"), _utcnow()))
+    con.execute("UPDATE controllers SET config_version=config_version+1 WHERE id=?", (cid,))
+    for o in body.get("outputs", []):
+        if "id" in o and con.execute("SELECT 1 FROM display_outputs WHERE id=?", (o["id"],)).fetchone():
+            con.execute("UPDATE display_outputs SET display_name=?, width_px=?, height_px=?, parallel_chain=?, x_offset=?, enabled=?, brightness=?, transport=?, receiver_addr=?, program_display=? WHERE id=?",
+                        (o.get("display_name"), o.get("width_px"), o.get("height_px"), o.get("parallel_chain", 1),
+                         o.get("x_offset", 0), o.get("enabled", 1), o.get("brightness", 70),
+                         o.get("transport", "local"), o.get("receiver_addr"), o.get("program_display", ""), o["id"]))
+        else:
+            con.execute("INSERT INTO display_outputs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), cid, o.get("display_name"), o.get("width_px"), o.get("height_px"),
+                         o.get("parallel_chain", 1), o.get("x_offset", 0), o.get("enabled", 1),
+                         o.get("brightness", 70), o.get("transport", "local"), o.get("receiver_addr"),
+                         o.get("program_display", "")))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/controllers/{cid}")
+def unpair(cid: str, u: dict = Depends(current_user)):
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor")
+    con.execute("UPDATE controllers SET device_token_hash=NULL, status='unpaired' WHERE id=?", (cid,))
+    con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
+                (c["organisation_id"], u["id"], "controller.unpair", cid, _utcnow()))
+    con.commit()
+    return {"ok": True}
+
+
+# ---------- programs: duplicate / delete / templates / presets / import ----------
+@app.post("/api/programs/{pid}/duplicate")
+def duplicate_program(pid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    import copy
+    con = db()
+    src = con.execute("SELECT * FROM programs WHERE id=?", (pid,)).fetchone()
+    nid = str(uuid.uuid4())
+    now = _utcnow()
+    con.execute("INSERT INTO programs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (nid, org, src["name"] + " (copy)", src["px_width"], src["default_display"], 0, 0, now, now, u["id"]))
+    idmap = {}
+    def _cp(table, cols, where, new_prog=True):
+        for r in con.execute(f"SELECT * FROM {table} WHERE {where[0]}=?", (where[1],)):
+            d = dict(r)
+            old = d["id"]
+            d["id"] = str(uuid.uuid4())
+            idmap[old] = d["id"]
+            if new_prog:
+                d["program_id"] = nid
+            for k in ("service_id", "destination_id", "display_id"):
+                if k in d and d[k] in idmap:
+                    d[k] = idmap[d[k]]
+            con.execute(f"INSERT INTO {table} VALUES ({','.join('?'*len(d))})", list(d.values()))
+    # order matters: displays, services, destinations, stops, layouts, templates, presets
+    for r in con.execute("SELECT * FROM program_displays WHERE program_id=?", (pid,)):
+        d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); idmap[o] = d["id"]; d["program_id"] = nid
+        con.execute("INSERT INTO program_displays VALUES (?,?,?,?,?,?,?)", list(d.values()))
+    for r in con.execute("SELECT * FROM p_services WHERE program_id=?", (pid,)):
+        d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); idmap[o] = d["id"]; d["program_id"] = nid
+        con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)", list(d.values()))
+    for r in con.execute("SELECT * FROM p_destinations WHERE program_id=?", (pid,)):
+        d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); idmap[o] = d["id"]; d["program_id"] = nid
+        d["service_id"] = idmap.get(d["service_id"], d["service_id"])
+        con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)", list(d.values()))
+    for table, n in (("p_stops", 10), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5)):
+        for r in con.execute(f"SELECT * FROM {table} WHERE program_id=?", (pid,)):
+            d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); d["program_id"] = nid
+            for k in ("service_id", "destination_id", "display_id"):
+                if k in d and d[k] in idmap:
+                    d[k] = idmap[d[k]]
+            con.execute(f"INSERT INTO {table} VALUES ({','.join('?'*n)})", list(d.values()))
+    con.commit()
+    return {"program_id": nid}
+
+
+@app.delete("/api/programs/{pid}")
+def delete_program(pid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner")
+    con = db()
+    for t in ("p_stops", "p_layouts", "p_templates", "p_presets", "p_destinations", "p_services",
+              "program_displays", "program_versions", "programs"):
+        con.execute(f"DELETE FROM {t} WHERE {'id' if t=='programs' else 'program_id'}=?", (pid,))
+    con.commit()
+    return {"ok": True}
+
+
+@app.get("/api/audio")
+def list_audio(organisation_id: str, u: dict = Depends(current_user)):
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    rows = db().execute("SELECT sha256, filename, duration_ms, source FROM audio_files WHERE organisation_id=?",
+                        (organisation_id,)).fetchall()
+    return {"clips": [dict(r) for r in rows]}
+
+
+@app.post("/api/programs/import")
+def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(...),
+                      organisation_id: str = Form(...)):
+    require_role(u["id"], organisation_id, "owner", "editor")
+    import tempfile, zipfile as _z
+    from nslprog import check_file as _cf
+    tmp = tempfile.mkdtemp()
+    zp = os.path.join(tmp, "up.nslpack")
+    open(zp, "wb").write(file.file.read())
+    with _z.ZipFile(zp) as z:
+        z.extractall(tmp)
+    res = _cf(os.path.join(tmp, "program.nslprog"))
+    if not res.ok:
+        raise HTTPException(400, "; ".join(e.message for e in res.errors))
+    # creates a new draft program from pack meta (rows re-read)
+    import sqlite3 as _s
+    src = _s.connect(f"file:{os.path.join(tmp,'program.nslprog')}?mode=ro", uri=True)
+    src.row_factory = _s.Row
+    meta = {r[0]: r[1] for r in src.execute("SELECT key, value FROM meta")}
+    con = db()
+    nid = str(uuid.uuid4())
+    now = _utcnow()
+    con.execute("INSERT INTO programs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (nid, organisation_id, meta.get("program_name", "imported"),
+                 int(meta.get("px_width", 240)), "", 0, 0, now, now, u["id"]))
+    idmap = {}
+    for t, cols in (("displays", None), ("services", None), ("destinations", None), ("stops", None),
+                    ("layouts", None), ("layout_templates", None), ("override_presets", None)):
+        for r in src.execute(f"SELECT * FROM {t}"):
+            d = dict(r)
+            o = d.get("id")
+            if o:
+                d2 = str(uuid.uuid4()); idmap[o] = d2; d["id"] = d2
+            for k in ("service_id", "destination_id", "display_id"):
+                if k in d and d[k] in idmap:
+                    d[k] = idmap[d[k]]
+            dst = {"displays": "program_displays", "services": "p_services", "destinations": "p_destinations",
+                   "stops": "p_stops", "layouts": "p_layouts", "layout_templates": "p_templates",
+                   "override_presets": "p_presets"}[t]
+            if t == "displays":
+                con.execute("INSERT INTO program_displays VALUES (?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["name"], d["width_px"], d["height_px"], d["position"]))
+            elif t == "services":
+                con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["number"], d["name"], d["position"],
+                             d["next_stop_audio"], d["approaching_audio"], d["last_stop_audio"], d["terminus_clip_mode"]))
+            elif t == "destinations":
+                con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["service_id"], d["code"], d["name"], d["position"],
+                             d["num"], d["via"], d["dest"], d["extra_fields"]))
+            elif t == "stops":
+                con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["destination_id"], d["position"], d["name"],
+                             d["audio"], d["board_text"], d["board_override"], d["is_terminus"]))
+            elif t == "layouts":
+                con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["destination_id"], d["display_id"], d["layout"]))
+            elif t == "layout_templates":
+                con.execute("INSERT INTO p_templates VALUES (?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["display_id"], d["name"], d["layout"], d["is_default"]))
+            else:
+                con.execute("INSERT INTO p_presets VALUES (?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["label"], d["text"], d["position"]))
+    con.commit()
+    src.close()
+    return {"program_id": nid}

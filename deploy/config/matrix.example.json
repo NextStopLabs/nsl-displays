@@ -1,0 +1,5 @@
+{"front": {"chain": 3, "parallel": 1, "rows": 40, "cols": 80, "brightness": 70, "gpio_mapping": "regular", "slowdown_gpio": 4, "pwm_bits": 11, "hardware_pulse": false},
+ "side": {"chain": 2, "parallel": 1, "rows": 40, "cols": 80, "brightness": 70},
+ "rear": {"chain": 1, "parallel": 1, "rows": 40, "cols": 80, "brightness": 70},
+ "bus_lan": {"front": "10.9.0.1/24", "side": "10.9.0.2/24", "rear": "10.9.0.3/24"},
+ "ap": {"ssid": "NSL-<unit id>", "url": "http://192.168.4.1"}}
