@@ -376,7 +376,9 @@ class Core:
         """Fields + override + layout ids for display driver / receivers."""
         st = self.state()
         if not st["program_id"]:
-            return {"state": st, "fields": {}, "layouts": {}, "override": None}
+            # no program selected: still show an active override (manual message
+            # must reach the boards with or without program context)
+            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
         pc = self._open_prog(st["program_id"], st["program_version"])
         try:
             dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()

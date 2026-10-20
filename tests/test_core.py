@@ -111,3 +111,14 @@ def test_apply_command_dispatch(tmp_path):
             pass
         else:
             raise AssertionError(f"expected ValueError for {bad}")
+
+
+def test_override_visible_without_program(tmp_path):
+    c, _ = _core(tmp_path)
+    assert c.state()["program_id"] is None
+    c.apply_override("TEST", source="test")
+    snap = c.display_snapshot()
+    assert snap["override"] == "TEST"
+    from pi.nsl_pi.renderer import autofit_layout, render_frame
+    img = render_frame(autofit_layout(240, 40), snap["fields"], snap["override"] or "")
+    assert any(px[:3] != (0, 0, 0) for px in img.getdata())
