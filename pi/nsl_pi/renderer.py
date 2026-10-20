@@ -73,10 +73,10 @@ def autofit_layout(width: int, height: int) -> dict:
              "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
              "scroll": "none", "flash_ms": 0, "page": 1, "show_if": "always"},
             {"type": "field", "field": "dest", "x": num_w, "y": 0, "w": width - num_w, "h": dest_h,
-             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
+             "font": "pixel-large", "colour": AMBER, "align": "centre", "valign": "middle",
              "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "always"},
             {"type": "field", "field": "via", "x": num_w, "y": dest_h, "w": width - num_w, "h": height - dest_h,
-             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
+             "font": "pixel-medium", "colour": AMBER, "align": "centre", "valign": "middle",
              "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "has_text"},
         ],
     }

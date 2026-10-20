@@ -61,9 +61,9 @@ const Preview = (() => {
       elements: [
         { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "pixel-huge", colour: AMBER,
           align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always" },
-        { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "pixel-huge", colour: AMBER,
+        { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "pixel-large", colour: AMBER,
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" },
-        { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "pixel-huge", colour: AMBER,
+        { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "pixel-medium", colour: AMBER,
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text" } ] };
   }
   function drawOne(cv, lay, fields, ovText, t) {

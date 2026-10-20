@@ -158,5 +158,5 @@ def test_autofit_default_matches_spec(tmp_path):
     assert (els["num"]["x"], els["num"]["y"], els["num"]["w"], els["num"]["h"]) == (0, 0, 60, 40)
     assert (els["dest"]["x"], els["dest"]["y"], els["dest"]["w"], els["dest"]["h"]) == (60, 0, 180, 25)
     assert (els["via"]["x"], els["via"]["y"], els["via"]["w"], els["via"]["h"]) == (60, 25, 180, 15)
-    assert all(e["font"] == "pixel-huge" and e["align"] == "centre" and e["valign"] == "middle"
-               for e in els.values())
+    assert els["num"]["font"] == "pixel-huge" and els["dest"]["font"] == "pixel-large" and els["via"]["font"] == "pixel-medium"
+    assert all(e["align"] == "centre" and e["valign"] == "middle" for e in els.values())
