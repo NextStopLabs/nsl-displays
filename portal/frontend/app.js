@@ -590,10 +590,18 @@ $("btn-codes").addEventListener("click", async () => {
 async function loadControllers() {
   const r = await api("/api/controllers?organisation_id=" + encodeURIComponent(S.org));
   S.controllers = r.controllers || [];
-  $("ctlrows").innerHTML = S.controllers.map((c) =>
-    `<tr><td>${esc(c.name)}</td><td>${esc(c.status)}</td><td>${esc(c.last_seen_at || "—")}</td><td>${esc(c.app_version || "")}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}">Unpair</button></td></tr>`).join("");
-  $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${esc(c.status)})</option>`).join("");
+  $("ctlrows").innerHTML = S.controllers.map((c) => {
+    const last = c.last_seen_at || "never";
+    const status = c.online ? `<b class=ok>ONLINE</b>` : `offline<br><span class=hint>last seen ${esc(last)}</span>`;
+    const progs = (c.programs || []).map((p) =>
+      `${esc(p.name || p.program_id)}: want v${p.desired_version} / bus v${p.installed_version == null ? "—" : p.installed_version}` +
+      (p.status && p.status !== "installed" ? ` (${esc(p.status)})` : "") +
+      ((c.pending_commands && p.desired_version !== p.installed_version) ? " ⏳" : "")).join("<br>") || "—";
+    const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
+    return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
+    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}">Unpair</button></td></tr>`;
+  }).join("");
+  $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
 }
 $("ctlrows").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -769,8 +777,10 @@ $("btn-voice").addEventListener("click", async () => {
 async function rcSend(body) {
   const cid = $("rc-ctl").value;
   if (!cid) throw new Error("Choose a controller first.");
+  const c = S.controllers.find((x) => x.id === cid);
+  if (c && !c.online) throw new Error(`“${c.name}” is offline (last seen ${c.last_seen_at || "never"}) — command refused, nothing was queued.`);
   const r = await api(`/api/controllers/${cid}/command`, { method: "POST", body });
-  $("rc-state").textContent = "Command queued at " + new Date().toLocaleTimeString() + " (applied when the device is online).";
+  $("rc-state").textContent = `Sent to “${c ? c.name : cid}” at ${new Date().toLocaleTimeString()} — the bus picks it up on its next check-in (~60 s).`;
   return r;
 }
 const rc = (id, fn) => $(id).addEventListener("click", () => fn().catch((e) => err(String(e.message || e))));
@@ -787,7 +797,7 @@ rc("btn-rc-prog", () => rcSend({ command: "program_select", program_id: $("rc-pr
 $("btn-rc-refresh").addEventListener("click", async () => {
   await loadControllers();
   const c = S.controllers.find((x) => x.id === $("rc-ctl").value);
-  $("rc-state").textContent = c ? `Status: ${c.status}, last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}.` : "Select a controller.";
+  $("rc-state").textContent = c ? `${c.name}: ${c.online ? "ONLINE" : "OFFLINE"} — last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}, ${c.pending_commands || 0} command(s) waiting.` : "Select a controller.";
 });
 
 // ---------- boot ----------

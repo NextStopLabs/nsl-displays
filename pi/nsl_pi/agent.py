@@ -82,12 +82,22 @@ class Agent:
         try:
             for m in items:
                 pid, ver = m["program_id"], int(m["version"])
+                b = m["bundle"]
+                # idempotent sync: this exact build is already on disk — record desire, skip download
+                have = con.execute("SELECT content_hash, bundle_sha256 FROM installed_programs WHERE program_id=? AND version=?",
+                                   (pid, ver)).fetchone()
+                if have and have[0] == (m.get("content_hash") or "") and have[1] == b["sha256"]:
+                    con.execute(
+                        "INSERT OR REPLACE INTO desired_programs (program_id, desired_version, manifest, received_at) VALUES (?,?,?,datetime('now'))",
+                        (pid, ver, json.dumps(m)))
+                    con.commit()
+                    report.setdefault("skipped", []).append(f"{m.get('program_name', pid)} v{ver} already installed")
+                    continue
                 con.execute(
                     "INSERT OR REPLACE INTO desired_programs (program_id, desired_version, manifest, received_at) VALUES (?,?,?,datetime('now'))",
                     (pid, ver, json.dumps(m)))
                 con.commit()
                 # 1. program file first (tiny)
-                b = m["bundle"]
                 dest = os.path.join(self.incoming, f"{pid}-{ver}.nslprog")
                 try:
                     self.download(b["url"], dest, b["sha256"])

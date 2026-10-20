@@ -112,6 +112,9 @@ CREATE TABLE IF NOT EXISTS releases (
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, organisation_id TEXT, user_id TEXT,
   action TEXT NOT NULL, detail TEXT DEFAULT '', at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS pending_commands (
+  id TEXT PRIMARY KEY, controller_id TEXT NOT NULL, command TEXT NOT NULL,
+  from_user TEXT DEFAULT '', created_at TEXT NOT NULL, delivered_at TEXT);
 """
 
 

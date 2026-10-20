@@ -134,11 +134,36 @@ def me(u: dict = Depends(current_user)):
 
 
 # ---------- controllers & pairing ----------
+ONLINE_AFTER_S = 150  # last heartbeat within this window counts as online
+
+
+def _controller_online(c) -> bool:
+    """A bus is online only if it checked in recently. Never trust a stale flag."""
+    try:
+        last = datetime.strptime((c["last_seen_at"] or ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return False
+    return (datetime.now(timezone.utc) - last).total_seconds() < ONLINE_AFTER_S
+
+
 @app.get("/api/controllers")
 def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
-    rows = db().execute("SELECT * FROM controllers WHERE organisation_id=?", (organisation_id,)).fetchall()
-    return {"controllers": [dict(r) for r in rows]}
+    con = db()
+    rows = con.execute("SELECT * FROM controllers WHERE organisation_id=?", (organisation_id,)).fetchall()
+    out = []
+    for r in rows:
+        c = dict(r)
+        c["online"] = _controller_online(c)
+        c["programs"] = [dict(x) for x in con.execute(
+            "SELECT cp.program_id, p.name, cp.desired_version, cp.installed_version, cp.status "
+            "FROM controller_programs cp LEFT JOIN programs p ON p.id=cp.program_id "
+            "WHERE cp.controller_id=?", (c["id"],))]
+        c["pending_commands"] = con.execute(
+            "SELECT COUNT(*) FROM pending_commands WHERE controller_id=? AND delivered_at IS NULL",
+            (c["id"],)).fetchone()[0]
+        out.append(c)
+    return {"controllers": out}
 
 
 @app.post("/api/controllers/pair")
@@ -1072,8 +1097,14 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
     for ev in body.get("events", []):
         con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
                     (c["id"], None, "device", json.dumps(ev)[:500], _utcnow()))
+    pend = [dict(r) for r in con.execute(
+        "SELECT id, command, created_at FROM pending_commands "
+        "WHERE controller_id=? AND delivered_at IS NULL ORDER BY created_at", (c["id"],))]
+    if pend:
+        con.execute("UPDATE pending_commands SET delivered_at=? WHERE controller_id=? AND delivered_at IS NULL",
+                    (_utcnow(), c["id"]))
     con.commit()
-    return {"accepted": True, "now": _utcnow()}
+    return {"accepted": True, "now": _utcnow(), "pending_commands": pend}
 
 
 @app.get("/api/device/release")
@@ -1086,22 +1117,26 @@ def device_release(authorization: str | None = Header(default=None)):
     return {"version": row["version"], "bundle_key": row["bundle_key"], "signature": row["signature"]}
 
 
-# remote command fan-out: portal queues, Pi polls via WS / heartbeat
-COMMAND_BOX: dict[str, list] = {}
-
-
+# remote command fan-out: portal persists, Pi picks up on next heartbeat (<=60 s).
+# Offline buses are refused up front — a command that can't reach a bus is an
+# error here, not a silent "queued".
 @app.post("/api/controllers/{cid}/command")
 def remote_command(cid: str, body: dict, u: dict = Depends(current_user)):
     con = db()
     c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
-    if not c:
-        raise HTTPException(404, "no controller")
+    if not c or not c["organisation_id"]:
+        raise HTTPException(404, "no paired controller")
     require_role(u["id"], c["organisation_id"], "owner", "editor")
-    COMMAND_BOX.setdefault(cid, []).append({"command": body, "from": u["id"], "at": _utcnow()})
+    if not _controller_online(c):
+        raise HTTPException(409, f"controller offline (last seen {c['last_seen_at'] or 'never'}) — command not queued")
+    con.execute("INSERT INTO pending_commands VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), cid, json.dumps(body), u["id"], _utcnow(), None))
     con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
                 (cid, u["id"], "portal", json.dumps(body)[:500], _utcnow()))
     con.commit()
-    return {"queued": True}
+    pending = con.execute("SELECT COUNT(*) FROM pending_commands WHERE controller_id=? AND delivered_at IS NULL",
+                          (cid,)).fetchone()[0]
+    return {"queued": True, "online": True, "pending": pending}
 
 
 @app.websocket("/api/device/stream")
@@ -1117,16 +1152,26 @@ async def device_stream(ws: WebSocket):
             await ws.close()
             return
         cid = row["id"]
-        await ws.send_json({"hello": "ok", "pending": COMMAND_BOX.get(cid, [])})
-        COMMAND_BOX[cid] = []
+        pend = [dict(r) for r in db().execute(
+            "SELECT id, command, created_at FROM pending_commands "
+            "WHERE controller_id=? AND delivered_at IS NULL ORDER BY created_at", (cid,))]
+        await ws.send_json({"hello": "ok", "pending": pend})
+        if pend:
+            db().execute("UPDATE pending_commands SET delivered_at=? WHERE controller_id=? AND delivered_at IS NULL",
+                         (_utcnow(), cid))
+            db().commit()
         while True:
             msg = await ws.receive_json()
             if msg.get("type") == "state":
                 await ws.send_json({"ack": msg.get("seq", 0)})
-            cmds = COMMAND_BOX.get(cid, [])
-            if cmds:
-                await ws.send_json({"commands": cmds})
-                COMMAND_BOX[cid] = []
+            pend = [dict(r) for r in db().execute(
+                "SELECT id, command, created_at FROM pending_commands "
+                "WHERE controller_id=? AND delivered_at IS NULL ORDER BY created_at", (cid,))]
+            if pend:
+                await ws.send_json({"commands": pend})
+                db().execute("UPDATE pending_commands SET delivered_at=? WHERE controller_id=? AND delivered_at IS NULL",
+                             (_utcnow(), cid))
+                db().commit()
     except Exception:
         try:
             await ws.close()

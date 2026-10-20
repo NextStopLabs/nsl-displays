@@ -1,11 +1,17 @@
 """Agent loop: heartbeat + sync on hotspot, outbox flush."""
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import sqlite3
 import time
 
 BASE = os.environ.get("NSL_BASE", "/var/lib/nsl")
+
+
+def _utcnow() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def main():
@@ -23,9 +29,20 @@ def main():
             hb = ag.heartbeat(db)
             if isinstance(hb, dict) and hb.get("error"):
                 print("heartbeat failed:", hb["error"], flush=True)
+            for pc in ((hb or {}).get("pending_commands") or []):
+                # received = portal knows the bus is alive; actuation is Core's job (same DB, next step)
+                print("portal command received:", json.dumps(pc.get("command"))[:300], flush=True)
+                con = sqlite3.connect(db)
+                try:
+                    con.execute("INSERT INTO outbox (kind, payload, created_at) VALUES (?,?,?)",
+                                ("portal_command", json.dumps(pc), _utcnow()))
+                    con.commit()
+                finally:
+                    con.close()
             rep = ag.sync_once(db)
             audio = (rep or {}).get("audio", {})
-            if (rep or {}).get("programs") or (rep or {}).get("errors") or audio.get("ok") or audio.get("failed"):
+            if (rep or {}).get("programs") or (rep or {}).get("errors") or (rep or {}).get("skipped") \
+                    or audio.get("ok") or audio.get("failed"):
                 print("sync:", json.dumps(rep)[:2000], flush=True)
         except Exception as e:
             print("agent cycle failed:", e, flush=True)

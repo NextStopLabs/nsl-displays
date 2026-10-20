@@ -376,7 +376,9 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 
 ## 11. Portal remote control
 
-Per-controller page, works only while the bus is online (hotspot). Same abilities as §10 plus live online/offline, last announcement, volume state. Commands go over the controller WebSocket with acks; failures shown. Editors control, viewers watch-only, everything logged with user + time. Core on the Pi is the single source of truth — keypad, portal, local UI all send the same commands, last writer wins. Offline ⇒ controls disabled, keypad + local UI keep working.
+Per-controller page. Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
+
+Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … — command not queued`) — it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (≤60 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY` — if they differ, the upload hasn't landed yet. Offline ⇒ keypad + local UI keep working.
 
 ---
 

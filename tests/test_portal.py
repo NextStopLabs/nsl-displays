@@ -55,11 +55,34 @@ def test_signup_pair_publish_sync(tmp_path, monkeypatch):
     assert progs and progs[0]["version"] == ver
     r = c.get(f"/api/device/programs/{pid}/versions/{ver}/bundle", headers=DH)
     assert r.status_code == 200
+    # remote command to an offline bus is refused, not silently queued
+    r = c.post(f"/api/controllers/{cid}/command", json={"command": "stop_next"}, headers=H)
+    assert r.status_code == 409, r.text
+    assert "offline" in r.json()["detail"]
     r = c.post("/api/device/heartbeat", json={"installed": []}, headers=DH)
     assert r.json()["accepted"] is True
-    # remote command queued
+    # now online: command queues, persists, and arrives on next heartbeat
     r = c.post(f"/api/controllers/{cid}/command", json={"command": "stop_next"}, headers=H)
-    assert r.json()["queued"] is True
+    assert r.json() == {"queued": True, "online": True, "pending": 1}, r.text
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"]
+    assert ctl[0]["online"] is True
+    assert ctl[0]["pending_commands"] == 1
+    assert ctl[0]["programs"][0]["desired_version"] == ver
+    r = c.post("/api/device/heartbeat", json={"installed": []}, headers=DH)
+    pend = r.json()["pending_commands"]
+    assert len(pend) == 1 and "stop_next" in pend[0]["command"]
+    # delivered: no longer pending
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"]
+    assert ctl[0]["pending_commands"] == 0
+    # rotate token: old dies, new works
+    r = c.post(f"/api/controllers/{cid}/token", headers=H)
+    assert r.status_code == 200, r.text
+    newtok = r.json()["device_token"]
+    assert newtok != devtok
+    r = c.get("/api/device/manifest", headers=DH)
+    assert r.status_code == 401
+    r = c.get("/api/device/manifest", headers={"Authorization": f"Bearer {newtok}"})
+    assert r.status_code == 200
 
 
 def test_tenant_isolation(tmp_path, monkeypatch):
@@ -133,4 +156,6 @@ def test_ui_flow_end_to_end(tmp_path, monkeypatch):
     H2 = {"Authorization": f"Bearer {r['token']}"}
     ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"]
     assert len(ctl) == 1
-    assert c.post(f"/api/controllers/{ctl[0]['id']}/command", json={"command": "stop_next"}, headers=H).json()["queued"] is True
+    assert ctl[0]["online"] is False  # never checked in
+    r = c.post(f"/api/controllers/{ctl[0]['id']}/command", json={"command": "stop_next"}, headers=H)
+    assert r.status_code == 409
