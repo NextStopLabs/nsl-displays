@@ -133,6 +133,20 @@ class Agent:
                      "installed", "portal", __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None))
                 con.commit()
                 report["programs"].append(f"{pid}@{ver}")
+                # first install wins the idle bus: no active program means no
+                # mid-run state to protect, so select it and light the boards
+                # immediately instead of waiting for a manual program_select.
+                try:
+                    st = con.execute("SELECT program_id FROM state WHERE id=1").fetchone()
+                except Exception:
+                    st = None
+                if st is not None and not st[0]:
+                    try:
+                        from .core import Core
+                        Core(controller_db, self.programs_dir).select_program(pid, source="sync")
+                        report.setdefault("activated", []).append(f"{meta_name} v{ver} (first install)")
+                    except Exception as e:
+                        report["errors"].append(f"{pid}@{ver} auto-select: {e}")
             # 4. software last: check release
             try:
                 _, raw, _ = _req(self._api("/api/device/release"), token=self.token)

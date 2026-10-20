@@ -292,7 +292,11 @@ function renderProgram() {
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
   h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
   h += `<details id=up-details><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers (version defaults to published)</label><div id=pd-ctls>` +
-    S.controllers.map((c) => `<label style="font-weight:normal"><input type=checkbox value="${c.id}"> ${esc(c.name)}</label>`).join("") +
+    S.controllers.map((c) => {
+      const act = (c.programs || []).find((x) => x.active_version != null);
+      const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
+      return `<label style="font-weight:normal"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})</label>`;
+    }).join("") +
     `</div></div><div style="flex:1;min-width:120px"><label for=pd-ver>Version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
     <div style="align-self:end"><button id=pd-upload>Queue upload</button></div></div></details>`;
 
