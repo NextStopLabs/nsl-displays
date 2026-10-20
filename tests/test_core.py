@@ -140,3 +140,11 @@ def test_snapshot_missing_bundle_keeps_override(tmp_path):
     snap = c.display_snapshot()
     assert snap["override"] == "HELD"
     assert snap["fields"] == {}
+
+
+def test_snapshot_layouts_keyed_by_display_name(tmp_path):
+    c, pid = _core(tmp_path)
+    c.apply_command({"command": "select_program", "program_id": pid}, source="test")
+    c.apply_command({"command": "select_code", "code": "10000001"}, source="test")
+    snap = c.display_snapshot()
+    assert set(snap["layouts"]) >= {"front", "side", "rear"}

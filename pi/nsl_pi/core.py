@@ -402,10 +402,13 @@ class Core:
                 fields["__stop_name"] = stop["name"]
                 fields["__board_text"] = stop["board_text"] or stop["name"]
             layouts = {}
+            names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
             for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
-                layouts[lr["display_id"]] = lr["layout"]
+                # key by display NAME (front/side/rear): controller outputs and
+                # receivers address layouts by name, UUIDs never leave the bundle
+                layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
             for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
-                layouts.setdefault("template:" + tr["display_id"], tr["layout"])
+                layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
             return {"state": st, "fields": fields, "destination": dict(dest),
                     "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                     "layouts": layouts, "override": st["override_text"]}
