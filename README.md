@@ -460,9 +460,14 @@ What `pi/install.sh` does:
 
 ```bash
 git clone https://github.com/hzeller/rpi-rgb-led-matrix.git ~/rpi-rgb-led-matrix
-(cd ~/rpi-rgb-led-matrix && make build-python PYTHON=$(which python3) && sudo make install-python PYTHON=$(which python3))
+sudo apt-get install -y build-essential python3-dev cython3
+cd ~/rpi-rgb-led-matrix   # build from the repo root (pyproject.toml lives here, not in bindings/)
+sudo pip install . --break-system-packages   # system-wide: samples + services run as root, which cannot see a ~/.local user install
+# NOTE: samplebase.py appends the source tree to sys.path, so a user-only
+# (non-sudo) install is shadowed and fails with "No module named 'rgbmatrix.core'".
 # verify one 80x40 panel, E-line working:
-python3 ~/rpi-rgb-led-matrix/examples/runtext.py --led-rows=40 --led-cols=80 \
+cd bindings/python/samples
+sudo ./runtext.py --led-rows=40 --led-cols=80 \
   --led-chain=3 --led-parallel=1 --led-gpio-mapping=regular --led-slowdown-gpio=4 \
   --led-brightness=70 -t "NSL"
 ```
@@ -501,8 +506,8 @@ git clone <repo> ~/nsl-displays && cd ~/nsl-displays
 sudo bash pi/install.sh side bus-1   # → hostname nsl-side, bus-lan 10.9.0.2/24
 # rear:
 sudo bash pi/install.sh rear bus-1   # → hostname nsl-rear, bus-lan 10.9.0.3/24
-# same matrix library build as front, then smoke-test the local chain:
-python3 ~/rpi-rgb-led-matrix/examples/runtext.py --led-rows=40 --led-cols=80 \
+# same matrix library build as front (bindings/python → pip install .), then smoke-test the local chain:
+sudo ~/rpi-rgb-led-matrix/bindings/python/samples/runtext.py --led-rows=40 --led-cols=80 \
   --led-chain=2 --led-parallel=1 --led-gpio-mapping=regular --led-slowdown-gpio=4 \
   --led-brightness=70 -t "SIDE"   # use --led-chain=1 on rear
 ```

@@ -5,6 +5,10 @@ ROLE="${1:-front}"   # front|side|rear
 UNIT="${2:-bus-1}"
 
 sudo hostnamectl set-hostname "nsl-${ROLE}"
+# keep sudo/hostname lookups working (else "unable to resolve host nsl-${ROLE}")
+if ! grep -q "nsl-${ROLE}" /etc/hosts 2>/dev/null; then
+  echo "127.0.0.1 nsl-${ROLE}" | sudo tee -a /etc/hosts >/dev/null
+fi
 # onboard audio off (HUB75 clash), USB audio on front only
 if ! grep -q "dtparam=audio=off" /boot/firmware/config.txt 2>/dev/null; then
   echo "dtparam=audio=off" | sudo tee -a /boot/firmware/config.txt >/dev/null || \
