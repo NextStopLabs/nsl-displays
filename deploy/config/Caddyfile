@@ -1,5 +1,6 @@
 nslboards.com {
   handle /portal/* {
+    uri strip_prefix /portal
     reverse_proxy portal:8000
   }
   handle {
