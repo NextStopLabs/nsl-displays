@@ -31,7 +31,7 @@ class DisplayDriver:
             o.chain_length = int(matrix_options.get("led-chain", 3))
             o.parallel = int(matrix_options.get("led-parallel", 1))
             o.brightness = int(matrix_options.get("led-brightness", 70))
-            o.gpio_mapping = str(matrix_options.get("led-gpio-mapping", "regular"))
+            o.hardware_mapping = str(matrix_options.get("led-gpio-mapping", "regular"))
             o.slowdown_gpio = int(matrix_options.get("led-slowdown-gpio", 4))
             o.pwm_bits = int(matrix_options.get("led-pwm-bits", 11))
             o.disable_hardware_pulsing = bool(matrix_options.get("no-hardware-pulse", True))
