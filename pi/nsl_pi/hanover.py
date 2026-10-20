@@ -117,12 +117,12 @@ def glyph_of(font: dict, ch: str) -> tuple[int, list[int]] | None:
     return g
 
 
-def text_width(font: dict, text: str) -> int:
+def text_width(font: dict, text: str, spacing: int = 0) -> int:
     w = 0
     for ch in text:
         g = glyph_of(font, ch)
         if g:
-            w += g[0]
+            w += g[0] + spacing
     return w
 
 
@@ -135,7 +135,7 @@ def _colour_tuple(colour) -> tuple[int, int, int]:
     return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
 
 
-def draw_text(img, font: dict, text: str, x: int, y: int, colour="#FFB000"):
+def draw_text(img, font: dict, text: str, x: int, y: int, colour="#FFB000", spacing: int = 0):
     """Blit 1:1 bitmap text onto a PIL image, clipped to its bounds."""
     rgb = _colour_tuple(colour)
     W, H = img.size
@@ -156,15 +156,15 @@ def draw_text(img, font: dict, text: str, x: int, y: int, colour="#FFB000"):
                     px[xx, yy] = rgb
                 yy += 1
                 b >>= 1
-        cx += adv
+        cx += adv + spacing
 
 
-def render_text(font: dict, text: str, colour="#FFB000"):
+def render_text(font: dict, text: str, colour="#FFB000", spacing: int = 0):
     """Render to a transparent RGBA strip at 1:1 (caller scales with NEAREST)."""
     from PIL import Image
-    w, h = max(1, text_width(font, text)), max(1, int(font["height"]))
+    w, h = max(1, text_width(font, text, spacing)), max(1, int(font["height"]))
     rgb = Image.new("RGB", (w, h), (0, 0, 0))
-    draw_text(rgb, font, text, 0, 0, colour)
+    draw_text(rgb, font, text, 0, 0, colour, spacing)
     alpha = rgb.convert("L").point(lambda v: 255 if v > 0 else 0)
     rgb.putalpha(alpha)
     return rgb

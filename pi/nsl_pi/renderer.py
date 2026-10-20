@@ -178,7 +178,11 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
         if han is not None:
             from .hanover import text_width as _han_width
             fh = int(han["height"])
-            tw = _han_width(han, text)
+            try:
+                spacing = max(-8, min(16, int(el.get("spacing", 0) or 0)))
+            except (TypeError, ValueError):
+                spacing = 0
+            tw = _han_width(han, text, spacing)
         else:
             fh = FONT_HEIGHTS.get(font_id, 12)
             fnt = _font_for(font_id, min(hh - 2, fh + 4) if hh > 4 else fh)
@@ -198,7 +202,7 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
                 scale = max(1, min(8, int(el.get("scale", 1) or 1)))
             except (TypeError, ValueError):
                 scale = 1
-            strip = _han_render(han, text, colour)
+            strip = _han_render(han, text, colour, spacing)
             if scale > 1:
                 strip = strip.resize((strip.width * scale, strip.height * scale), Image.NEAREST)
             tw, th = strip.size

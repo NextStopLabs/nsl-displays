@@ -229,7 +229,9 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | element `type` | `field` (shows a field) or `text` (fixed text in a `text` property) |
 | element `field` | `num`, `via`, `dest`, or an extra field key |
 | `x`, `y`, `w`, `h` | Pixels, element must lie inside the display |
-| `font` | Id of a font built into the Pi software. Unknown font falls back to a default and raises a warning |
+| `font` | Pixel font id, or `han-<STEM>` for a Hanover bitmap font (1:1 pixels, see README §19.1). Unknown font falls back to a default and raises a warning |
+| `scale` | Integer 1–8, default 1. Integer-upscales Hanover glyphs (ignored by pixel fonts) |
+| `spacing` | Integer −8…16 pixels, default 0. Extra tracking between Hanover glyphs (negative tightens; ignored by pixel fonts) |
 | `colour` | Hex RGB |
 | `align` / `valign` | `left` `centre` `right` / `top` `middle` `bottom` |
 | `scroll` | `none`, `always`, `if_too_long` |

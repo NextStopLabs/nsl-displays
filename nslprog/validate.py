@@ -262,6 +262,13 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
                 sc = 0
             if sc < 1 or sc > 8:
                 res.errors.append(Issue("layout_scale", "scale must be an integer 1..8", "layouts", tag))
+        if "spacing" in el:
+            try:
+                sp = int(el["spacing"])
+            except (TypeError, ValueError):
+                sp = 999
+            if sp < -8 or sp > 16:
+                res.errors.append(Issue("layout_spacing", "spacing must be an integer -8..16", "layouts", tag))
         if el.get("align", "left") not in ALIGNS and el.get("align") not in (None,):
             res.errors.append(Issue("layout_align", f"bad align {el.get('align')!r}", "layouts", tag))
         if el.get("valign", "top") not in VALIGNS and el.get("valign") not in (None,):

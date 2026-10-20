@@ -640,7 +640,7 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
 
 ## 19. Board layout standard
 
-Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`), `scale` (integer 1–8, default 1; Hanover bitmap fonts only — integer-upscales the glyphs for tall displays, e.g. a 19 px font at ×2 fills 40 px). Static text is never clipped to its box — ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
+Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`), `scale` (integer 1–8, default 1; Hanover bitmap fonts only — integer-upscales the glyphs for tall displays, e.g. a 19 px font at ×2 fills 40 px), `spacing` (integer −8…16 px, default 0; extra tracking between Hanover glyphs, negative tightens). Static text is never clipped to its box — ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
 
 Example (front, `num | via over dest`):
 

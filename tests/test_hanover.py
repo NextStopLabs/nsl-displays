@@ -102,3 +102,38 @@ def test_scale_validation():
     d2 = b2.add_destination(s2, "00000001", "A", "", "A", "1", 0, {})
     b2.add_layout(d2, f2, lay)
     b2.build("/tmp/han-scale2.nslprog", 1, default_display_id=f2)
+
+
+def test_letter_spacing_widens_render():
+    from nsl_pi.renderer import render_frame, autofit_layout
+    lay = dict(autofit_layout(240, 40))
+    for el in lay["elements"]:
+        el["font"] = "han-0705C1E1"
+    a = render_frame(lay, {"num": "100", "via": "", "dest": "AB"}, now=0.0)
+    for el in lay["elements"]:
+        el["spacing"] = 3
+    b = render_frame(lay, {"num": "100", "via": "", "dest": "AB"}, now=0.0)
+    na = sum(1 for px in a.getdata() if px[:3] != (0, 0, 0))
+    nb = sum(1 for px in b.getdata() if px[:3] != (0, 0, 0))
+    assert nb >= na  # wider tracking never loses ink
+    from nsl_pi import hanover
+    f = hanover.get_font("han-0705C1E1")
+    assert hanover.text_width(f, "AB", 3) == hanover.text_width(f, "AB") + 6
+
+
+def test_spacing_validation():
+    import uuid
+    import pytest
+    from nslprog import ProgramBuilder
+    lay = dict(__import__("nsl_pi.renderer", fromlist=["autofit_layout"]).autofit_layout(240, 40))
+    for el in lay["elements"]:
+        el["font"] = "han-0705C1E1"
+        el["spacing"] = 99
+    b = ProgramBuilder(program_id=str(uuid.uuid4()), program_name="S", px_width=240,
+                       created_by="t", generator="t")
+    f = b.add_display("front", 240, 40, 0)
+    s = b.add_service("1", "", 0, None, None, None, "both")
+    d = b.add_destination(s, "00000001", "A", "", "A", "1", 0, {})
+    b.add_layout(d, f, lay)
+    with pytest.raises(ValueError):
+        b.build("/tmp/han-badspacing.nslprog", 1, default_display_id=f)

@@ -111,13 +111,14 @@ const Preview = (() => {
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
         const sc = han ? Math.max(1, Math.min(8, parseInt(el.scale || 1, 10) || 1)) : 1;
-        const tw1 = han ? H.width(han, text) : 0;
+        const hsp = han ? (() => { const v = parseInt(el.spacing || 0, 10); return isNaN(v) ? 0 : Math.max(-8, Math.min(16, v)); })() : 0;
+        const tw1 = han ? H.width(han, text, hsp) : 0;
         const tw = han ? tw1 * sc : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
         const hanStrip = () => {
           const c1 = document.createElement("canvas");
           c1.width = Math.max(1, tw1); c1.height = han.height;
-          H.draw(c1.getContext("2d"), han, text, 0, 0, el.colour || AMBER);
+          H.draw(c1.getContext("2d"), han, text, 0, 0, el.colour || AMBER, hsp);
           if (sc <= 1) return c1;
           const c2 = document.createElement("canvas");
           c2.width = c1.width * sc; c2.height = c1.height * sc;

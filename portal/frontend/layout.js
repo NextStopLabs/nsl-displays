@@ -21,20 +21,22 @@ const LayoutEditor = (() => {
     if (!hanCache[id]) { hanFetch(id).catch(() => {}); return null; }
     return hanCache[id];
   }
-  function hanWidth(f, text) {
+  function hanWidth(f, text, spacing) {
     let w = 0;
+    const sp = spacing || 0;
     for (const ch of (text || "")) {
       const g = f.glyphs[String(ch.codePointAt(0))] || f.glyphs["63"];
-      if (g) w += g[0];
+      if (g) w += g[0] + sp;
     }
     return w;
   }
   const hanScale = (el) => Math.max(1, Math.min(8, parseInt((el && el.scale) || 1, 10) || 1));
-  function hanStrip(han, sc, text, colour) {
-    const w1 = Math.max(1, hanWidth(han, text)), h1 = han.height;
+  const hanSpacing = (el) => { const v = parseInt((el && el.spacing) || 0, 10); return isNaN(v) ? 0 : Math.max(-8, Math.min(16, v)); };
+  function hanStrip(han, sc, text, colour, spacing) {
+    const w1 = Math.max(1, hanWidth(han, text, spacing || 0)), h1 = han.height;
     const c1 = document.createElement("canvas");
     c1.width = w1; c1.height = h1;
-    hanDraw(c1.getContext("2d"), han, text, 0, 0, colour);
+    hanDraw(c1.getContext("2d"), han, text, 0, 0, colour, spacing);
     if (sc <= 1) return c1;
     const c2 = document.createElement("canvas");
     c2.width = w1 * sc; c2.height = h1 * sc;
@@ -43,10 +45,10 @@ const LayoutEditor = (() => {
     s2.drawImage(c1, 0, 0, w1, h1, 0, 0, w1 * sc, h1 * sc);
     return c2;
   }
-  function hanDraw(g, f, text, x, y, colour) {
+  function hanDraw(g, f, text, x, y, colour, spacing) {
     g.fillStyle = colour || AMBER;
     let cx = Math.round(x);
-    const y0 = Math.round(y);
+    const y0 = Math.round(y), sp = spacing || 0;
     for (const ch of (text || "")) {
       const gl = f.glyphs[String(ch.codePointAt(0))] || f.glyphs["63"];
       if (!gl) continue;
@@ -55,7 +57,7 @@ const LayoutEditor = (() => {
         let b = cols[dx], yy = y0;
         while (b) { if (b & 1) g.fillRect(cx + dx, yy, 1, 1); yy++; b >>= 1; }
       }
-      cx += gl[0];
+      cx += gl[0] + sp;
     }
   }
   const hanover = {
@@ -221,7 +223,8 @@ const LayoutEditor = (() => {
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
         const sc = han ? hanScale(el) : 1;
-        const tw = han ? hanWidth(han, text) * sc : g.measureText(text).width;
+        const hsp = han ? hanSpacing(el) : 0;
+        const tw = han ? hanWidth(han, text, hsp) * sc : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
         // No clipping for static text: ink may legally overflow its box (wide
         // glyphs, tall fonts) and the bus shows it. Only scrolling crops.
@@ -233,7 +236,7 @@ const LayoutEditor = (() => {
             let tx = bx + 1;
             if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
             if (el.align === "right") tx = bx + bw - tw;
-            g.drawImage(hanStrip(han, sc, text, el.colour || AMBER), tx, y0);
+            g.drawImage(hanStrip(han, sc, text, el.colour || AMBER, hsp), tx, y0);
           } else {
             let tx = bx + 1;
             if (g.textAlign === "center") tx = bx + bw / 2;
@@ -249,7 +252,7 @@ const LayoutEditor = (() => {
           const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
             : (el.valign === "bottom" ? by + bh - sh : by);
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
-          const strip = hanStrip(han, sc, text, el.colour || AMBER);
+          const strip = hanStrip(han, sc, text, el.colour || AMBER, hsp);
           const s2 = document.createElement("canvas");
           s2.width = Math.ceil(tw + bw); s2.height = bh;
           s2.getContext("2d").drawImage(strip, 0, Math.max(0, y0 - by));
@@ -314,14 +317,16 @@ const LayoutEditor = (() => {
       <div style="flex:1"><label>Flash ms (0 = steady)</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
       <div style="flex:1"><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
       <div style="flex:1"><label>Scale ×1–8 (Hanover fonts)</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
+      <div style="flex:1"><label>Letter spacing px (Hanover)</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
       <div style="flex:1"><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
       </div>
       <div class=row><button id=lay-del>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
       const k = inp.dataset.p;
       let v = inp.value;
-      if (["x", "y", "w", "h", "flash_ms", "page", "scale"].includes(k))
+      if (["x", "y", "w", "h", "flash_ms", "page", "scale", "spacing"].includes(k))
         v = k === "scale" ? Math.min(8, Math.max(1, parseInt(v || "1", 10) || 1))
+          : k === "spacing" ? Math.min(16, Math.max(-8, parseInt(v || "0", 10) || 0))
           : Math.max(k === "w" || k === "h" ? 1 : 0, parseInt(v || "0", 10));
       el[k] = v;
       updateStatus(); drawEditor(); renderProps();
