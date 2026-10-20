@@ -1,12 +1,17 @@
-"""Local controller web UI at 192.168.4.1 (README 10). Offline-first.
+"""Local controller web UI (README 10). Offline-first.
 
 Same components as portal remote page. Control + programs (+.nslpack import)
-+ settings (login) + diagnostics. Bound to AP interface only in production;
-here bind address is configurable.
++ settings + diagnostics.
+
+Access control is the network boundary (there is no login on this box):
+the app listens on all interfaces but only serves loopback, the Pi access
+point subnet (192.168.4.0/24) and the bus LAN (10.9.0.0/24). Everything else
+gets 403. Extra subnets via NSL_UI_ALLOW="cidr,cidr,...". /api/health is open.
 """
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
 import os
 import sqlite3
@@ -18,6 +23,42 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from .core import Core
 
 app = FastAPI(title="NSL Local Controller")
+
+ALLOW_NETS = [ipaddress.ip_network("127.0.0.0/8"),
+              ipaddress.ip_network("192.168.4.0/24"),
+              ipaddress.ip_network("10.9.0.0/24")]
+for _tok in os.environ.get("NSL_UI_ALLOW", "").split(","):
+    _tok = _tok.strip()
+    if _tok:
+        try:
+            ALLOW_NETS.append(ipaddress.ip_network(_tok))
+        except ValueError:
+            pass
+
+OPEN_PATHS = {"/api/health", "/openapi.json", "/docs"}
+
+
+def client_allowed(host: str | None) -> bool:
+    try:
+        ip = ipaddress.ip_address(host or "")
+    except ValueError:
+        return True  # no parseable peer (test client); real servers always pass an IP
+    return any(ip in net for net in ALLOW_NETS)
+
+
+@app.middleware("http")
+async def _local_only(request, call_next):
+    if request.url.path not in OPEN_PATHS:
+        peer = request.client.host if request.client else ""
+        if not client_allowed(peer):
+            return JSONResponse({"detail": "local networks only (join the NSL-xx access point)"},
+                                status_code=403)
+    return await call_next(request)
+
+
+@app.get("/api/health")
+def api_health():
+    return {"ok": True}
 
 
 def _core() -> Core:

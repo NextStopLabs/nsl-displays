@@ -370,7 +370,7 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 - **Programs:** installed versions, active program, apply pending, roll back, **import `.nslpack`** (offline program install).
 - **Settings (login):** display outputs + matrix options, keypad map, GPIO bindings, audio device/volume, AP name/password, saved hotspot networks, join-hotspot-now, portal URL, release channel, startup program/destination.
 - **Diagnostics:** connection, last sync, pairing code, test pattern/message/announcement, live keypad/GPIO state, logs, check-for-updates, restart/shutdown.
-- Bound to the AP interface only. Local credentials only (never enter portal credentials here). Rate-limited login + session timeout.
+- Listens on all interfaces (`NSL_UI_HOST`/`NSL_UI_PORT`, default `0.0.0.0:80`) but only serves loopback, the AP subnet (`192.168.4.0/24`) and the bus LAN (`10.9.0.0/24`) — anything else gets 403. Extra subnets via `NSL_UI_ALLOW`. There is no login; the network boundary is the access control, so use `192.168.4.1` in AP mode and the portal page on hotspot.
 
 ---
 
@@ -485,7 +485,7 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 - `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
 - `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
 - `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync runs every 60 s.
-- `nsl-local-ui` serves `http://192.168.4.1` on the AP interface only.
+- `nsl-local-ui` serves the local controller on port 80 (all interfaces, but only AP-subnet/bus-LAN/loopback clients get answers, 403 otherwise).
 
 ```bash
 sudo systemctl edit nsl-agent   # add: [Service] Environment="PORTAL_URL=https://nslboards.com/portal" Environment="NSL_TOKEN=<token>"
