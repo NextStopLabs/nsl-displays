@@ -36,3 +36,21 @@ def test_manifest_shape(tmp_path):
     assert m["version"] == 7
     assert m["bundle"]["sha256"] and m["format_version"] == 1
     assert isinstance(m["audio"], list)
+
+
+def test_display_only_destination_needs_no_stops(tmp_path):
+    """Routes are display-first: a destination without stops publishes fine
+    (warning, not error) and validates on the Pi side."""
+    import uuid
+    from nslprog import ProgramBuilder, check_file
+    b = ProgramBuilder(program_id=str(uuid.uuid4()), program_name="Signs only", px_width=240,
+                       created_by="t", generator="t")
+    f = b.add_display("front", 240, 40, 0)
+    s = b.add_service("10", "", 0, None, None, None, "both")
+    b.add_destination(s, "10000001", "Depot bound", "", "DEPOT", "10", 0, {})
+    out = str(tmp_path / "q.nslprog")
+    info = b.build(out, 1, default_display_id=f)
+    assert info["version"] == 1
+    res = check_file(out)
+    assert res.ok, [e.message for e in res.errors]
+    assert any(i.code == "no_stops" for i in res.warnings)

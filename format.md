@@ -269,7 +269,7 @@ Run on the server when a user presses Publish, and again on the Pi before a down
 - `destinations.code` is not exactly 8 digits, or appears twice in the program
 - `services.number` appears twice
 - The program has no displays, or `default_display` does not exist
-- A destination has no stops, or stop positions are not 1, 2, 3 … with no gaps
+- Stop positions are not 1, 2, 3 … with no gaps
 - A stop marked `is_terminus` is not the last stop of its destination, or a destination has more than one
 - A layout's `width`/`height` differs from its display, an element lies outside the display, or the JSON is invalid
 - An audio hash used by a service or stop is missing from the `audio` table
@@ -277,6 +277,7 @@ Run on the server when a user presses Publish, and again on the Pi before a down
 - `content_hash` does not match the recomputed value (Pi side)
 
 **Warnings (shown, but allowed):**
+- A destination has no stops (display-only: boards work, announcements have nothing to chain)
 - A service is missing a next-stop, approaching or last-stop clip
 - A stop has no audio (it will be silent)
 - A destination has no terminus flagged

@@ -316,8 +316,8 @@ Program "Burton routes"  (displays: front 240x40, side 160x40, rear 80x40)
 
 ### 7.1 Publish validation (errors block, warnings allow)
 
-Errors: bad/duplicate code, duplicate service number, no displays, bad `default_display`, destination with no stops, stop gaps, terminus not last / multiple termini, layout size/JSON/overflow, missing audio hash, integrity/foreign-key/content-hash failure.
-Warnings: missing service clip, stop with no audio (silent), no terminus flagged, unknown font, unscrollable overflow, unused display name.
+Errors: bad/duplicate code, duplicate service number, no displays, bad `default_display`, stop gaps, terminus not last / multiple termini, layout size/JSON/overflow, missing audio hash, integrity/foreign-key/content-hash failure.
+Warnings: destination with no stops (display-only), missing service clip, stop with no audio (silent), no terminus flagged, unknown font, unscrollable overflow, unused display name.
 
 ---
 

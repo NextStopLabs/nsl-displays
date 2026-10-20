@@ -596,7 +596,10 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
 def publish(pid: str, body: dict, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner", "editor")
-    return _do_publish(pid, org, body.get("notes", ""), u)
+    try:
+        return _do_publish(pid, org, body.get("notes", ""), u)
+    except ValueError as e:
+        raise HTTPException(400, f"cannot publish: {e}")
 
 
 def _do_publish(pid: str, org: str, notes: str, u: dict) -> dict:
@@ -660,7 +663,10 @@ def publish_upload(pid: str, body: dict, u: dict = Depends(current_user)):
     This is the normal path — versions are an implementation detail."""
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner", "editor")
-    pub = _do_publish(pid, org, body.get("notes", ""), u)
+    try:
+        pub = _do_publish(pid, org, body.get("notes", ""), u)
+    except ValueError as e:
+        raise HTTPException(400, f"cannot publish: {e}")
     queued = _do_queue_upload(db(), org, pid, pub["version"], body.get("controllers", []))
     return {"ok": True, "version": pub["version"], "unchanged": pub.get("unchanged", False),
             "queued": queued}

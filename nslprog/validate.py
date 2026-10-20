@@ -140,8 +140,10 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     for d in destinations:
         lst = sorted(by_dest.get(d["id"], []), key=lambda r: r["position"])
         if not lst:
-            res.errors.append(Issue("no_stops", f"destination {d['name']!r} ({d['code']}) has no stops",
-                                    "stops", d["id"]))
+            # display-only destinations need no stops (boards work without them;
+            # announcements simply have nothing to chain). Warn, don't block.
+            res.warnings.append(Issue("no_stops", f"destination {d['name']!r} ({d['code']}) has no stops",
+                                      "stops", d["id"]))
             continue
         positions = [r["position"] for r in lst]
         if positions != list(range(1, len(lst) + 1)):
