@@ -458,7 +458,7 @@ What `pi/install.sh` does:
 - `apt-get install python3-pip python3-pil python3-fastapi python3-uvicorn sqlite3 flac alsa-utils network-manager evtest watchdog`.
 - `mkdir -p /var/lib/nsl /opt/nsl`, bootstraps `/var/lib/nsl/controller.db` via `pi/nsl_pi/store.py::init_controller_db` (state row, `controller_config`, keypad map, 3 `display_outputs` from `WIRING_PRESETS["bus-10m"]`).
 - Adds wired `bus-lan` connection `10.9.0.1/24` (`ipv4.never-default yes`, no gateway/DNS).
-- Copies `deploy/nsl-*.service` → `/etc/systemd/system`, enables `nsl-core nsl-agent nsl-display nsl-local-ui watchdog`.
+- Copies `deploy/nsl-*.service` → `/etc/systemd/system`, writes per-service `nsl-path.conf` drop-ins (`NSL_ROLE`/`NSL_UNIT`, `PYTHONPATH=<repo>:<repo>/pi` so `python3 -m nsl_pi.*` resolves), enables `nsl-core nsl-agent nsl-display nsl-local-ui watchdog`.
 
 **3. Install the LED matrix library (once):**
 
