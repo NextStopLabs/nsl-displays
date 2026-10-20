@@ -36,6 +36,14 @@ def main():
     if not mo:
         mo = {"led-chain": 3 if ROLE == "front" else (2 if ROLE == "side" else 1)}
     drv = DisplayDriver(mo, outputs, virtual_dir=os.path.join(BASE, "virtual"))
+    # boot self-test: full-white 1.5 s proves panels/power/HAT before any content.
+    # If this flash never appears, the fault is hardware, not software.
+    try:
+        print("display self-test: white pattern 1.5s — look at the panels", flush=True)
+        drv.test_pattern("white")
+    except Exception as e:
+        print(f"display self-test failed: {e}", flush=True)
+    time.sleep(1.5)
     if ROLE != "front":
         from nsl_pi.receiver import Receiver
         w, h = {"side": (160, 40), "rear": (80, 40)}[ROLE]
@@ -47,6 +55,8 @@ def main():
     print(f"nsl-display rendering {len(outputs)} output(s) at {RENDER_HZ:g} Hz (role={ROLE})", flush=True)
     snap: dict = {}
     last_fetch = 0.0
+    last_summary = ""
+    frames = 0
     while True:
         now = time.time()
         if not snap or now - last_fetch >= STATE_REFRESH_S:
@@ -56,8 +66,21 @@ def main():
                 pass  # hold last frame
             last_fetch = now
         if snap:
+            st = snap.get("state", {})
+            summary = (f"prog={st.get('program_id') or '—'} dest={st.get('destination_id') or '—'} "
+                       f"stop={st.get('stop_id') or '—'} override={st.get('override_text') or '—'} "
+                       f"fields={','.join(sorted((snap.get('fields') or {}).keys())) or '—'} "
+                       f"layouts={len(snap.get('layouts') or {})}")
+            if summary != last_summary:
+                print(f"display state: {summary}", flush=True)
+                last_summary = summary
             try:
                 drv.show_snapshot(snap)
+                frames += 1
+                if frames == 1:
+                    w0 = outputs[0]["width_px"] if outputs else "?"
+                    print(f"display: first frame pushed ({len(outputs)} output(s), first {w0}px wide)",
+                          flush=True)
             except Exception:
                 pass  # hold last frame
         time.sleep(1.0 / RENDER_HZ)

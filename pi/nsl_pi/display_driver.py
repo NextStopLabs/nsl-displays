@@ -21,6 +21,8 @@ class DisplayDriver:
         self.virtual_dir = virtual_dir
         self.matrix = None
         self.last_frames: dict[str, object] = {}
+        self._push_failures: dict[str, int] = {}
+        self._push_logged: dict[str, float] = {}
         # Hardware wins whenever the module is importable; virtual PNGs are the
         # fallback for dev machines. (An always-set virtual_dir must never
         # silently disable the panels on a real bus.)
@@ -87,17 +89,31 @@ class DisplayDriver:
             self._push(out, frame)
 
     def _push(self, out: dict, frame):
+        name = out.get("display_name", "?")
         if self.matrix is not None:
             try:
                 xo = int(out.get("x_offset", 0) or 0)
                 self.matrix.SetImage(frame, xo, 0)
-            except Exception:
-                pass  # hold last frame
-        elif self.virtual_dir:
+                if self._push_failures.get(name):
+                    print(f"display driver: {name} SetImage recovered after "
+                          f"{self._push_failures[name]} failures", flush=True)
+                    self._push_failures[name] = 0
+                return
+            except Exception as e:
+                n = self._push_failures.get(name, 0) + 1
+                self._push_failures[name] = n
+                import time as _t
+                last = self._push_logged.get(name, 0)
+                if n == 1 or _t.time() - last > 60:
+                    print(f"display driver: {name} SetImage FAILED x{n} ({e}) — "
+                          f"panels dark but software alive; check power/HAT/ribbon", flush=True)
+                    self._push_logged[name] = _t.time()
+                return  # hold last frame
+        if self.virtual_dir:
             import os
             os.makedirs(self.virtual_dir, exist_ok=True)
             try:
-                frame.save(os.path.join(self.virtual_dir, f"{out['display_name']}.png"))
+                frame.save(os.path.join(self.virtual_dir, f"{name}.png"))
             except Exception:
                 pass
 
