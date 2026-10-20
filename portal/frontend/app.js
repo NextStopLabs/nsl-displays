@@ -112,6 +112,25 @@ const Preview = (() => {
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
         const tw = han ? H.width(han, text) : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
+        // No clipping for static text (matches the bus): ink may overflow its
+        // box and still shows. Only scrolling crops to the element.
+        if (han && !needScroll) {
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
+            : (el.valign === "bottom" ? by + bh - han.height : by);
+          let tx = bx + 1;
+          if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
+          if (el.align === "right") tx = bx + bw - tw;
+          H.draw(g, han, text, tx, y0, el.colour || AMBER);
+          continue;
+        }
+        if (!han && !needScroll) {
+          g.font = "12px monospace";
+          let tx = bx + 1;
+          if (g.textAlign === "center") tx = bx + bw / 2;
+          if (g.textAlign === "right") tx = bx + bw - 1;
+          g.fillText(text, tx, ty);
+          continue;
+        }
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
         if (han) {

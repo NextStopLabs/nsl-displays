@@ -208,35 +208,41 @@ const LayoutEditor = (() => {
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
         const tw = han ? hanWidth(han, text) : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
-        g.save();
-        g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
-        if (han) {
-          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
-            : (el.valign === "bottom" ? by + bh - han.height : by);
-          if (!needScroll) {
+        // No clipping for static text: ink may legally overflow its box (wide
+        // glyphs, tall fonts) and the bus shows it. Only scrolling crops.
+        if (!needScroll) {
+          if (han) {
+            const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
+              : (el.valign === "bottom" ? by + bh - han.height : by);
             let tx = bx + 1;
             if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
             if (el.align === "right") tx = bx + bw - tw;
             hanDraw(g, han, text, tx, y0, el.colour || AMBER);
           } else {
-            const offx = Math.floor(t * 20) % Math.floor(tw + bw);
-            const strip = document.createElement("canvas");
-            strip.width = Math.ceil(tw + bw); strip.height = bh;
-            const s2 = strip.getContext("2d");
-            hanDraw(s2, han, text, 0, Math.max(0, y0 - by), el.colour || AMBER);
-            g.drawImage(strip, offx, 0, bw, bh, bx, by, bw, bh);
+            let tx = bx + 1;
+            if (g.textAlign === "center") tx = bx + bw / 2;
+            if (g.textAlign === "right") tx = bx + bw - 1;
+            g.fillText(text, tx, ty);
           }
-        } else if (needScroll) {
+          continue;
+        }
+        g.save();
+        g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+        if (han) {
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
+            : (el.valign === "bottom" ? by + bh - han.height : by);
+          const offx = Math.floor(t * 20) % Math.floor(tw + bw);
+          const strip = document.createElement("canvas");
+          strip.width = Math.ceil(tw + bw); strip.height = bh;
+          const s2 = strip.getContext("2d");
+          hanDraw(s2, han, text, 0, Math.max(0, y0 - by), el.colour || AMBER);
+          g.drawImage(strip, offx, 0, bw, bh, bx, by, bw, bh);
+        } else {
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
           let tx = bx + bw - offx;
           if (g.textAlign === "center") tx = bx + bw / 2 - offx + (tw + bw) / 2 - tw / 2;
           if (g.textAlign === "right") tx = bx + bw - offx;
           if (g.textAlign === "left") tx = bx - offx;
-          g.fillText(text, tx, ty);
-        } else {
-          let tx = bx + 1;
-          if (g.textAlign === "center") tx = bx + bw / 2;
-          if (g.textAlign === "right") tx = bx + bw - 1;
           g.fillText(text, tx, ty);
         }
         g.restore();
