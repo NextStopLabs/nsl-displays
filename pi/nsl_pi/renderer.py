@@ -62,17 +62,22 @@ def resolve_layout(con, destination_id: str, display_id: str) -> dict | None:
 
 
 def autofit_layout(width: int, height: int) -> dict:
-    num_w = min(56, width // 4)
+    """Default board: route number left, destination top-right, via bottom-right."""
+    num_w = max(16, width // 4)
+    dest_h = max(8, round(height * 25 / 40))
     return {
         "schema": 1, "width": width, "height": height, "background": "#000000",
         "page_seconds": 3, "override": {"mode": "replace", "replaces": "dest", "hide": []},
         "elements": [
             {"type": "field", "field": "num", "x": 0, "y": 0, "w": num_w, "h": height,
-             "font": "pixel-large", "colour": AMBER, "align": "centre", "valign": "middle",
+             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
              "scroll": "none", "flash_ms": 0, "page": 1, "show_if": "always"},
-            {"type": "field", "field": "dest", "x": num_w + 4, "y": 0, "w": width - num_w - 4, "h": height,
-             "font": "pixel-medium", "colour": AMBER, "align": "left", "valign": "middle",
+            {"type": "field", "field": "dest", "x": num_w, "y": 0, "w": width - num_w, "h": dest_h,
+             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
              "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "always"},
+            {"type": "field", "field": "via", "x": num_w, "y": dest_h, "w": width - num_w, "h": height - dest_h,
+             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
+             "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "has_text"},
         ],
     }
 

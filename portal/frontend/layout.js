@@ -17,14 +17,16 @@ const LayoutEditor = (() => {
              override: { mode: "replace", replaces: "dest", hide: [] }, elements: [] };
   }
   function autofit(w, h) {
-    const nw = Math.min(56, Math.floor(w / 4));
+    const nw = Math.max(16, Math.floor(w / 4)), dh = Math.max(8, Math.round(h * 25 / 40));
     return { schema: 1, width: w, height: h, background: "#000000", page_seconds: 3,
       override: { mode: "replace", replaces: "dest", hide: [] },
       elements: [
-        { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "pixel-large", colour: AMBER,
+        { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "pixel-huge", colour: AMBER,
           align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always" },
-        { type: "field", field: "dest", x: nw + 4, y: 0, w: w - nw - 4, h: h, font: "pixel-medium", colour: AMBER,
-          align: "left", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" } ] };
+        { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "pixel-huge", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" },
+        { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "pixel-huge", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text" } ] };
   }
 
   function pagesUsed(lay) {

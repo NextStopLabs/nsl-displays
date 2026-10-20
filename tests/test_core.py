@@ -148,3 +148,15 @@ def test_snapshot_layouts_keyed_by_display_name(tmp_path):
     c.apply_command({"command": "select_code", "code": "10000001"}, source="test")
     snap = c.display_snapshot()
     assert set(snap["layouts"]) >= {"front", "side", "rear"}
+
+
+def test_autofit_default_matches_spec(tmp_path):
+    from pi.nsl_pi.renderer import autofit_layout
+    lay = autofit_layout(240, 40)
+    els = {e["field"]: e for e in lay["elements"]}
+    assert set(els) == {"num", "dest", "via"}
+    assert (els["num"]["x"], els["num"]["y"], els["num"]["w"], els["num"]["h"]) == (0, 0, 60, 40)
+    assert (els["dest"]["x"], els["dest"]["y"], els["dest"]["w"], els["dest"]["h"]) == (60, 0, 180, 25)
+    assert (els["via"]["x"], els["via"]["y"], els["via"]["w"], els["via"]["h"]) == (60, 25, 180, 15)
+    assert all(e["font"] == "pixel-huge" and e["align"] == "centre" and e["valign"] == "middle"
+               for e in els.values())
