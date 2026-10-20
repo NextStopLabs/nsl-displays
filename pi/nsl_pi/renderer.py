@@ -166,16 +166,51 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             continue
         x, y, ww, hh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
         colour = el.get("colour", AMBER)
-        fh = FONT_HEIGHTS.get(el.get("font", DEFAULT_FONT), 12)
-        fnt = _font_for(el.get("font", DEFAULT_FONT), min(hh - 2, fh + 4) if hh > 4 else fh)
+        font_id = el.get("font", DEFAULT_FONT)
+        han = None
+        if isinstance(font_id, str) and font_id.startswith("han-"):
+            from .hanover import get_font as _get_han
+            try:
+                han = _get_han(font_id)
+            except Exception:
+                han = None  # unknown han- id: fall back to default font below
+        if han is not None:
+            from .hanover import text_width as _han_width
+            fh = int(han["height"])
+            tw = _han_width(han, text)
+        else:
+            fh = FONT_HEIGHTS.get(font_id, 12)
+            fnt = _font_for(font_id, min(hh - 2, fh + 4) if hh > 4 else fh)
+            # measure
+            bbox = dr.textbbox((0, 0), text, font=fnt)
+            tw = bbox[2] - bbox[0]
         # vertical anchor
         valign = el.get("valign", "top")
         ty = y + (0 if valign == "top" else (hh // 2 if valign == "middle" else hh))
         anchor_y = "t" if valign == "top" else ("m" if valign == "middle" else "b")
         align = el.get("align", "left")
-        # measure
-        bbox = dr.textbbox((0, 0), text, font=fnt)
-        tw = bbox[2] - bbox[0]
+        if han is not None:
+            # 1:1 bitmap blit (measured above); same scroll semantics as PIL text
+            from .hanover import draw_text as _han_draw
+            if align in ("centre", "center"):
+                tx0 = x + (ww - tw) // 2
+            elif align == "right":
+                tx0 = x + ww - tw
+            else:
+                tx0 = x + 1
+            ty0 = y if valign == "top" else (y + (hh - fh) // 2 if valign == "middle" else y + hh - fh)
+            scroll = el.get("scroll", "none")
+            if scroll == "always" or (scroll == "if_too_long" and tw > ww):
+                off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
+                tmp = Image.new("RGB", (tw + ww, hh), bg)
+                yoff = 0 if valign == "top" else ((hh - fh) // 2 if valign == "middle" else hh - fh)
+                _han_draw(tmp, han, text, 0, yoff, colour)
+                sx = off
+                window = tmp.crop((sx, 0, min(sx + ww, tmp.width), hh))
+                img.paste(window, (x, y))
+            else:
+                _han_draw(img, han, text, tx0, ty0, colour)
+            continue
         scroll = el.get("scroll", "none")
         needs_scroll = scroll == "always" or (scroll == "if_too_long" and tw > ww)
         if needs_scroll:

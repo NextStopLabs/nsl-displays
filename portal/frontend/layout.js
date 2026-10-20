@@ -7,6 +7,51 @@ const LayoutEditor = (() => {
   const FONT_H = { "pixel-small": 8, "pixel-medium": 12, "pixel-large": 20, "pixel-huge": 32, "mono-5x7": 7, "mono-6x8": 8 };
   const FONTS = Object.keys(FONT_H);
   const AMBER = "#FFB000";
+
+  // ---------- Hanover bitmap fonts (server .Fnt files, 1:1 pixels, LSB = top) ----------
+  // Standalone (no editor state): app.js Preview uses LayoutEditor.hanover too.
+  const hanCache = {};
+  async function hanFetch(id) {
+    if (hanCache[id]) return hanCache[id];
+    const r = await api(`/api/fonts/${encodeURIComponent(id)}`);
+    hanCache[id] = r;
+    return r;
+  }
+  function hanGet(id) {
+    if (!hanCache[id]) { hanFetch(id).catch(() => {}); return null; }
+    return hanCache[id];
+  }
+  function hanWidth(f, text) {
+    let w = 0;
+    for (const ch of (text || "")) {
+      const g = f.glyphs[String(ch.codePointAt(0))] || f.glyphs["63"];
+      if (g) w += g[0];
+    }
+    return w;
+  }
+  function hanDraw(g, f, text, x, y, colour) {
+    g.fillStyle = colour || AMBER;
+    let cx = Math.round(x);
+    const y0 = Math.round(y);
+    for (const ch of (text || "")) {
+      const gl = f.glyphs[String(ch.codePointAt(0))] || f.glyphs["63"];
+      if (!gl) continue;
+      const cols = gl.slice(1);
+      for (let dx = 0; dx < cols.length; dx++) {
+        let b = cols[dx], yy = y0;
+        while (b) { if (b & 1) g.fillRect(cx + dx, yy, 1, 1); yy++; b >>= 1; }
+      }
+      cx += gl[0];
+    }
+  }
+  const hanover = {
+    list: async () => {
+      if (!hanover._list) hanover._list = await api("/api/fonts").then((r) => r.fonts || []).catch(() => []);
+      return hanover._list;
+    },
+    get: hanGet, width: hanWidth, draw: hanDraw,
+    isHan: (id) => typeof id === "string" && id.indexOf("han-") === 0,
+  };
   let raf = 0;
   let ed = null; // editor state
 
@@ -135,9 +180,15 @@ const LayoutEditor = (() => {
     const ov = lay.override || {};
     const page = ed.pageLock || curPage(lay, t);
     if (ov.mode === "full" && ovActive) {
-      g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
-      g.textBaseline = "middle"; g.textAlign = "left";
-      g.fillText(ovText, 2, lay.height / 2);
+      const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
+      const ovHan = ovEl && hanover.isHan(ovEl.font) ? hanGet(ovEl.font) : null;
+      if (ovHan) {
+        hanDraw(g, ovHan, ovText, 2, Math.floor(lay.height / 2 - ovHan.height / 2), AMBER);
+      } else {
+        g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
+        g.textBaseline = "middle"; g.textAlign = "left";
+        g.fillText(ovText, 2, lay.height / 2);
+      }
     } else {
       const hide = hideSet(lay, ovActive);
       for (const el of (lay.elements || [])) {
@@ -147,6 +198,7 @@ const LayoutEditor = (() => {
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
         const text = elText(el, fields, ovText, lay);
         if (!text) continue;
+        const han = hanover.isHan(el.font) ? hanGet(el.font) : null;
         const px = fontPx(el);
         g.font = `${px}px monospace`;
         g.fillStyle = el.colour || AMBER;
@@ -154,11 +206,27 @@ const LayoutEditor = (() => {
         g.textAlign = cssAlign(el.align || "left");
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
-        const tw = g.measureText(text).width;
+        const tw = han ? hanWidth(han, text) : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
-        if (needScroll) {
+        if (han) {
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
+            : (el.valign === "bottom" ? by + bh - han.height : by);
+          if (!needScroll) {
+            let tx = bx + 1;
+            if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
+            if (el.align === "right") tx = bx + bw - tw;
+            hanDraw(g, han, text, tx, y0, el.colour || AMBER);
+          } else {
+            const offx = Math.floor(t * 20) % Math.floor(tw + bw);
+            const strip = document.createElement("canvas");
+            strip.width = Math.ceil(tw + bw); strip.height = bh;
+            const s2 = strip.getContext("2d");
+            hanDraw(s2, han, text, 0, Math.max(0, y0 - by), el.colour || AMBER);
+            g.drawImage(strip, offx, 0, bw, bh, bx, by, bw, bh);
+          }
+        } else if (needScroll) {
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
           let tx = bx + bw - offx;
           if (g.textAlign === "center") tx = bx + bw / 2 - offx + (tw + bw) / 2 - tw / 2;
@@ -213,7 +281,7 @@ const LayoutEditor = (() => {
         : `<input data-p=text value="${(el.text || "").replace(/"/g, "&quot;")}">`}</div>
       </div>
       <div class=row>
-      <div style="flex:1"><label>Font</label><select data-p=font>${FONTS.map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
+      <div style="flex:1"><label>Font</label><select data-p=font>${[...FONTS, ...(ed.hanIds || [])].map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
       <div style="flex:1"><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
       <div style="flex:1"><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
       <div style="flex:1"><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
@@ -335,9 +403,11 @@ const LayoutEditor = (() => {
     const { did, dest, serviceNumber, displays, apiFn, errFn } = ctx;
     let extraKeys = [];
     try { extraKeys = Object.keys(JSON.parse(dest.extra_fields || "{}")); } catch (e) { /* ignore */ }
-    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: null,
+    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: null, hanIds: [],
            fields: { num: dest.num || serviceNumber || "", via: dest.via || "", dest: dest.dest || "" },
            ovText: "", extraKeys, displays, apiFn, errFn };
+    apiFn("/api/fonts").then((r) => { if (ed) { ed.hanIds = (r.fonts || []).map((f) => f.id); renderProps(); } })
+      .catch(() => { if (ed) ed.hanIds = []; });
     for (const k of extraKeys) { try { ed.fields[k] = JSON.parse(dest.extra_fields)[k]; } catch (e) { /* ignore */ } }
     mount.innerHTML = `<h3>Board layout — ${dest.name} (${dest.code})</h3>
       <div class=row>
@@ -449,5 +519,5 @@ const LayoutEditor = (() => {
     raf = requestAnimationFrame(loop);
   }
 
-  return { open, stop };
+  return { open, stop, hanover };
 })();

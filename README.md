@@ -664,6 +664,10 @@ Example (front, `num | via over dest`):
 
 Resolution order per destination per display: own layout → display default template → built-in auto-fit (`num` left + dest fill). Same renderer in portal preview, main Pi, and receivers — snapshot-tested identical.
 
+### 19.1 Hanover bitmap fonts
+
+`HANOVERFONTS/*.Fnt` (shipped in the repo, installed to `/var/lib/nsl/fonts`): real Hanover HELEN glyphs, 1:1 pixels, LSB = top row. Use font id `han-<STEM>` (e.g. `han-0705C1E1`) on any layout element, in the editor dropdown or JSON. Names encode approximate height (pick ≤ your display height; e.g. 19–24 px fonts suit multi-line 40 px boards). ASCII 32–126 renders true; other code points fall back to `?`. The editor preview, stop-by-stop preview, and bus renderer all blit the same glyphs, so WYSIWYG holds. Unknown `han-` ids fall back with a warning, never a blank board.
+
 ---
 
 ## 20. Troubleshooting

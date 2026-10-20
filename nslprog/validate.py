@@ -253,7 +253,7 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
         if disp is not None and (x < 0 or y < 0 or ww <= 0 or hh <= 0 or x + ww > disp["width_px"] or y + hh > disp["height_px"]):
             res.errors.append(Issue("layout_overflow", f"element outside display: {x},{y} {ww}x{hh}", "layouts", tag))
         font = el.get("font", "pixel-medium")
-        if font not in KNOWN_FONTS:
+        if font not in KNOWN_FONTS and not (isinstance(font, str) and font.startswith("han-")):
             res.warnings.append(Issue("unknown_font", f"unknown font {font!r}, will fall back", "layouts", tag))
         if el.get("align", "left") not in ALIGNS and el.get("align") not in (None,):
             res.errors.append(Issue("layout_align", f"bad align {el.get('align')!r}", "layouts", tag))

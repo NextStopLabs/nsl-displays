@@ -30,6 +30,11 @@ sudo cp deploy/nsl-*.service /etc/systemd/system/
 # (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep
 # this working wherever the repo was cloned from.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Hanover bitmap fonts for the on-bus renderer (ships with the repo)
+if [ -d "$REPO/HANOVERFONTS" ]; then
+  sudo mkdir -p /var/lib/nsl/fonts
+  sudo cp "$REPO"/HANOVERFONTS/*.Fnt /var/lib/nsl/fonts/ 2>/dev/null || true
+fi
 for svc in nsl-core nsl-agent nsl-display nsl-local-ui nsl-player nsl-input; do
   sudo mkdir -p "/etc/systemd/system/${svc}.service.d"
   sudo tee "/etc/systemd/system/${svc}.service.d/nsl-path.conf" >/dev/null <<EOF

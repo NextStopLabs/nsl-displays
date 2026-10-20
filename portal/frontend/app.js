@@ -67,6 +67,7 @@ const Preview = (() => {
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text" } ] };
   }
   function drawOne(cv, lay, fields, ovText, t) {
+    const H = (typeof LayoutEditor !== "undefined" && LayoutEditor.hanover) || null;
     const scale = parseInt(cv.dataset.scale || "3", 10);
     const off = document.createElement("canvas");
     off.width = lay.width; off.height = lay.height;
@@ -103,16 +104,35 @@ const Preview = (() => {
             ["replace", "hide_others", "full"].includes(ov.mode || "replace")) text = ovText;
         else text = el.type === "text" ? (el.text || "") : (fields[el.field] || "");
         if (!text) continue;
-        g.font = "12px monospace";
+        const han = H && H.isHan(el.font) ? H.get(el.font) : null;
         g.fillStyle = el.colour || AMBER;
         g.textBaseline = el.valign === "middle" ? "middle" : (el.valign === "bottom" ? "bottom" : "top");
         g.textAlign = el.align === "centre" || el.align === "center" ? "center" : (el.align === "right" ? "right" : "left");
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
-        const tw = g.measureText(text).width;
+        const tw = han ? H.width(han, text) : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+        if (han) {
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
+            : (el.valign === "bottom" ? by + bh - han.height : by);
+          if (!needScroll) {
+            let tx = bx + 1;
+            if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
+            if (el.align === "right") tx = bx + bw - tw;
+            H.draw(g, han, text, tx, y0, el.colour || AMBER);
+          } else {
+            const offx = Math.floor(t * 20) % Math.floor(tw + bw);
+            const strip = document.createElement("canvas");
+            strip.width = Math.ceil(tw + bw); strip.height = bh;
+            H.draw(strip.getContext("2d"), han, text, 0, Math.max(0, y0 - by), el.colour || AMBER);
+            g.drawImage(strip, offx, 0, bw, bh, bx, by, bw, bh);
+          }
+          g.restore();
+          continue;
+        }
+        g.font = "12px monospace";
         let tx = bx + 1;
         if (g.textAlign === "center") tx = bx + bw / 2;
         if (g.textAlign === "right") tx = bx + bw - 1;
@@ -125,9 +145,15 @@ const Preview = (() => {
         g.restore();
       }
     } else {
-      g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
-      g.textBaseline = "middle"; g.textAlign = "left";
-      g.fillText(ovText, 2, lay.height / 2);
+      const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
+      const ovHan = (H && ovEl && H.isHan(ovEl.font)) ? H.get(ovEl.font) : null;
+      if (ovHan) {
+        H.draw(g, ovHan, ovText, 2, Math.floor(lay.height / 2 - ovHan.height / 2), AMBER);
+      } else {
+        g.fillStyle = AMBER; g.font = `${Math.floor(lay.height / 2)}px monospace`;
+        g.textBaseline = "middle"; g.textAlign = "left";
+        g.fillText(ovText, 2, lay.height / 2);
+      }
     }
     cv.width = lay.width * scale; cv.height = lay.height * scale;
     const p = cv.getContext("2d");

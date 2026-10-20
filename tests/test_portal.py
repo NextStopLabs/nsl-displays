@@ -220,3 +220,22 @@ def test_device_audio_serves_wav_and_flac(tmp_path, monkeypatch):
     r = c.get(f"/api/device/audio/{h}", headers=DH)
     assert r.status_code == 200 and len(r.content) > 1000
     assert c.get("/api/device/audio/" + "0" * 64, headers=DH).status_code == 404
+
+
+def test_hanover_font_endpoints(tmp_path, monkeypatch):
+    import os as _os
+    from tests.test_portal import _client
+    _os.environ["NSL_FONTS_DIR"] = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "HANOVERFONTS")
+    monkeypatch.setenv("NSL_FONTS_DIR", _os.environ["NSL_FONTS_DIR"])
+    c = _client(tmp_path, monkeypatch)
+    tok = c.post("/api/auth/signup", data={"email": "f@x.com", "password": "secret123"}).json()["token"]
+    H = {"Authorization": f"Bearer {tok}"}
+    fonts = c.get("/api/fonts", headers=H).json()["fonts"]
+    assert any(f["id"] == "han-0705C1E1" for f in fonts)
+    g = c.get("/api/fonts/han-0705C1E1", headers=H).json()
+    assert g["height"] == 7 and len(g["glyphs"]) == 224
+    assert g["glyphs"]["65"][0] == 3  # advance of 'A'
+    assert c.get("/api/fonts/../x", headers=H).status_code in (400, 404)
+    assert c.get("/api/fonts/han-nope", headers=H).status_code == 404
+    assert c.get("/api/fonts").status_code == 401

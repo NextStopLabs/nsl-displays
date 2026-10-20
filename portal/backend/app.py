@@ -685,6 +685,26 @@ def export_pack_route(pid: str, v: int, u: dict = Depends(current_user)):
     return FileResponse(pack, filename=f"{pid}-v{v}.nslpack")
 
 
+# ---------- Hanover bitmap fonts (repo HANOVERFONTS/, served to the layout editor) ----------
+@app.get("/api/fonts")
+def list_fonts(u: dict = Depends(current_user)):
+    from nsl_pi import hanover as _han
+    return {"fonts": _han.list_fonts()}
+
+
+@app.get("/api/fonts/{fid}")
+def get_font(fid: str, u: dict = Depends(current_user)):
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", fid or ""):
+        raise HTTPException(400, "bad font id")
+    from nsl_pi import hanover as _han
+    try:
+        f = _han.get_font(fid if fid.startswith("han-") else "han-" + fid)
+    except KeyError:
+        raise HTTPException(404, "no such font")
+    return {"id": f["id"], "height": f["height"], "maxwidth": f["maxwidth"],
+            "glyphs": {str(k): [v[0], *v[1]] for k, v in f["glyphs"].items()}}
+
 # ---------- audio + voices (upload / Piper stub) ----------
 def _slugify_clip(name: str) -> str:
     import re as _re
