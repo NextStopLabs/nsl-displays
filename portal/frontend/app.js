@@ -291,11 +291,13 @@ function renderProgram() {
   h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
   h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
-  h += `<details id=up-details><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers (version defaults to published)</label><div id=pd-ctls>` +
+  h += `<details id=up-details open><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers (version defaults to published)</label><div id=pd-ctls>` +
     S.controllers.map((c) => {
       const act = (c.programs || []).find((x) => x.active_version != null);
       const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
-      return `<label style="font-weight:normal"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})</label>`;
+      const ghost = !c.last_seen_at ? ` <span class=err>never checked in — probably a duplicate row, delete it in the Controllers tab</span>` : "";
+      return `<div class=row style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})${ghost}</label>` +
+        `<button data-up-one="${c.id}" title="Upload v${esc(p.published_version || 0)} to ${esc(c.name)} only">Upload v${esc(p.published_version || 0)}</button></div>`;
     }).join("") +
     `</div></div><div style="flex:1;min-width:120px"><label for=pd-ver>Version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
     <div style="align-self:end"><button id=pd-upload>Queue upload</button></div></div></details>`;
@@ -391,6 +393,13 @@ function renderProgram() {
       alert("Queued for " + r.queued.length + " controller(s).");
     } catch (e) { err(String(e.message || e)); }
   };
+  $("pd-ctls").querySelectorAll("[data-up-one]").forEach((b) => b.onclick = async () => {
+    try {
+      const r = await api(`/api/programs/${p.id}/upload`, { method: "POST",
+        body: { controllers: [b.dataset.upOne], version: parseInt($("pd-ver").value, 10) } });
+      alert(`Upload v${$("pd-ver").value} queued for 1 controller.`);
+    } catch (e) { err(String(e.message || e)); }
+  });
   $("dest-filter").addEventListener("input", () => {
     const q = $("dest-filter").value.trim().toLowerCase();
     document.querySelectorAll("#destrows tr").forEach((tr) => {
@@ -655,9 +664,11 @@ $("btn-token-copy").addEventListener("click", async () => {
 $("btn-token-close").addEventListener("click", () => { const d = $("token-dialog"); if (d) d.close(); });
 $("btn-pair").addEventListener("click", async () => {
   try {
+    const name = $("pair-name").value;
+    const dup = (S.controllers || []).some((c) => (c.name || "").toLowerCase() === name.trim().toLowerCase());
+    if (dup && !confirm(`A controller named “${name.trim()}” already exists (check the table — the other row may be a ghost that never checked in). Pair another one with the same name?`)) return;
     const r = await api("/api/controllers/pair", { method: "POST",
       body: formData({ organisation_id: S.org, code: $("pair-code").value.trim().toUpperCase(), name: $("pair-name").value }) });
-    const name = $("pair-name").value;
     $("pair-code").value = ""; $("pair-name").value = ""; loadControllers();
     if (r && r.device_token) showTokenDialog(name || "controller", r.device_token);
     else err("Paired, but the server did not return a device token — use “Rotate token” to issue one.");
