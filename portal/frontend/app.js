@@ -130,8 +130,8 @@ async function openProgram(pid) {
   renderProgram();
 }
 function renderProgram() {
+  LayoutEditor.stop();
   const p = S.curProg;
-  const dispNames = (p.displays || []).map((d) => d.name);
   let h = `<p class=hint>id ${esc(p.id)} · width ${esc(p.px_width)} · published v${esc(p.published_version || 0)}</p>`;
   h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
@@ -202,14 +202,14 @@ function renderProgram() {
       box.textContent = r.unique ? "" : `Code ${code} is already used in this program.` + (r.suggestion ? ` Suggestion: ${r.suggestion}.` : "");
     } catch (e) { /* ignore */ }
   }));
-  $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => editStops(b.dataset.stops, dispNames));
-  $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout, dispNames));
+  $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editStops(b.dataset.stops); });
+  $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout));
 }
 function findDest(did) {
   for (const s of (S.curProg.services || [])) for (const d of (s.destinations || [])) if (d.id === did) return { s, d };
   return null;
 }
-function editStops(did, dispNames) {
+function editStops(did) {
   const found = findDest(did); if (!found) return;
   const d = found.d;
   let h = `<h3>Stops — ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio SHA</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
@@ -242,31 +242,13 @@ function editStops(did, dispNames) {
     catch (e) { err(String(e.message || e)); }
   };
 }
-async function editLayout(did, dispNames) {
+async function editLayout(did) {
   const found = findDest(did); if (!found) return;
-  const d = found.d;
-  let h = `<h3>Layouts — ${esc(d.name)} (${esc(d.code)})</h3><div class=row>
-    <div style="flex:1"><label for=lay-disp>Display</label><select id=lay-disp>${dispNames.map((n) => `<option>${esc(n)}</option>`).join("")}</select></div>
-    <div style="align-self:end" class=row><button id=lay-load>Load</button><button id=lay-save class=primary>Save</button></div></div>
-    <div class=hint id=lay-src></div>
-    <div><label for=lay-json>Layout JSON (must match display size)</label><textarea id=lay-json rows=14></textarea></div>
-    <div class=err id=lay-err></div>`;
-  $("pd-edit").innerHTML = h;
-  $("pd-edit").scrollIntoView();
-  $("lay-load").onclick = async () => {
-    try {
-      const r = await api(`/api/destinations/${did}/layouts/${encodeURIComponent($("lay-disp").value)}`);
-      $("lay-json").value = r.layout ? JSON.stringify(r.layout, null, 2) : "";
-      $("lay-src").textContent = "Source: " + r.source + (r.layout ? "" : " (nothing saved yet — paste JSON and Save)");
-    } catch (e) { $("lay-err").textContent = String(e.message || e); }
-  };
-  $("lay-save").onclick = async () => {
-    try {
-      const lj = JSON.parse($("lay-json").value);
-      await api(`/api/destinations/${did}/layouts/${encodeURIComponent($("lay-disp").value)}`, { method: "PUT", body: { layout: lj } });
-      $("lay-err").textContent = ""; alert("Layout saved.");
-    } catch (e) { $("lay-err").textContent = String(e.message || e); }
-  };
+  LayoutEditor.stop();
+  await LayoutEditor.open($("pd-edit"), {
+    did, dest: found.d, serviceNumber: (found.s && found.s.number) || "",
+    displays: S.curProg.displays || [], apiFn: api, errFn: err,
+  });
 }
 
 // ---------- codes ----------

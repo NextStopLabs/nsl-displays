@@ -13,15 +13,6 @@ pytestmark = pytest.mark.e2e
 PORT = 8135
 BASE = f"http://127.0.0.1:{PORT}"
 
-FRONT_LAYOUT = ('{"schema":1,"width":240,"height":40,"page_seconds":3,'
-                '"override":{"mode":"replace","replaces":"dest","hide":[]},'
-                '"elements":[{"type":"field","field":"num","x":0,"y":0,"w":48,"h":40,'
-                '"font":"pixel-large","colour":"#FFB000","align":"centre","valign":"middle",'
-                '"scroll":"none","page":1,"show_if":"always"},'
-                '{"type":"field","field":"dest","x":52,"y":0,"w":188,"h":40,'
-                '"font":"pixel-medium","colour":"#FFB000","align":"left","valign":"middle",'
-                '"scroll":"if_too_long","page":1,"show_if":"always"}]}')
-
 
 @pytest.fixture()
 def server(tmp_path):
@@ -124,15 +115,27 @@ def test_full_user_journey(server, tmp_path):
             pg.click("#stop-save")
             pg.get_by_text("10000001").first.wait_for()  # detail re-rendered
 
-        # 8. layout: invalid JSON errors, valid JSON saves
+        # 8. visual layout editor: auto-fit starter, drag, save, reload
         pg.locator("[data-layout]").first.click()
-        pg.select_option("#lay-disp", "front")
-        pg.click("#lay-load")
-        pg.fill("#lay-json", "{not json")
-        pg.click("#lay-save")
-        pg.locator("#lay-err:not(:empty)").wait_for()
-        pg.fill("#lay-json", FRONT_LAYOUT)
+        pg.locator("#lay-canvas").wait_for()
+        pg.locator("#lay-status").get_by_text("0 element(s)").wait_for()
+        pg.click("#lay-autofit")
+        pg.locator("#lay-status").get_by_text("2 element(s)").wait_for()
+        # canvas drag moves element #0 (x 0 -> ~10)
+        pg.select_option("#lay-ellist", "0")
+        box = pg.locator("#lay-canvas").bounding_box()
+        x0 = pg.locator("#lay-props [data-p=x]").input_value()
+        pg.mouse.move(box["x"] + 28 * 3, box["y"] + 20 * 3)
+        pg.mouse.down()
+        pg.mouse.move(box["x"] + 28 * 3 + 30, box["y"] + 20 * 3, steps=5)
+        pg.mouse.up()
+        pg.wait_for_function(
+          f"document.querySelector('#lay-props [data-p=x]').value !== '{x0}'", timeout=5000)
         pg.click("#lay-save")  # alert auto-accepted
+        # reload from server proves it persisted
+        pg.select_option("#lay-disp", index=1)
+        pg.select_option("#lay-disp", index=0)
+        pg.locator("#lay-status").get_by_text("2 element(s)").wait_for()
         # 9. publish (assert it really published — no silent validation failure)
         pg.fill("#pd-notes", "first version")
         pg.click("#pd-publish")  # alert auto-accepted
