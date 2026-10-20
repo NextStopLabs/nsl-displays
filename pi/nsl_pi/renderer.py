@@ -191,26 +191,33 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
         anchor_y = "t" if valign == "top" else ("m" if valign == "middle" else "b")
         align = el.get("align", "left")
         if han is not None:
-            # 1:1 bitmap blit (measured above); same scroll semantics as PIL text
-            from .hanover import draw_text as _han_draw
+            # 1:1 bitmap blit, integer-scaled (crisp NEAREST). Same scroll
+            # semantics as vector text. `scale` lets a 19px font fill 40px.
+            from .hanover import render_text as _han_render
+            try:
+                scale = max(1, min(8, int(el.get("scale", 1) or 1)))
+            except (TypeError, ValueError):
+                scale = 1
+            strip = _han_render(han, text, colour)
+            if scale > 1:
+                strip = strip.resize((strip.width * scale, strip.height * scale), Image.NEAREST)
+            tw, th = strip.size
             if align in ("centre", "center"):
-                tx0 = x + (ww - tw) // 2
+                tx = x + (ww - tw) // 2
             elif align == "right":
-                tx0 = x + ww - tw
+                tx = x + ww - tw
             else:
-                tx0 = x + 1
-            ty0 = y if valign == "top" else (y + (hh - fh) // 2 if valign == "middle" else y + hh - fh)
+                tx = x + 1
+            ty = y if valign == "top" else (y + (hh - th) // 2 if valign == "middle" else y + hh - th)
             scroll = el.get("scroll", "none")
             if scroll == "always" or (scroll == "if_too_long" and tw > ww):
                 off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
                 tmp = Image.new("RGB", (tw + ww, hh), bg)
-                yoff = 0 if valign == "top" else ((hh - fh) // 2 if valign == "middle" else hh - fh)
-                _han_draw(tmp, han, text, 0, yoff, colour)
-                sx = off
-                window = tmp.crop((sx, 0, min(sx + ww, tmp.width), hh))
+                tmp.paste(strip, (0, ty - y), strip)
+                window = tmp.crop((off, 0, min(off + ww, tmp.width), hh))
                 img.paste(window, (x, y))
             else:
-                _han_draw(img, han, text, tx0, ty0, colour)
+                img.paste(strip, (tx, ty), strip)
             continue
         scroll = el.get("scroll", "none")
         needs_scroll = scroll == "always" or (scroll == "if_too_long" and tw > ww)

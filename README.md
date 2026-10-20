@@ -640,7 +640,7 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
 
 ## 19. Board layout standard
 
-Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`). Static text is never clipped to its box — ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
+Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`), `scale` (integer 1–8, default 1; Hanover bitmap fonts only — integer-upscales the glyphs for tall displays, e.g. a 19 px font at ×2 fills 40 px). Static text is never clipped to its box — ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
 
 Example (front, `num | via over dest`):
 
@@ -666,7 +666,7 @@ Resolution order per destination per display: own layout → display default tem
 
 ### 19.1 Hanover bitmap fonts
 
-`HANOVERFONTS/*.Fnt` (shipped in the repo, installed to `/var/lib/nsl/fonts`): real Hanover HELEN glyphs, 1:1 pixels, LSB = top row. Use font id `han-<STEM>` (e.g. `han-0705C1E1`) on any layout element, in the editor dropdown or JSON. Names encode approximate height (pick ≤ your display height; e.g. 19–24 px fonts suit multi-line 40 px boards). ASCII 32–126 renders true; other code points fall back to `?`. The editor preview, stop-by-stop preview, and bus renderer all blit the same glyphs, so WYSIWYG holds. Unknown `han-` ids fall back with a warning, never a blank board.
+`HANOVERFONTS/*.Fnt` (shipped in the repo, installed to `/var/lib/nsl/fonts`): real Hanover HELEN glyphs, 1:1 pixels, LSB = top row. Use font id `han-<STEM>` (e.g. `han-0705C1E1`) on any layout element, in the editor dropdown or JSON. Names carry approximate pixel height — most full-coverage workhorses are the 19 px set (`19ArialB`, `movia18`, `1713B3E1`…). ASCII 32–126 renders true; other code points fall back to `?`. The `/api/fonts` list reports per-font `coverage` (of 95 printable ASCII); avoid near-empty files (`bigbus*` carry 1–2 glyphs only — test remnants, not fonts). `scale` (1–8, default 1) integer-upscales Hanover glyphs — ×2 of 19 px fills a 40 px board. The editor preview, stop-by-stop preview, and bus renderer all blit the identical glyphs, so WYSIWYG holds. Unknown `han-` ids fall back with a warning, never a blank board.
 
 ---
 

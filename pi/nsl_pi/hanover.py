@@ -61,7 +61,7 @@ def _stem_of(path: str) -> str:
 
 
 def list_fonts(directory: str | None = None) -> list[dict]:
-    """[{id, name, height, maxwidth}]. id is ``han-<STEM>``."""
+    """[{id, name, height, maxwidth, glyphs, coverage}]. id is ``han-<STEM>``."""
     d = directory or fonts_dir()
     out = []
     if not os.path.isdir(d):
@@ -73,9 +73,10 @@ def list_fonts(directory: str | None = None) -> list[dict]:
             f = parse_font(os.path.join(d, fn))
         except Exception:
             continue
+        cov = sum(1 for c in range(32, 127) if any(f["glyphs"][c][1]))
         out.append({"id": "han-" + _stem_of(fn), "name": _stem_of(fn),
                     "height": f["height"], "maxwidth": f["maxwidth"],
-                    "glyphs": len(f["glyphs"])})
+                    "glyphs": len(f["glyphs"]), "coverage": cov})
     return out
 
 
@@ -156,3 +157,14 @@ def draw_text(img, font: dict, text: str, x: int, y: int, colour="#FFB000"):
                 yy += 1
                 b >>= 1
         cx += adv
+
+
+def render_text(font: dict, text: str, colour="#FFB000"):
+    """Render to a transparent RGBA strip at 1:1 (caller scales with NEAREST)."""
+    from PIL import Image
+    w, h = max(1, text_width(font, text)), max(1, int(font["height"]))
+    rgb = Image.new("RGB", (w, h), (0, 0, 0))
+    draw_text(rgb, font, text, 0, 0, colour)
+    alpha = rgb.convert("L").point(lambda v: 255 if v > 0 else 0)
+    rgb.putalpha(alpha)
+    return rgb

@@ -110,17 +110,32 @@ const Preview = (() => {
         g.textAlign = el.align === "centre" || el.align === "center" ? "center" : (el.align === "right" ? "right" : "left");
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
         const ty = el.valign === "middle" ? by + bh / 2 : (el.valign === "bottom" ? by + bh : by);
-        const tw = han ? H.width(han, text) : g.measureText(text).width;
+        const sc = han ? Math.max(1, Math.min(8, parseInt(el.scale || 1, 10) || 1)) : 1;
+        const tw1 = han ? H.width(han, text) : 0;
+        const tw = han ? tw1 * sc : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
+        const hanStrip = () => {
+          const c1 = document.createElement("canvas");
+          c1.width = Math.max(1, tw1); c1.height = han.height;
+          H.draw(c1.getContext("2d"), han, text, 0, 0, el.colour || AMBER);
+          if (sc <= 1) return c1;
+          const c2 = document.createElement("canvas");
+          c2.width = c1.width * sc; c2.height = c1.height * sc;
+          const s2 = c2.getContext("2d");
+          s2.imageSmoothingEnabled = false;
+          s2.drawImage(c1, 0, 0, c1.width, c1.height, 0, 0, c2.width, c2.height);
+          return c2;
+        };
         // No clipping for static text (matches the bus): ink may overflow its
         // box and still shows. Only scrolling crops to the element.
         if (han && !needScroll) {
-          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
-            : (el.valign === "bottom" ? by + bh - han.height : by);
+          const sh = han.height * sc;
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
+            : (el.valign === "bottom" ? by + bh - sh : by);
           let tx = bx + 1;
           if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
           if (el.align === "right") tx = bx + bw - tw;
-          H.draw(g, han, text, tx, y0, el.colour || AMBER);
+          g.drawImage(hanStrip(), tx, y0);
           continue;
         }
         if (!han && !needScroll) {
@@ -134,20 +149,15 @@ const Preview = (() => {
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
         if (han) {
-          const y0 = el.valign === "middle" ? by + Math.floor((bh - han.height) / 2)
-            : (el.valign === "bottom" ? by + bh - han.height : by);
-          if (!needScroll) {
-            let tx = bx + 1;
-            if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
-            if (el.align === "right") tx = bx + bw - tw;
-            H.draw(g, han, text, tx, y0, el.colour || AMBER);
-          } else {
-            const offx = Math.floor(t * 20) % Math.floor(tw + bw);
-            const strip = document.createElement("canvas");
-            strip.width = Math.ceil(tw + bw); strip.height = bh;
-            H.draw(strip.getContext("2d"), han, text, 0, Math.max(0, y0 - by), el.colour || AMBER);
-            g.drawImage(strip, offx, 0, bw, bh, bx, by, bw, bh);
-          }
+          const sh = han.height * sc;
+          const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
+            : (el.valign === "bottom" ? by + bh - sh : by);
+          const offx = Math.floor(t * 20) % Math.floor(tw + bw);
+          const strip = hanStrip();
+          const s2 = document.createElement("canvas");
+          s2.width = Math.ceil(tw + bw); s2.height = bh;
+          s2.getContext("2d").drawImage(strip, 0, Math.max(0, y0 - by));
+          g.drawImage(s2, offx, 0, bw, bh, bx, by, bw, bh);
           g.restore();
           continue;
         }
