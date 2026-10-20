@@ -91,3 +91,23 @@ def test_invalid_code_changes_nothing(tmp_path):
     except ValueError:
         pass
     assert c.state()["destination_id"] == before
+
+
+def test_apply_command_dispatch(tmp_path):
+    c, pid = _core(tmp_path)
+    c.apply_command({"command": "select_program", "program_id": pid}, source="test")
+    c.apply_command({"command": "select_code", "code": "10000001"}, source="test")
+    assert c.state()["destination_id"] is not None
+    c.apply_command({"command": "stop_next"}, source="test")
+    c.apply_command({"command": "override_apply", "text": "HELD"}, source="test")
+    assert c.state()["override_text"] == "HELD"
+    c.apply_command({"command": "override_clear"}, source="test")
+    assert not c.state()["override_text"]
+    for bad in ({"command": "select_code", "code": "00000000"},
+                {"command": "bogus"}, {}):
+        try:
+            c.apply_command(bad, source="test")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {bad}")

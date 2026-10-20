@@ -305,6 +305,44 @@ class Core:
         self._emit("state")
         return self.state()
 
+    # ---- unified command dispatch (local UI, keypad agent, portal agent) ----
+    def apply_command(self, cmd: dict, source: str = "local", user_id: str | None = None) -> dict:
+        """Apply one command dict. Raises ValueError on bad/unknown commands."""
+        cmd = cmd or {}
+        action = cmd.get("command")
+        if action == "select_code":
+            return self.select_code(cmd.get("code", ""), source=source, user_id=user_id)
+        if action == "select_destination":
+            return self.select_destination(cmd.get("destination_id", ""), source=source, user_id=user_id)
+        if action == "select_program":
+            return self.select_program(cmd.get("program_id", ""), source=source, user_id=user_id)
+        if action in ("stop_next", "stop_prev", "stop_first"):
+            if action == "stop_first":
+                st = self.state()
+                pc = self._open_prog(st["program_id"], st["program_version"])
+                if pc is None:
+                    raise ValueError("no program selected")
+                try:
+                    first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
+                                       (st["destination_id"],)).fetchone()
+                finally:
+                    pc.close()
+                if not first:
+                    raise ValueError("no stops")
+                return self.goto_stop(first["id"], source=source, user_id=user_id)
+            return self.stop_step({"stop_next": 1, "stop_prev": -1}[action], source=source, user_id=user_id)
+        if action == "override_apply":
+            return self.apply_override(cmd.get("text", ""), source=source, user_id=user_id)
+        if action == "override_clear":
+            return self.clear_override(source=source, user_id=user_id)
+        if action == "volume":
+            return self.set_volume(cmd.get("volume"), cmd.get("muted"), source=source, user_id=user_id)
+        if action == "activate":
+            return self.activate_version(cmd.get("program_id"), int(cmd.get("version")), source=source)
+        if action in ("announce_next", "announce_approaching"):
+            return {"announcement": self.announcement_clips("next" if action == "announce_next" else "approaching")}
+        raise ValueError(f"unknown command {action}")
+
     # ---- announcement composition (format.md 7) ----
     def announcement_clips(self, moment: str) -> list[str]:
         """moment in next|approaching. Returns ordered clip hashes (NULL skipped)."""

@@ -86,37 +86,10 @@ def api_state():
 @app.post("/api/command")
 def api_command(body: dict):
     c = get_core()
-    cmd = body.get("command")
     try:
-        if cmd == "select_code":
-            return c.select_code(body.get("code", ""), source="local")
-        if cmd == "select_destination":
-            return c.select_destination(body.get("destination_id", ""), source="local")
-        if cmd == "select_program":
-            return c.select_program(body.get("program_id", ""), source="local")
-        if cmd in ("stop_next", "stop_prev", "stop_first"):
-            d = {"stop_next": 1, "stop_prev": -1}.get(cmd, 0)
-            if cmd == "stop_first":
-                st = c.state()
-                pc = c._open_prog(st["program_id"], st["program_version"])
-                first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
-                                   (st["destination_id"],)).fetchone()
-                pc.close()
-                return c.goto_stop(first["id"], source="local")
-            return c.stop_step(d, source="local")
-        if cmd == "override_apply":
-            return c.apply_override(body.get("text", ""), source="local")
-        if cmd == "override_clear":
-            return c.clear_override(source="local")
-        if cmd == "volume":
-            return c.set_volume(body.get("volume"), body.get("muted"), source="local")
-        if cmd == "activate":
-            return c.activate_version(body.get("program_id"), int(body.get("version")), source="local")
-        if cmd in ("announce_next", "announce_approaching"):
-            return {"announcement": c.announcement_clips("next" if cmd == "announce_next" else "approaching")}
+        return c.apply_command(body or {}, source="local")
     except ValueError as e:
         raise HTTPException(400, str(e))
-    raise HTTPException(400, f"unknown command {cmd}")
 
 
 @app.get("/api/programs")

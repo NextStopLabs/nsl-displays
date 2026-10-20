@@ -17,11 +17,13 @@ def _utcnow() -> str:
 def main():
     from .store import init_controller_db
     from .agent import Agent
+    from .core import Core
     db = os.path.join(BASE, "controller.db")
     init_controller_db(db)
     portal = os.environ.get("PORTAL_URL", "https://nslboards.com/portal")
     token = os.environ.get("NSL_TOKEN")
     ag = Agent(portal, BASE, token)
+    core = Core(db, os.path.join(BASE, "programs"))
     print(f"nsl-agent starting: portal={portal} base={BASE} token={'set' if token else 'MISSING'}",
           flush=True)
     while True:
@@ -30,12 +32,19 @@ def main():
             if isinstance(hb, dict) and hb.get("error"):
                 print("heartbeat failed:", hb["error"], flush=True)
             for pc in ((hb or {}).get("pending_commands") or []):
-                # received = portal knows the bus is alive; actuation is Core's job (same DB, next step)
-                print("portal command received:", json.dumps(pc.get("command"))[:300], flush=True)
+                cmd = pc.get("command") or {}
+                print("portal command received:", json.dumps(cmd)[:300], flush=True)
+                try:
+                    res = core.apply_command(cmd, source="portal")
+                    status, detail = "applied", json.dumps(res)[:200]
+                except Exception as e:
+                    status, detail = "failed", str(e)
+                print(f"portal command {status}: {detail}", flush=True)
                 con = sqlite3.connect(db)
                 try:
                     con.execute("INSERT INTO outbox (kind, payload, created_at) VALUES (?,?,?)",
-                                ("portal_command", json.dumps(pc), _utcnow()))
+                                ("portal_command", json.dumps({"command": cmd, "status": status,
+                                                               "detail": detail}), _utcnow()))
                     con.commit()
                 finally:
                     con.close()
