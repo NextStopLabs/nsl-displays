@@ -26,15 +26,26 @@ class DisplayDriver:
         # silently disable the panels on a real bus.)
         if HAS_MATRIX:
             o = RGBMatrixOptions()
-            o.rows = int(matrix_options.get("led-rows", 40))
-            o.cols = int(matrix_options.get("led-cols", 80))
-            o.chain_length = int(matrix_options.get("led-chain", 3))
-            o.parallel = int(matrix_options.get("led-parallel", 1))
-            o.brightness = int(matrix_options.get("led-brightness", 70))
-            o.hardware_mapping = str(matrix_options.get("led-gpio-mapping", "regular"))
-            o.slowdown_gpio = int(matrix_options.get("led-slowdown-gpio", 4))
-            o.pwm_bits = int(matrix_options.get("led-pwm-bits", 11))
-            o.disable_hardware_pulsing = bool(matrix_options.get("no-hardware-pulse", True))
+            # our config keys -> upstream RGBMatrixOptions properties
+            # (verified against bindings/python/rgbmatrix/core.pyx)
+            wanted = {
+                "rows": int(matrix_options.get("led-rows", 40)),
+                "cols": int(matrix_options.get("led-cols", 80)),
+                "chain_length": int(matrix_options.get("led-chain", 3)),
+                "parallel": int(matrix_options.get("led-parallel", 1)),
+                "brightness": int(matrix_options.get("led-brightness", 70)),
+                "hardware_mapping": str(matrix_options.get("led-gpio-mapping", "regular")),
+                "gpio_slowdown": int(matrix_options.get("led-slowdown-gpio", 4)),
+                "pwm_bits": int(matrix_options.get("led-pwm-bits", 11)),
+                "disable_hardware_pulsing": bool(matrix_options.get("no-hardware-pulse", True)),
+            }
+            for attr, val in wanted.items():
+                if hasattr(o, attr):
+                    setattr(o, attr, val)
+                else:
+                    # never crash-loop the bus over a renamed option; shout instead
+                    print(f"display driver: RGBMatrixOptions has no {attr!r} "
+                          f"(library version?) — skipped", flush=True)
             self.matrix = RGBMatrix(options=o)
         print(f"display driver: {'HUB75 hardware' if self.matrix is not None else 'virtual PNG output ' + str(virtual_dir)} "
               f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
