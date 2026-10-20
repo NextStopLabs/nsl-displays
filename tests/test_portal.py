@@ -197,3 +197,26 @@ def test_publish_upload_and_sync_state(tmp_path, monkeypatch):
     ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"][0]
     assert ctl["sync_state"]["phase"] == "bundle"
     assert ctl["pending_commands"] == 0
+
+
+def test_device_audio_serves_wav_and_flac(tmp_path, monkeypatch):
+    import io
+    import wave
+    from tests.test_portal import _client
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "w@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    dev = c.post("/api/device/register", json={}).json()
+    pr = c.post("/api/controllers/pair",
+                data={"organisation_id": org, "code": dev["pairing_code"], "name": "bus-1"}, headers=H).json()
+    DH = {"Authorization": f"Bearer {pr['device_token']}"}
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+        w.writeframes(b"\x00\x10" * 2205)
+    files = {"file": ("tone.wav", buf.getvalue(), "audio/wav")}
+    up = c.post("/api/audio", data={"organisation_id": org, "name": "tone"}, files=files, headers=H).json()
+    h = up["sha256"]
+    r = c.get(f"/api/device/audio/{h}", headers=DH)
+    assert r.status_code == 200 and len(r.content) > 1000
+    assert c.get("/api/device/audio/" + "0" * 64, headers=DH).status_code == 404

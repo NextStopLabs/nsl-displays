@@ -65,3 +65,20 @@ def test_sync_leaves_existing_state_alone(tmp_path, monkeypatch):
     st = con.execute("SELECT program_id FROM state WHERE id=1").fetchone()
     con.close()
     assert st[0] == "other"
+
+
+def test_player_announce_writes_wav_without_alsa(tmp_path):
+    import io
+    import wave
+    from pi.nsl_pi.player import announce
+    adir = tmp_path / "au"
+    (adir / "ab").mkdir(parents=True)
+    h = "ab" * 32
+    p = adir / "ab" / (h + ".wav")
+    with wave.open(str(p), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+        w.writeframes(b"\x00\x10" * 2205)
+    out = str(tmp_path / "chain.wav")
+    rep = announce([h], str(adir), device="no-such-device-xyz", out_wav=out)
+    assert rep["clips"] == 1 and rep["played"] is False
+    assert os.path.getsize(out) > 1000

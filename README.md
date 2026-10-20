@@ -103,6 +103,8 @@ Software on the main Pi (all systemd services):
 | `input` | Reads USB keypad via `evdev`, maps keys to actions, sends to core |
 | `local-ui` | Web UI at `192.168.4.1`, same components as portal remote control |
 | `receiver-sync` | Publishes state to side/rear Pis over bus LAN |
+| `player` | Auto-announces on stop change through USB audio (front only) |
+| `input` | Reads the cab USB keypad, dispatches to Core (front only) |
 
 Software on each receiver Pi: minimal `receiver` service (render layout JSON + hold last frame) + `display-driver`. No portal contact, no audio, no keypad.
 
@@ -485,6 +487,8 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 - `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
 - `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
 - `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync polls every `NSL_POLL_S` (default 10 s).
+- `nsl-player` runs `python3 -m nsl_pi.player_main`: watches stop changes, plays the next-stop chain on the PA (front only, USB audio).
+- `nsl-input` runs `python3 -m nsl_pi.input_main`: cab USB keypad → Core commands (front only).
 - `nsl-local-ui` serves the local controller on port 80 (all interfaces, but only AP-subnet/bus-LAN/loopback clients get answers, 403 otherwise).
 
 ```bash
@@ -617,6 +621,14 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
 - Sources: file upload (MP3/WAV/OGG/M4A/FLAC, transcoded) or Piper TTS (type text → pick voice → generate → save; text+settings kept for regen; bulk generate per stop/service/program skipping existing).
 - Voices: built-in default + per-organisation uploads (`.onnx` + `.onnx.json` pair, validated, test-synthesised, size-limited, licence note + rights tick). Runs sandboxed on the server; Pi never runs Piper.
 - Player decodes to PCM and chains sample-accurately — no gapless-mode dependency.
+- Bus output is USB audio only: the 3.5 mm jack is dead by design (`dtparam=audio=off` — onboard audio shares PWM hardware with HUB75). Plug a USB sound card into the front Pi, then:
+  ```bash
+  aplay -l                       # note the card, e.g. card 1
+  speaker-test -c1 -t wav -D plughw:1,0   # short test tone, Ctrl+C to stop
+  sqlite3 /var/lib/nsl/controller.db "UPDATE controller_config SET audio_device='plughw:1,0' WHERE id=1"
+  sudo systemctl restart nsl-player
+  ```
+  Announcements auto-play on stop change; keypad/portal/local-UI announce buttons play immediately. No clips uploaded = silence (check the portal preview lists clips first).
 
 ---
 

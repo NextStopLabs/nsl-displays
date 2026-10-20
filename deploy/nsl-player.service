@@ -1,0 +1,10 @@
+[Unit]
+Description=NSL player (stop announcements to PA)
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m nsl_pi.player_main
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

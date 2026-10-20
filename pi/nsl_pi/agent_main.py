@@ -50,6 +50,12 @@ def main():
                 try:
                     res = core.apply_command(cmd, source="portal")
                     status, detail = "applied", json.dumps(res)[:200]
+                    if isinstance(res, dict) and res.get("announcement"):
+                        from nsl_pi.player import play_announcement
+                        prep = play_announcement(res["announcement"], BASE)
+                        print(f"portal announcement: {prep.get('clips')} clip(s) "
+                              f"played={prep.get('played')} device={prep.get('device')}", flush=True)
+                        detail += f" played={prep.get('played')}"
                 except Exception as e:
                     status, detail = "failed", str(e)
                 print(f"portal command {status}: {detail}", flush=True)

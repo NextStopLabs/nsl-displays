@@ -102,9 +102,15 @@ def api_state():
 def api_command(body: dict):
     c = get_core()
     try:
-        return c.apply_command(body or {}, source="local")
+        res = c.apply_command(body or {}, source="local")
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if isinstance(res, dict) and res.get("announcement"):
+        from nsl_pi.player import play_announcement
+        import os as _os
+        prep = play_announcement(res["announcement"], _os.environ.get("NSL_BASE", "/var/lib/nsl"))
+        res = dict(res, played=prep.get("played"), device=prep.get("device"))
+    return res
 
 
 @app.get("/api/programs")

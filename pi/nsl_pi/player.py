@@ -97,3 +97,30 @@ def announce(hashes: list[str], audio_dir: str, device: str = "default",
     pcm, rate = chain_clips(resolved, out_wav=out_wav)
     ok = play_pcm(pcm, rate, device)
     return {"clips": len(resolved), "bytes": len(pcm), "rate": rate, "played": ok}
+
+
+def configured_device(base_dir: str) -> str:
+    """ALSA device from controller.db (portal/local UI settings), else default."""
+    try:
+        import sqlite3
+        con = sqlite3.connect(os.path.join(base_dir, "controller.db"))
+        try:
+            row = con.execute("SELECT audio_device FROM controller_config WHERE id=1").fetchone()
+        finally:
+            con.close()
+        if row and row[0]:
+            return str(row[0])
+    except Exception:
+        pass
+    return "default"
+
+
+def play_announcement(hashes: list[str], base_dir: str) -> dict:
+    """Play clip hashes through the configured ALSA device. Logs-friendly report."""
+    audio_dir = os.path.join(base_dir, "audio")
+    device = configured_device(base_dir)
+    if not hashes:
+        return {"clips": 0, "played": False, "reason": "no audio clips", "device": device}
+    rep = announce(hashes, audio_dir, device)
+    rep["device"] = device
+    return rep

@@ -112,21 +112,36 @@ class Agent:
                 if not res.ok:
                     report["errors"].append(f"{pid}@{ver} invalid: " + "; ".join(x.message for x in res.errors))
                     continue
-                # 2. audio second (only missing hashes)
-                missing = [a for a in m.get("audio", [])
-                           if not os.path.exists(os.path.join(self.audio_dir, a["hash"][:2], a["hash"] + ".flac"))]
+                # 2. audio second (only missing hashes; either extension counts)
+                def _have(h: str) -> bool:
+                    d = os.path.join(self.audio_dir, h[:2])
+                    return os.path.exists(os.path.join(d, h + ".flac")) or \
+                        os.path.exists(os.path.join(d, h + ".wav"))
+                missing = [a for a in m.get("audio", []) if not _have(a["hash"])]
                 for i, a in enumerate(missing, 1):
-                    apath = os.path.join(self.audio_dir, a["hash"][:2], a["hash"] + ".flac")
                     self.progress = {"phase": "audio", "program": m.get("program_name", pid),
                                      "done": i, "total": len(missing)}
-                    tmp = os.path.join(self.incoming, a["hash"] + ".flac")
+                    tmp = os.path.join(self.incoming, a["hash"] + ".part")
                     try:
                         self.download(a["url"], tmp, a["hash"])
-                        os.makedirs(os.path.dirname(apath), exist_ok=True)
-                        os.replace(tmp, apath)
+                        # extension by magic bytes (server stores .wav, legacy .flac)
+                        with open(tmp, "rb") as f:
+                            magic = f.read(4)
+                        ext = ".wav" if magic == b"RIFF" else ".flac"
+                        apath = os.path.join(self.audio_dir, a["hash"][:2], a["hash"] + ext)
+                        if os.path.exists(apath):
+                            os.remove(tmp)
+                        else:
+                            os.makedirs(os.path.dirname(apath), exist_ok=True)
+                            os.replace(tmp, apath)
                         report["audio"]["ok"] += 1
                     except Exception as e:
                         report["audio"]["failed"].append(f"{a['hash'][:12]}: {e}")
+                        try:
+                            if os.path.exists(tmp):
+                                os.remove(tmp)
+                        except OSError:
+                            pass
                 # 3. install (atomic move + registry) — activation is Core's job at safe moment
                 import shutil
                 self.progress = {"phase": "installing", "program": m.get("program_name", pid), "version": ver}

@@ -30,7 +30,7 @@ sudo cp deploy/nsl-*.service /etc/systemd/system/
 # (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep
 # this working wherever the repo was cloned from.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-for svc in nsl-core nsl-agent nsl-display nsl-local-ui; do
+for svc in nsl-core nsl-agent nsl-display nsl-local-ui nsl-player nsl-input; do
   sudo mkdir -p "/etc/systemd/system/${svc}.service.d"
   sudo tee "/etc/systemd/system/${svc}.service.d/nsl-path.conf" >/dev/null <<EOF
 [Service]
@@ -40,5 +40,5 @@ Environment="PYTHONPATH=$REPO:$REPO/pi"
 EOF
 done
 sudo systemctl daemon-reload
-sudo systemctl enable nsl-core nsl-agent nsl-display nsl-local-ui watchdog
+sudo systemctl enable nsl-core nsl-agent nsl-display nsl-local-ui nsl-player nsl-input watchdog
 echo "done: role=$ROLE unit=$UNIT ip=$IP — reboot, expect pairing code on boards"

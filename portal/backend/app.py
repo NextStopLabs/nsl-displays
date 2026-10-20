@@ -1116,10 +1116,12 @@ def device_bundle(pid: str, v: int, authorization: str | None = Header(default=N
 @app.get("/api/device/audio/{h}")
 def device_audio(h: str, authorization: str | None = Header(default=None)):
     device_controller(authorization)
-    path = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".flac")
-    if not os.path.exists(path):
-        raise HTTPException(404, "no clip")
-    return FileResponse(path, filename=h + ".flac")
+    # canonical store is .wav (legacy .flac accepted); serve whichever exists.
+    base = os.path.join(STORAGE_DIR, "audio", h[:2], h)
+    for ext, media in ((".wav", "audio/wav"), (".flac", "audio/x-flac")):
+        if os.path.exists(base + ext):
+            return FileResponse(base + ext, filename=h + ext, media_type=media)
+    raise HTTPException(404, "no clip")
 
 
 @app.post("/api/device/heartbeat")
