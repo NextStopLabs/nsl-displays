@@ -376,7 +376,7 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 
 ## 11. Portal remote control
 
-Per-controller page. Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
+Per-controller page. Pick the bus, type the 8-digit code, done — stop nav, announcements, override, volume and program switching live under "More controls". Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus-vs-active, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
 
 Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … — command not queued`) — it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (every `NSL_POLL_S`, default 10 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY / active vZ` — installed ≠ selected: codes only work in the **active** version, and a `bus parked on vX` warning tells you exactly when the bus sits on an old one. Offline ⇒ keypad + local UI keep working.
 

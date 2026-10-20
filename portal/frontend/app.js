@@ -291,16 +291,17 @@ function renderProgram() {
   h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
   h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
-  h += `<details id=up-details open><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers (version defaults to published)</label><div id=pd-ctls>` +
+  h += `<details id=up-details open><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers</label><div id=pd-ctls>` +
     S.controllers.map((c) => {
       const act = (c.programs || []).find((x) => x.active_version != null);
       const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
       const ghost = !c.last_seen_at ? ` <span class=err>never checked in — probably a duplicate row, delete it in the Controllers tab</span>` : "";
-      return `<div class=row style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})${ghost}</label>` +
-        `<button data-up-one="${c.id}" title="Upload v${esc(p.published_version || 0)} to ${esc(c.name)} only">Upload v${esc(p.published_version || 0)}</button></div>`;
+      return `<div class=row data-ctlrow="${c.id}" style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})${ghost}</label>` +
+        `<span class=hint data-upstat="${c.id}"></span>` +
+        `<button data-up-latest="${c.id}" title="Publish (if changed) and upload the latest version to ${esc(c.name)}">Send latest</button></div>`;
     }).join("") +
-    `</div></div><div style="flex:1;min-width:120px"><label for=pd-ver>Version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
-    <div style="align-self:end"><button id=pd-upload>Queue upload</button></div></div></details>`;
+    `</div></div></div><div class=row><div style="flex:1;min-width:120px"><label for=pd-ver>Advanced: exact version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
+    <div style="align-self:end"><button id=pd-upload>Queue exact version to ticked</button></div></div></details>`;
 
   // ---- HELEN-style destination list: one table, one add form ----
   h += `<h3>Destinations (${flat.length})</h3>`;
@@ -393,13 +394,44 @@ function renderProgram() {
       alert("Queued for " + r.queued.length + " controller(s).");
     } catch (e) { err(String(e.message || e)); }
   };
-  $("pd-ctls").querySelectorAll("[data-up-one]").forEach((b) => b.onclick = async () => {
+  $("pd-ctls").querySelectorAll("[data-up-latest]").forEach((b) => b.onclick = async () => {
     try {
-      const r = await api(`/api/programs/${p.id}/upload`, { method: "POST",
-        body: { controllers: [b.dataset.upOne], version: parseInt($("pd-ver").value, 10) } });
-      alert(`Upload v${$("pd-ver").value} queued for 1 controller.`);
+      const r = await api(`/api/programs/${p.id}/publish-upload`, { method: "POST",
+        body: { controllers: [b.dataset.upLatest], notes: $("pd-notes").value } });
+      err("");
+      alert(r.unchanged ? `No changes — v${r.version} re-queued for 1 controller.` : `Published v${r.version}, queued for 1 controller.`);
+      loadPrograms(); refreshUploadStatus();
     } catch (e) { err(String(e.message || e)); }
   });
+  if (window._upTimer) clearInterval(window._upTimer);
+  window._upTimer = setInterval(() => { if ($("pd-ctls")) refreshUploadStatus(); }, 5000);
+  refreshUploadStatus();
+}
+function upStatusText(c, pid) {
+  const row = ((c.programs || []).find((x) => x.program_id === pid)) || null;
+  if (!row || row.desired_version == null) return "not uploaded";
+  const inst = row.installed_version, des = row.desired_version, act = row.active_version;
+  const sync = c.sync_state;
+  if (sync && sync.phase && sync.phase !== "idle")
+    return (sync.phase === "audio" && sync.total ? `fetching audio ${sync.done || ""}/${sync.total}…`
+      : sync.phase === "bundle" ? `downloading v${sync.version || ""}…`
+      : sync.phase === "installing" ? "installing…" : `${sync.phase}…`);
+  if (inst == null) return c.online ? `queued v${des} — bus downloading…` : `queued v${des} — waiting for bus`;
+  if (inst !== des) return `installing v${des}… (bus has v${inst})`;
+  if (act == null || act !== des) return `✓ installed v${des}` + (act != null ? ` — bus parked on v${act}, select a destination to switch` : " — bus will adopt it");
+  return `✓ live on v${des}`;
+}
+async function refreshUploadStatus() {
+  try {
+    const r = await api("/api/controllers?organisation_id=" + encodeURIComponent(S.org));
+    S.controllers = r.controllers || [];
+    const pid = S.curProg && S.curProg.id;
+    for (const el of document.querySelectorAll("[data-upstat]")) {
+      const c = S.controllers.find((x) => x.id === el.dataset.upstat);
+      if (c && pid) el.textContent = upStatusText(c, pid);
+    }
+  } catch (e) { /* keep old text on failure */ }
+}
   $("dest-filter").addEventListener("input", () => {
     const q = $("dest-filter").value.trim().toLowerCase();
     document.querySelectorAll("#destrows tr").forEach((tr) => {
@@ -800,7 +832,10 @@ async function rcSend(body) {
   const c = S.controllers.find((x) => x.id === cid);
   if (c && !c.online) throw new Error(`“${c.name}” is offline (last seen ${c.last_seen_at || "never"}) — command refused, nothing was queued.`);
   const r = await api(`/api/controllers/${cid}/command`, { method: "POST", body });
-  $("rc-state").textContent = `Sent to “${c ? c.name : cid}” at ${new Date().toLocaleTimeString()} — the bus picks it up on its next check-in (~60 s).`;
+  const when = new Date().toLocaleTimeString();
+  const msg = `Sent to “${c ? c.name : cid}” at ${when} — the bus picks it up within ~10 s.`;
+  $("rc-state").textContent = msg;
+  if ($("rc-result")) $("rc-result").textContent = msg;
   return r;
 }
 const rc = (id, fn) => $(id).addEventListener("click", () => fn().catch((e) => err(String(e.message || e))));

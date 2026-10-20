@@ -120,9 +120,11 @@
 <div style="align-self:end"><button id=btn-rc-refresh>Refresh</button></div></div>
 <div id=rc-state class=hint>Select a controller.</div>
 <div class=row>
-<div style="flex:1"><label for=rc-code>8-digit code</label><input id=rc-code maxlength=8 inputmode=numeric></div>
-<div style="align-self:end"><button id=btn-rc-code>Select destination</button></div>
+<div style="flex:2;min-width:200px"><label for=rc-code>8-digit code</label><input id=rc-code maxlength=8 inputmode=numeric></div>
+<div style="align-self:end"><button id=btn-rc-code class=primary>Select destination</button></div>
 </div>
+<div id=rc-result class=hint></div>
+<details><summary>More controls (stops, announcements, override, volume, program)</summary>
 <div class=row>
 <button id=btn-prev>Prev stop</button><button id=btn-next>Next stop</button>
 <button id=btn-an>Announce next</button><button id=btn-aa>Announce approaching</button>
@@ -139,6 +141,7 @@
 <div style="flex:1"><label for=rc-prog>Program</label><select id=rc-prog></select></div>
 <div style="align-self:end"><button id=btn-rc-prog>Select program</button></div>
 </div>
+</details>
 </div>
 </section>
 </div>

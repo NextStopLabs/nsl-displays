@@ -155,6 +155,10 @@ def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
     for r in rows:
         c = dict(r)
         c["online"] = _controller_online(c)
+        try:
+            c["sync_state"] = json.loads(c.get("sync_state") or "null")
+        except Exception:
+            c["sync_state"] = None
         c["programs"] = [dict(x) for x in con.execute(
             "SELECT cp.program_id, p.name, cp.desired_version, cp.installed_version, cp.active_version, cp.status "
             "FROM controller_programs cp LEFT JOIN programs p ON p.id=cp.program_id "
@@ -592,7 +596,12 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
 def publish(pid: str, body: dict, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner", "editor")
-    from nslprog import content_hash_of_file
+    return _do_publish(pid, org, body.get("notes", ""), u)
+
+
+def _do_publish(pid: str, org: str, notes: str, u: dict) -> dict:
+    """Build the next immutable version unless nothing changed. Shared by
+    publish and publish-upload (one flow, one code path)."""
     con = db()
     p = con.execute("SELECT * FROM programs WHERE id=?", (pid,)).fetchone()
     nxt = (p["published_version"] or 0) + 1
@@ -602,7 +611,7 @@ def publish(pid: str, body: dict, u: dict = Depends(current_user)):
                          (pid,)).fetchone()
     if latest and latest[0] == info["content_hash"]:
         os.remove(out)
-        return {"ok": True, "version": latest and nxt - 1, "unchanged": True, "content_hash": info["content_hash"]}
+        return {"ok": True, "version": nxt - 1, "unchanged": True, "content_hash": info["content_hash"]}
     # audio totals
     import sqlite3 as _s
     c2 = _s.connect(f"file:{out}?mode=ro", uri=True)
@@ -611,13 +620,27 @@ def publish(pid: str, body: dict, u: dict = Depends(current_user)):
     con.execute("INSERT INTO program_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), pid, nxt, f"programs/{pid}/{nxt}.nslprog",
                  info["bundle_sha256"], info["content_hash"], info["bytes"], acount, abytes,
-                 body.get("notes", ""), u["id"], _utcnow()))
+                 notes, u["id"], _utcnow()))
     con.execute("UPDATE programs SET published_version=?, updated_at=? WHERE id=?", (nxt, _utcnow(), pid))
     con.commit()
-    total = info["bytes"]  # + audio computed at upload dialog via manifest
     return {"ok": True, "version": nxt, "content_hash": info["content_hash"],
             "bundle_sha256": info["bundle_sha256"], "bytes": info["bytes"],
             "audio_count": acount, "audio_bytes": abytes}
+
+
+def _do_queue_upload(con, org: str, pid: str, ver: int, cids: list) -> list:
+    queued = []
+    for cid in cids:
+        c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+        if not c or c["organisation_id"] != org:
+            raise HTTPException(400, f"bad controller {cid}")
+        con.execute("INSERT OR REPLACE INTO controller_programs "
+                    "(controller_id, program_id, desired_version, installed_version, status, last_error, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (cid, pid, ver, None, "pending", None, _utcnow()))
+        queued.append(cid)
+    con.commit()
+    return queued
 
 
 @app.post("/api/programs/{pid}/upload")
@@ -627,16 +650,20 @@ def upload(pid: str, body: dict, u: dict = Depends(current_user)):
     con = db()
     p = con.execute("SELECT * FROM programs WHERE id=?", (pid,)).fetchone()
     ver = body.get("version") or p["published_version"]
-    for cid in body.get("controllers", []):
-        c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
-        if not c or c["organisation_id"] != org:
-            raise HTTPException(400, f"bad controller {cid}")
-        con.execute("INSERT OR REPLACE INTO controller_programs "
-                    "(controller_id, program_id, desired_version, installed_version, status, last_error, updated_at) "
-                    "VALUES (?,?,?,?,?,?,?)",
-                    (cid, pid, ver, None, "pending", None, _utcnow()))
-    con.commit()
-    return {"ok": True, "version": ver, "queued": body.get("controllers", [])}
+    queued = _do_queue_upload(con, org, pid, ver, body.get("controllers", []))
+    return {"ok": True, "version": ver, "queued": queued}
+
+
+@app.post("/api/programs/{pid}/publish-upload")
+def publish_upload(pid: str, body: dict, u: dict = Depends(current_user)):
+    """One flow: publish (if changed) + upload latest to the chosen buses.
+    This is the normal path — versions are an implementation detail."""
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    pub = _do_publish(pid, org, body.get("notes", ""), u)
+    queued = _do_queue_upload(db(), org, pid, pub["version"], body.get("controllers", []))
+    return {"ok": True, "version": pub["version"], "unchanged": pub.get("unchanged", False),
+            "queued": queued}
 
 
 @app.get("/api/programs/{pid}/versions/{v}/export")
@@ -1030,7 +1057,9 @@ def device_register(body: dict, authorization: str | None = Header(default=None)
     cid = str(uuid.uuid4())
     exp = datetime.now(timezone.utc).timestamp() + 15 * 60
     exp_s = datetime.fromtimestamp(exp, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    con.execute("INSERT INTO controllers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT INTO controllers (id, organisation_id, name, device_token_hash, status,"
+                " last_seen_at, app_version, channel, supported_formats, pairing_code, pairing_expires_at,"
+                " config_version, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cid, None, "unpaired", None, "pending", None, "", "stable", "1",
                  code, exp_s, 1, _utcnow()))
     con.commit()
@@ -1093,6 +1122,8 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
     con = db()
     con.execute("UPDATE controllers SET last_seen_at=?, status='online', app_version=? WHERE id=?",
                 (_utcnow(), body.get("app_version", ""), c["id"]))
+    con.execute("UPDATE controllers SET sync_state=? WHERE id=?",
+                (json.dumps(body.get("sync")) if body.get("sync") else None, c["id"]))
     for inst in body.get("installed", []):
         con.execute("UPDATE controller_programs SET installed_version=?, status=?, updated_at=? WHERE controller_id=? AND program_id=?",
                     (inst.get("version"), inst.get("status", "installed"), _utcnow(), c["id"], inst.get("program_id")))

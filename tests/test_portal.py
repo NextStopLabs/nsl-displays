@@ -167,3 +167,33 @@ def test_ui_flow_end_to_end(tmp_path, monkeypatch):
     assert ctl[0]["online"] is False  # never checked in
     r = c.post(f"/api/controllers/{ctl[0]['id']}/command", json={"command": "stop_next"}, headers=H)
     assert r.status_code == 409
+
+
+def test_publish_upload_and_sync_state(tmp_path, monkeypatch):
+    from tests.test_portal import _client
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "p@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    dev = c.post("/api/device/register", json={}).json()
+    pr = c.post("/api/controllers/pair",
+               data={"organisation_id": org, "code": dev["pairing_code"], "name": "bus-1"}, headers=H).json()
+    DH = {"Authorization": f"Bearer {pr['device_token']}"}
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "P"}, headers=H).json()["program_id"]
+    sid = c.post(f"/api/programs/{pid}/services", json={"number": "1"}, headers=H).json()["service_id"]
+    did = c.post(f"/api/services/{sid}/destinations",
+                 json={"code": "00000001", "name": "A"}, headers=H).json()["destination_id"]
+    c.put(f"/api/destinations/{did}/stops", json={"stops": [{"name": "S1"}]}, headers=H)
+    # one flow: publish + upload
+    r = c.post(f"/api/programs/{pid}/publish-upload",
+               json={"controllers": [dev["controller_id"]], "notes": "go"}, headers=H).json()
+    assert r["version"] == 1 and r["queued"] == [dev["controller_id"]] and not r["unchanged"]
+    # unchanged second time, still queued
+    r2 = c.post(f"/api/programs/{pid}/publish-upload",
+                json={"controllers": [dev["controller_id"]]}, headers=H).json()
+    assert r2["unchanged"] is True and r2["version"] == 1
+    # bus reports mid-download progress on heartbeat; portal surfaces it
+    c.post("/api/device/heartbeat",
+           json={"installed": [], "sync": {"phase": "bundle", "program": "P", "version": 1}}, headers=DH)
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"][0]
+    assert ctl["sync_state"]["phase"] == "bundle"
+    assert ctl["pending_commands"] == 0

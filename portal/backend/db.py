@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS controllers (
   name TEXT NOT NULL, device_token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending',
   last_seen_at TEXT, app_version TEXT DEFAULT '', channel TEXT DEFAULT 'stable',
   supported_formats TEXT DEFAULT '1', pairing_code TEXT, pairing_expires_at TEXT,
-  config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+  config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, sync_state TEXT DEFAULT NULL);
 CREATE TABLE IF NOT EXISTS controller_programs (
   controller_id TEXT NOT NULL, program_id TEXT NOT NULL,
   desired_version INTEGER, installed_version INTEGER, active_version INTEGER,
@@ -129,6 +129,11 @@ def connect(url: str | None = None) -> sqlite3.Connection:
         # lightweight migration for DBs created before active_version existed
         try:
             con.execute("ALTER TABLE controller_programs ADD COLUMN active_version INTEGER")
+            con.commit()
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE controllers ADD COLUMN sync_state TEXT DEFAULT NULL")
             con.commit()
         except Exception:
             pass

@@ -29,6 +29,7 @@ class Agent:
         self.portal_url = portal_url.rstrip("/")
         self.base_dir = base_dir
         self.token = token
+        self.progress: dict | None = None  # what sync is doing right now (reported via heartbeat)
         self.programs_dir = os.path.join(base_dir, "programs")
         self.audio_dir = os.path.join(base_dir, "audio")
         self.incoming = os.path.join(base_dir, "incoming")
@@ -92,6 +93,7 @@ class Agent:
                         (pid, ver, json.dumps(m)))
                     con.commit()
                     report.setdefault("skipped", []).append(f"{m.get('program_name', pid)} v{ver} already installed")
+                    self.progress = None
                     continue
                 con.execute(
                     "INSERT OR REPLACE INTO desired_programs (program_id, desired_version, manifest, received_at) VALUES (?,?,?,datetime('now'))",
@@ -99,9 +101,11 @@ class Agent:
                 con.commit()
                 # 1. program file first (tiny)
                 dest = os.path.join(self.incoming, f"{pid}-{ver}.nslprog")
+                self.progress = {"phase": "bundle", "program": m.get("program_name", pid), "version": ver}
                 try:
                     self.download(b["url"], dest, b["sha256"])
                 except Exception as e:
+                    self.progress = None
                     report["errors"].append(f"{pid}@{ver} bundle: {e}")
                     continue
                 res = check_file(dest)
@@ -109,10 +113,12 @@ class Agent:
                     report["errors"].append(f"{pid}@{ver} invalid: " + "; ".join(x.message for x in res.errors))
                     continue
                 # 2. audio second (only missing hashes)
-                for a in m.get("audio", []):
+                missing = [a for a in m.get("audio", [])
+                           if not os.path.exists(os.path.join(self.audio_dir, a["hash"][:2], a["hash"] + ".flac"))]
+                for i, a in enumerate(missing, 1):
                     apath = os.path.join(self.audio_dir, a["hash"][:2], a["hash"] + ".flac")
-                    if os.path.exists(apath):
-                        continue
+                    self.progress = {"phase": "audio", "program": m.get("program_name", pid),
+                                     "done": i, "total": len(missing)}
                     tmp = os.path.join(self.incoming, a["hash"] + ".flac")
                     try:
                         self.download(a["url"], tmp, a["hash"])
@@ -123,6 +129,7 @@ class Agent:
                         report["audio"]["failed"].append(f"{a['hash'][:12]}: {e}")
                 # 3. install (atomic move + registry) — activation is Core's job at safe moment
                 import shutil
+                self.progress = {"phase": "installing", "program": m.get("program_name", pid), "version": ver}
                 final = os.path.join(self.programs_dir, pid, f"{ver}.nslprog")
                 os.makedirs(os.path.dirname(final), exist_ok=True)
                 shutil.move(dest, final)
@@ -133,6 +140,7 @@ class Agent:
                      "installed", "portal", __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None))
                 con.commit()
                 report["programs"].append(f"{pid}@{ver}")
+                self.progress = None
                 # first install wins the idle bus: no active program means no
                 # mid-run state to protect, so select it and light the boards
                 # immediately instead of waiting for a manual program_select.
@@ -169,7 +177,7 @@ class Agent:
         finally:
             con.close()
         body = json.dumps({"installed": installed, "events": outbox, "state": active,
-                           **(extra or {})}).encode()
+                           "sync": self.progress, **(extra or {})}).encode()
         try:
             _, raw, _ = _req(self._api("/api/device/heartbeat"), token=self.token, data=body,
                              headers={"Content-Type": "application/json"})
