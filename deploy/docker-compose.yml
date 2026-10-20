@@ -1,35 +1,68 @@
-version: "3.8"
+# Public portal stack (production).
+#
+# What runs: portal (FastAPI under /portal, SQLite auto-schema) + Caddy (automatic
+# HTTPS). One named volume holds everything stateful: the SQLite db plus all
+# program/audio/voice blobs.
+#
+# Postgres is NOT wired yet: portal/backend/db.py raises on postgres:// URLs
+# (planned per plan.md, CI only checks the .nslprog contract on pg). When the
+# pg driver lands, add a db service here and point DATABASE_URL at it.
+# Minio/TTS-worker services were dropped: the portal uses local STORAGE_DIR and
+# runs Piper in-process (portal/Dockerfile already ships ffmpeg + espeak-ng).
+#
+# First boot:  cp .env.example .env && ${EDITOR:-nano} .env && docker compose up --build -d
 services:
   portal:
-    build: ../portal
+    build:
+      context: ..
+      dockerfile: portal/Dockerfile
+    env_file: [.env]
     environment:
-      DATABASE_URL: postgres://nsl:nsl@db:5432/nsl
-      STORAGE_DIR: /data
-      PORTAL_SECRET: ${PORTAL_SECRET:-change-me}
+      DATABASE_URL: sqlite:/data/portal.db
+      STORAGE_DIR: /data/storage
+      PORTAL_SECRET: ${PORTAL_SECRET:?set PORTAL_SECRET in deploy/.env}
     volumes:
-      - nsl-data:/data
-    depends_on: [db]
-    ports: ["8080:8000"]
-    command: uvicorn backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: nsl
-      POSTGRES_PASSWORD: nsl
-      POSTGRES_DB: nsl
-    volumes: [pg-data:/var/lib/postgresql/data]
-  storage:
-    image: minio/minio
-    command: server /data
-    volumes: [nsl-data:/data]
-  tts:
-    build: ../portal
-    command: python -m backend.tts_worker
-    volumes: [nsl-data:/data]
+      - portal-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
   proxy:
     image: caddy:2-alpine
     ports: ["80:80", "443:443"]
-    volumes: ["./config/Caddyfile:/etc/caddy/Caddyfile", nsl-data:/data]
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    depends_on:
+      portal: {condition: service_healthy}
+    restart: unless-stopped
+
+  # Nightly backup helper (SQLite file + storage tree, via tools/backup.py).
+  # Host cron: 0 3 * * * cd /srv/nsl-displays/deploy && docker compose --profile backup run --rm backup
+  backup:
+    build:
+      context: ..
+      dockerfile: portal/Dockerfile
+    profiles: [backup]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: sqlite:/data/portal.db
+      STORAGE_DIR: /data/storage
+      BACKUP_DIR: /backups
+    volumes:
+      - portal-data:/data:ro
+      - ./backups:/backups
+    command: ["python", "tools/backup.py"]
+
 volumes:
-  nsl-data: {}
-  pg-data: {}
+  portal-data: {}
+  caddy-data: {}
+  caddy-config: {}

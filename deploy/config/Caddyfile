@@ -1,10 +1,13 @@
-nslboards.com {
-  handle /portal/* {
-    uri strip_prefix /portal
-    reverse_proxy portal:8000
-  }
-  handle {
-    root * /srv/www
-    file_server
-  }
+# Public portal proxy. DOMAIN / ACME_EMAIL come from deploy/.env
+# (passed through as container env). Pi agents talk to https://{$DOMAIN}/portal.
+{$DOMAIN} {
+	tls {$ACME_EMAIL}
+	encode gzip
+	handle /portal/* {
+		uri strip_prefix /portal
+		reverse_proxy portal:8000
+	}
+	handle {
+		respond "nsl portal: ok" 200
+	}
 }

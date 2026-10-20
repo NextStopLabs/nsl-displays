@@ -394,24 +394,28 @@ Order: program data + config first, audio second, software last — so a short h
 
 Runs `portal/backend` (FastAPI under `/portal`) + Postgres + file storage + TTS worker, behind Caddy. See `deploy/docker-compose.yml`, `portal/Dockerfile`, `deploy/config/Caddyfile`, `portal/backend/db.py`.
 
-**Requirements:** Ubuntu 22.04+ / Debian 12, Docker + Compose v2 plugin (or Python 3.11 + `ffmpeg` + `espeak-ng` + `piper` for bare metal). Ports `80/443` for Caddy; `8080` exposes the portal internally.
+**Requirements:** Ubuntu 22.04+ / Debian 12, Docker + Compose v2 plugin (or Python 3.11 + `ffmpeg` + `espeak-ng` + `piper` for bare metal). Ports `80/443` open, DNS A record for your domain pointing at the host. Only the proxy publishes ports; the portal is reachable solely through it at `https://<DOMAIN>/portal`.
+
+**Requirements:** Ubuntu 22.04+ / Debian 12, Docker + Compose v2 plugin (or Python 3.11 + `ffmpeg` + `espeak-ng` + `piper` for bare metal). Ports `80/443` open, DNS A record for your domain pointing at the host.
 
 **Option 1 — Docker (production):**
 
 ```bash
 git clone <repo> nsl-displays && cd nsl-displays/deploy
-export PORTAL_SECRET="$(openssl rand -hex 32)"   # required, baked into device/user tokens
-# optional overrides: DATABASE_URL defaults to postgres://nsl:nsl@db:5432/nsl, STORAGE_DIR=/data
+cp .env.example .env && ${EDITOR:-nano} .env
+# set DOMAIN, ACME_EMAIL, and PORTAL_SECRET (generate: openssl rand -hex 32)
 docker compose up --build -d
-docker compose ps          # portal, db, storage, tts, proxy all up
-docker compose logs portal # expect Uvicorn on 0.0.0.0:8000 with --root-path /portal
+docker compose ps            # portal (healthy) + proxy up
+docker compose logs portal   # expect Uvicorn on 0.0.0.0:8000 with --root-path /portal
+curl https://<DOMAIN>/portal/health   # {"ok": true, ...}
 ```
 
 What this starts (`deploy/docker-compose.yml`):
-- `portal`: built from `portal/Dockerfile` (`python:3.11-slim` + `ffmpeg` + `espeak-ng` + `requirements.txt`), runs `uvicorn backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal`, `STORAGE_DIR=/data`, `DATABASE_URL=postgres://nsl:nsl@db:5432/nsl`.
-- `db`: `postgres:16-alpine`, volume `pg-data`. Same logical schema as SQLite (`portal/backend/db.py` `SCHEMA`).
-- `storage`/`tts`: file blobs (`audio/<aa>/<hash>.wav`, `programs/<id>/<v>.nslprog`, `voices/<id>/model.onnx`) + `python -m backend.tts_worker`.
-- `proxy`: `caddy:2-alpine`, `deploy/config/Caddyfile` strips `/portal` prefix and reverse-proxies to `portal:8000` for `nslboards.com`.
+- `portal`: built from repo root (`portal/Dockerfile`: `python:3.11-slim` + `ffmpeg` + `espeak-ng` + `requirements.txt` incl. `piper-tts`), runs `uvicorn portal.backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal`. State is SQLite at `/data/portal.db` + blobs under `/data/storage` (`audio/<aa>/<hash>.wav`, `programs/<id>/<v>.nslprog`, `voices/<id>/model.onnx`), all on the `portal-data` volume — schema auto-creates on first request. Postgres is planned (plan.md) but not wired yet (`db.py` only speaks SQLite), so there is no `db` service.
+- `proxy`: `caddy:2-alpine` with `deploy/config/Caddyfile` (`{$DOMAIN}`, automatic Let's Encrypt via `{$ACME_EMAIL}`), strips the `/portal` prefix and reverse-proxies to `portal:8000`. Certs persist in `caddy-data`.
+- `backup` (profile, not always-on): `docker compose --profile backup run --rm backup` copies the db + storage tree to `deploy/backups/<date>/` via `tools/backup.py`. Run it from host cron nightly (`0 3 * * * ...`), and copy off-host.
+
+Update with `git pull && docker compose up --build -d`. Never commit `.env` (gitignored) — `PORTAL_SECRET` signs user sessions and all Pi device tokens; rotating it logs everyone out and forces re-pairing.
 
 **Option 2 — bare metal / dev (SQLite, no Docker):**
 
@@ -428,7 +432,7 @@ uvicorn portal.backend.app:app --host 127.0.0.1 --port 8000
 # open http://127.0.0.1:8000/  (no /portal prefix locally; proxy strips it in prod)
 ```
 
-**First use:** sign up (`POST /api/auth/signup` or the UI) → creates user + org. Then pair a controller (§15), publish a program, upload audio/voices (`.onnx` + `.onnx.json` pair per voice). Back up `pg-data` (or `dev.db`) + `STORAGE_DIR` nightly. Never commit `PORTAL_SECRET`.
+**First use:** sign up (`POST /api/auth/signup` or the UI) → creates user + org. Then pair a controller (§15), publish a program, upload audio/voices (`.onnx` + `.onnx.json` pair per voice). Back up nightly via the `backup` profile. Never commit `PORTAL_SECRET`.
 
 ---
 

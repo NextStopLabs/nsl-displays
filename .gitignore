@@ -48,3 +48,4 @@ backups/
 *.key
 *.pem
 !deploy/config/*.example
+!deploy/.env.example
