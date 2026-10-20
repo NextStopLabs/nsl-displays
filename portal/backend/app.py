@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import sqlite3
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -23,6 +24,15 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import connect
+
+# The shared Pi library lives in repo-root/pi (``pi.nsl_pi``). Dev checkouts and
+# Pi services have it on sys.path already; bare portal deployments (uvicorn from
+# the repo root, Docker) only have the root — add both, idempotently.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for _p in (_REPO_ROOT, os.path.join(_REPO_ROOT, "pi")):
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+del _p
 
 APP_VERSION = "1.0.0"
 JWT_SECRET = os.environ.get("PORTAL_SECRET", "dev-secret-change-me")
