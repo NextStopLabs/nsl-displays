@@ -387,6 +387,9 @@ class Core:
             # must reach the boards with or without program context)
             return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
         pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            # installed row without its bundle (deleted mid-sync?) — empty, not a crash
+            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
         try:
             dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
             svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None

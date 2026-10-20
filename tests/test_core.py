@@ -129,3 +129,14 @@ def test_apply_command_aliases_and_string_payload(tmp_path):
     c.apply_command('{"command": "program_select", "program_id": "%s"}' % pid, source="test")
     c.apply_command({"command": "destination_code", "code": "10000001"}, source="test")
     assert c.state()["destination_id"] is not None
+
+
+def test_snapshot_missing_bundle_keeps_override(tmp_path):
+    c, pid = _core(tmp_path)
+    c.apply_command({"command": "select_program", "program_id": pid}, source="test")
+    c.apply_override("HELD", source="test")
+    import os as _os
+    _os.remove(_os.path.join(str(tmp_path / "nsl"), "programs", pid, "1.nslprog"))
+    snap = c.display_snapshot()
+    assert snap["override"] == "HELD"
+    assert snap["fields"] == {}

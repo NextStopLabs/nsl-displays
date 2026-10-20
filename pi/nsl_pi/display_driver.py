@@ -95,15 +95,16 @@ class DisplayDriver:
 
     def _push(self, out: dict, frame):
         name = out.get("display_name", "?")
+        pushed_hw = False
         if self.matrix is not None:
             try:
                 xo = int(out.get("x_offset", 0) or 0)
                 self.matrix.SetImage(frame, xo, 0)
+                pushed_hw = True
                 if self._push_failures.get(name):
                     print(f"display driver: {name} SetImage recovered after "
                           f"{self._push_failures[name]} failures", flush=True)
                     self._push_failures[name] = 0
-                return
             except Exception as e:
                 n = self._push_failures.get(name, 0) + 1
                 self._push_failures[name] = n
@@ -113,12 +114,18 @@ class DisplayDriver:
                     print(f"display driver: {name} SetImage FAILED x{n} ({e}) — "
                           f"panels dark but software alive; check power/HAT/ribbon", flush=True)
                     self._push_logged[name] = _t.time()
-                return  # hold last frame
-        if self.virtual_dir:
-            import os
-            os.makedirs(self.virtual_dir, exist_ok=True)
+        # debug screenshots: NSL_DEBUG_PNG=1 writes what we SEND (proves content
+        # vs hardware). Throttled; view at local-ui /api/debug.png?output=<name>.
+        import os as _os
+        if self.virtual_dir and (_os.environ.get("NSL_DEBUG_PNG") or self.matrix is None):
+            import time as _t
+            last_png = self._push_logged.get("png:" + name, 0)
+            if pushed_hw and _t.time() - last_png < 2.0:
+                return
+            self._push_logged["png:" + name] = _t.time()
             try:
-                frame.save(os.path.join(self.virtual_dir, f"{name}.png"))
+                _os.makedirs(self.virtual_dir, exist_ok=True)
+                frame.save(_os.path.join(self.virtual_dir, f"{name}.png"))
             except Exception:
                 pass
 

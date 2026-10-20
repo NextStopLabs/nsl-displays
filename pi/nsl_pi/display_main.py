@@ -57,16 +57,28 @@ def main():
     last_fetch = 0.0
     last_summary = ""
     frames = 0
+    fetch_fails = 0
+    empty_snaps = 0
     while True:
         now = time.time()
         if not snap or now - last_fetch >= STATE_REFRESH_S:
             try:
                 snap = core.display_snapshot()
-            except Exception:
-                pass  # hold last frame
+            except Exception as e:
+                fetch_fails += 1
+                if fetch_fails == 1 or fetch_fails % 20 == 0:
+                    print(f"display: snapshot failed x{fetch_fails} ({e}) — holding last frame",
+                          flush=True)
             last_fetch = now
         if snap:
             st = snap.get("state", {})
+            if not st.get("program_id") and not st.get("override_text"):
+                empty_snaps += 1
+                if empty_snaps == 1 or empty_snaps % 40 == 0:
+                    print("display: nothing selected and no override — boards show blank "
+                          f"(x{empty_snaps}; select a destination to fill them)", flush=True)
+            else:
+                empty_snaps = 0
             summary = (f"prog={st.get('program_id') or '—'} dest={st.get('destination_id') or '—'} "
                        f"stop={st.get('stop_id') or '—'} override={st.get('override_text') or '—'} "
                        f"fields={','.join(sorted((snap.get('fields') or {}).keys())) or '—'} "
@@ -81,8 +93,8 @@ def main():
                     w0 = outputs[0]["width_px"] if outputs else "?"
                     print(f"display: first frame pushed ({len(outputs)} output(s), first {w0}px wide)",
                           flush=True)
-            except Exception:
-                pass  # hold last frame
+            except Exception as e:
+                print(f"display: render failed ({e}) — holding last frame", flush=True)
         time.sleep(1.0 / RENDER_HZ)
 
 

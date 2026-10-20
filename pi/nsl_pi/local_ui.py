@@ -61,6 +61,21 @@ def api_health():
     return {"ok": True}
 
 
+@app.get("/api/debug.png")
+def api_debug_png(output: str = "front"):
+    """Last frame we SENT to an output (needs NSL_DEBUG_PNG=1 on nsl-display,
+    or virtual mode). Amber here + white panels = hardware fault, not software."""
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", output or ""):
+        raise HTTPException(400, "bad output name")
+    base = os.environ.get("NSL_BASE", "/var/lib/nsl")
+    p = os.path.join(base, "virtual", output + ".png")
+    if not os.path.exists(p):
+        raise HTTPException(404, "no frame yet (enable NSL_DEBUG_PNG=1 on nsl-display and wait ~5 s)")
+    from fastapi.responses import FileResponse
+    return FileResponse(p, media_type="image/png")
+
+
 def _core() -> Core:
     base = os.environ.get("NSL_BASE", "/var/lib/nsl")
     db = os.path.join(base, "controller.db")
