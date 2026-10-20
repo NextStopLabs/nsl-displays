@@ -122,6 +122,15 @@ def login(email: str = Form(...), password: str = Form(...)):
     return {"token": _sign(row["id"]), "user_id": row["id"]}
 
 
+@app.get("/api/me")
+def me(u: dict = Depends(current_user)):
+    rows = db().execute(
+        "SELECT o.id, o.name, o.status, m.role FROM organisations o "
+        "JOIN memberships m ON m.organisation_id=o.id WHERE m.user_id=?", (u["id"],)).fetchall()
+    return {"user": {"id": u["id"], "email": u["email"], "name": u.get("name", "")},
+            "organisations": [dict(r) for r in rows]}
+
+
 # ---------- controllers & pairing ----------
 @app.get("/api/controllers")
 def list_controllers(organisation_id: str, u: dict = Depends(current_user)):

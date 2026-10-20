@@ -3,28 +3,119 @@
 </head><body>
 <div class=window><div class=titlebar>NSL Boards — Portal</div>
 <div class=body>
-<div class=tabs><div class=tab on>Programs</div><div class=tab>Controllers</div><div class=tab>Audio</div><div class=tab>Remote</div></div>
+<div id=authbar class=row style="justify-content:space-between;align-items:center">
+<span id=who>Not signed in</span>
+<span class=row><select id=orgsel aria-label="Organisation"></select>
+<button id=btn-logout>Sign out</button></span>
+</div>
+<div id=authview class=group><div class=grouptitle>Sign in / Sign up</div>
+<div class=row>
+<div style="flex:1;min-width:220px"><label for=li-email>Email</label><input id=li-email type=email autocomplete=username></div>
+<div style="flex:1;min-width:220px"><label for=li-pass>Password</label><input id=li-pass type=password autocomplete=current-password></div>
+</div>
+<div class=row><button id=btn-login class=primary>Sign in</button>
+<button id=btn-signup>Sign up (new organisation)</button></div>
+<div id=auth-signup-extra style="display:none">
+<label for=su-name>Your name</label><input id=su-name>
+<label for=su-org>Organisation name <span class=req>(required)</span></label><input id=su-org>
+</div>
+<div class=err id=auth-err></div>
+</div>
+<div id=mainview style="display:none">
+<div class=tabs id=tabs>
+<button class=tab data-tab=programs>Programs</button>
+<button class=tab data-tab=codes>Codes</button>
+<button class=tab data-tab=controllers>Controllers</button>
+<button class=tab data-tab=audio>Audio &amp; Voices</button>
+<button class=tab data-tab=remote>Remote control</button>
+</div>
+<div class=err id=err></div>
+<section id=tab-programs>
 <div class=group><div class=grouptitle>Programs</div>
-<div class=row><button class=primary onclick="alert('Served by /portal/api — see plan.md §8 for endpoints')">New program</button>
-<button>Duplicate</button><button>Upload to controllers</button><button>Export .nslpack</button></div>
-<p class=hint>Build programs in tabs: General · Services · Codes · Uploads. Drafts never touch a bus until published + uploaded.</p>
-<table><tr><th>Program</th><th>Services</th><th>Published</th><th>Controllers</th></tr>
-<tr><td>Burton routes</td><td>100, 101</td><td>v7</td><td>bus-1 ✓</td></tr></table>
+<div class=row>
+<div style="flex:2;min-width:200px"><label for=np-name>New program name <span class=req>(required)</span></label><input id=np-name></div>
+<div style="flex:1;min-width:120px"><label for=np-width>Logical width (px)</label><input id=np-width type=number value=240></div>
+<div style="align-self:end"><button id=btn-newprog class=primary>New program</button></div>
 </div>
+<table><thead><tr><th>Program</th><th>Services</th><th>Published</th><th>Actions</th></tr></thead><tbody id=progrows></tbody></table>
+</div>
+<div class=group id=progdetail style="display:none"><div class=grouptitle>Program detail</div>
+<div id=pd-body></div>
+</div>
+</section>
+<section id=tab-codes style="display:none">
 <div class=group><div class=grouptitle>Destination codes (8 digits, unique per program)</div>
-<label>Code entry<input id=code maxlength=8></label><div class=err id=codeerr></div>
-<div class=row><button onclick="check()">Check code</button></div>
-<p class=hint>Entering a code selects service + destination in one go. Same code may exist in another program.</p>
+<div class=row><div style="flex:1"><label for=codes-prog>Program</label><select id=codes-prog></select></div>
+<div style="align-self:end"><button id=btn-codes>Load codes</button></div></div>
+<table><thead><tr><th>Code</th><th>Service</th><th>Destination</th></tr></thead><tbody id=coderows></tbody></table>
 </div>
-<div class=group><div class=grouptitle>Board preview (LED dot-matrix)</div>
-<div class=led><canvas id=led width=240 height=40></canvas></div>
-<p class=hint>Same Pillow renderer as the Pi (snapshot-tested identical).</p>
+</section>
+<section id=tab-controllers style="display:none">
+<div class=group><div class=grouptitle>Controllers</div>
+<div class=row>
+<div style="flex:1;min-width:140px"><label for=pair-code>Pairing code</label><input id=pair-code maxlength=6></div>
+<div style="flex:2;min-width:160px"><label for=pair-name>Controller name <span class=req>(required)</span></label><input id=pair-name></div>
+<div style="align-self:end" class=row><button id=btn-pair class=primary>Pair controller</button>
+<button id=btn-sim title="Register a fake device to get a code for testing">Simulate device</button></div>
+</div>
+<table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
+</div>
+</section>
+<section id=tab-audio style="display:none">
+<div class=group><div class=grouptitle>Audio clips</div>
+<table><thead><tr><th>SHA-256</th><th>File</th><th>Source</th></tr></thead><tbody id=audiorows></tbody></table>
+<div class=row>
+<div style="flex:2"><label for=au-file>Upload clip (MP3/WAV/OGG/M4A/FLAC, max 50 MB)</label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
+<div style="align-self:end"><button id=btn-upload>Upload</button></div>
+</div>
+</div>
+<div class=group><div class=grouptitle>Generate with Piper</div>
+<div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
+<div class=row>
+<div style="flex:2"><label for=gen-name>Display name <span class=req>(required)</span></label><input id=gen-name></div>
+<div style="flex:1"><label for=gen-voice>Voice</label><select id=gen-voice></select></div>
+<div style="flex:1"><label for=gen-speed>Speed</label><input id=gen-speed type=number step=0.1 value=1.0></div>
+<div style="align-self:end"><button id=btn-generate class=primary>Generate</button></div>
+</div>
+</div>
+<div class=group><div class=grouptitle>Voices</div>
+<table><thead><tr><th>Name</th><th>Language</th><th>Sample rate</th></tr></thead><tbody id=voicerows></tbody></table>
+<div class=row>
+<div style="flex:1"><label for=vv-name>Voice name <span class=req>(required)</span></label><input id=vv-name></div>
+<div style="flex:2"><label for=vv-model>Model file (.onnx) <span class=req>(required)</span></label><input id=vv-model type=file accept=".onnx"></div>
+<div style="flex:2"><label for=vv-config>Config file (.onnx.json) <span class=req>(required)</span></label><input id=vv-config type=file accept=".json"></div>
+<div style="align-self:end"><button id=btn-voice>Upload voice</button></div>
+</div>
+</div>
+</section>
+<section id=tab-remote style="display:none">
+<div class=group><div class=grouptitle>Remote control (device must be online)</div>
+<div class=row><div style="flex:1"><label for=rc-ctl>Controller</label><select id=rc-ctl></select></div>
+<div style="align-self:end"><button id=btn-rc-refresh>Refresh</button></div></div>
+<div id=rc-state class=hint>Select a controller.</div>
+<div class=row>
+<div style="flex:1"><label for=rc-code>8-digit code</label><input id=rc-code maxlength=8 inputmode=numeric></div>
+<div style="align-self:end"><button id=btn-rc-code>Select destination</button></div>
+</div>
+<div class=row>
+<button id=btn-prev>Prev stop</button><button id=btn-next>Next stop</button>
+<button id=btn-an>Announce next</button><button id=btn-aa>Announce approaching</button>
+</div>
+<div class=row>
+<div style="flex:2"><label for=rc-ov>Override text</label><input id=rc-ov></div>
+<div style="align-self:end" class=row><button id=btn-ov>Apply override</button><button id=btn-ovc>Clear override</button></div>
+</div>
+<div class=row>
+<div style="flex:1"><label for=rc-vol>Volume (0–100)</label><input id=rc-vol type=number min=0 max=100 value=80></div>
+<div style="align-self:end" class=row><button id=btn-vol>Set volume</button><button id=btn-mute>Mute</button></div>
+</div>
+<div class=row>
+<div style="flex:1"><label for=rc-prog>Program</label><select id=rc-prog></select></div>
+<div style="align-self:end"><button id=btn-rc-prog>Select program</button></div>
+</div>
+</div>
+</section>
 </div>
 </div></div>
-<script>
-async function check(){const c=document.getElementById('code').value;
-document.getElementById('codeerr').textContent=(/^[0-9]{8}$/.test(c))?'':'Code must be exactly 8 digits 0-9.';}
-// demo LED preview
-const cv=document.getElementById('led'),g=cv.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,240,40);
-g.fillStyle='#FFB000';g.font='20px monospace';g.fillText('100',4,30);g.font='12px monospace';g.fillText('BURTON',56,18);g.fillText('via Branston',56,36);
-</script></body></html>
+<script src="app.js"></script>
+</body></html>
