@@ -27,9 +27,9 @@ from .db import connect
 APP_VERSION = "1.0.0"
 JWT_SECRET = os.environ.get("PORTAL_SECRET", "dev-secret-change-me")
 STORAGE_DIR = os.environ.get("STORAGE_DIR", "./storage")
-BASE_PATH = "/portal"
+BASE_PATH = "/portal"  # URL prefix when served behind the proxy; pass --root-path /portal to the server
 
-app = FastAPI(title="NSL Portal", root_path=BASE_PATH)
+app = FastAPI(title="NSL Portal")
 
 
 def _utcnow() -> str:
@@ -699,9 +699,13 @@ async def portal_live(ws: WebSocket, cid: str):
 
 
 # serve static frontend (portal UI) if built
-FRONT = os.path.join(os.path.dirname(__file__), "..", "frontend")
+FRONT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 if os.path.isdir(FRONT):
-    app.mount("/static", StaticFiles(directory=FRONT), name="static")
+    app.mount("/static", StaticFiles(directory=FRONT, html=True), name="static")
+
+    @app.get("/", include_in_schema=False)
+    def _index():
+        return FileResponse(os.path.join(FRONT, "index.html"))
 
 
 @app.get("/health")
