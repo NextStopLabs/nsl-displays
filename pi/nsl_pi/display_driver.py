@@ -53,6 +53,16 @@ class DisplayDriver:
                   f"brightness={wanted['brightness']} mapping={wanted['hardware_mapping']} "
                   f"slowdown={wanted['gpio_slowdown']} pwm_bits={wanted['pwm_bits']} "
                   f"no_hw_pulse={wanted['disable_hardware_pulsing']}", flush=True)
+            # The library drops root -> daemon on matrix creation by default.
+            # We must stay root: state DB, virtual PNGs and lazy imports all
+            # live under root-owned paths (a daemon-uid process gets EACCES,
+            # surfacing as bogus "No module named" errors). Same as upstream
+            # sample flag --led-no-drop-privs.
+            if hasattr(o, "drop_privileges"):
+                o.drop_privileges = False
+            else:
+                print("display driver: RGBMatrixOptions has no 'drop_privileges' "
+                      "(library version?) — file access may break after init", flush=True)
             self.matrix = RGBMatrix(options=o)
         print(f"display driver: {'HUB75 hardware' if self.matrix is not None else 'virtual PNG output ' + str(virtual_dir)} "
               f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
