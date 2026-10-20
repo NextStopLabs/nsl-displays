@@ -20,6 +20,9 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 10. [Local controller 192.168.4.1](#10-local-controller-19216841)
 11. [Portal remote control](#11-portal-remote-control)
 12. [Sync, offline, updates](#12-sync-offline-updates)
+12A. [Host server setup — portal](#12a-host-server-setup--portal)
+12B. [Front controller Pi setup — Pi 4B](#12b-front-controller-pi-setup--pi-4b)
+12C. [Receiver Pi setup — side/rear Pi 3B](#12c-receiver-pi-setup--siderear-pi-3b)
 13. [First build — bench test](#13-first-build--bench-test)
 14. [Bus install checklist](#14-bus-install-checklist)
 15. [Power-on, pairing, first program](#15-power-on-pairing-first-program)
@@ -384,6 +387,136 @@ Per-controller page, works only while the bus is online (hotspot). Same abilitie
 Order: program data + config first, audio second, software last — so a short hotspot window still lands the important changes. Sync never changes current state or clears an override.
 
 **Software auto-update:** check on connect → download signed bundle (resume + hash) → verify signature against baked-in public key (key lives off the web server) → install to inactive slot → symlink switch → restart → health check (agent, core, player, display, local UI responsive) → roll back on failure, report. Never switches mid-service unless forced; waits for idle/restart/Apply-now.
+
+---
+
+## 12A. Host server setup — portal
+
+Runs `portal/backend` (FastAPI under `/portal`) + Postgres + file storage + TTS worker, behind Caddy. See `deploy/docker-compose.yml`, `portal/Dockerfile`, `deploy/config/Caddyfile`, `portal/backend/db.py`.
+
+**Requirements:** Ubuntu 22.04+ / Debian 12, Docker + Compose v2 plugin (or Python 3.11 + `ffmpeg` + `espeak-ng` + `piper` for bare metal). Ports `80/443` for Caddy; `8080` exposes the portal internally.
+
+**Option 1 — Docker (production):**
+
+```bash
+git clone <repo> nsl-displays && cd nsl-displays/deploy
+export PORTAL_SECRET="$(openssl rand -hex 32)"   # required, baked into device/user tokens
+# optional overrides: DATABASE_URL defaults to postgres://nsl:nsl@db:5432/nsl, STORAGE_DIR=/data
+docker compose up --build -d
+docker compose ps          # portal, db, storage, tts, proxy all up
+docker compose logs portal # expect Uvicorn on 0.0.0.0:8000 with --root-path /portal
+```
+
+What this starts (`deploy/docker-compose.yml`):
+- `portal`: built from `portal/Dockerfile` (`python:3.11-slim` + `ffmpeg` + `espeak-ng` + `requirements.txt`), runs `uvicorn backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal`, `STORAGE_DIR=/data`, `DATABASE_URL=postgres://nsl:nsl@db:5432/nsl`.
+- `db`: `postgres:16-alpine`, volume `pg-data`. Same logical schema as SQLite (`portal/backend/db.py` `SCHEMA`).
+- `storage`/`tts`: file blobs (`audio/<aa>/<hash>.wav`, `programs/<id>/<v>.nslprog`, `voices/<id>/model.onnx`) + `python -m backend.tts_worker`.
+- `proxy`: `caddy:2-alpine`, `deploy/config/Caddyfile` strips `/portal` prefix and reverse-proxies to `portal:8000` for `nslboards.com`.
+
+**Option 2 — bare metal / dev (SQLite, no Docker):**
+
+```bash
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+# audio/TTS decode needs system binaries:
+sudo apt-get install -y ffmpeg espeak-ng   # plus: pip install piper-tts (provides `piper` binary)
+export PORTAL_SECRET="dev-secret-change-me"
+export DATABASE_URL="sqlite:./dev.db"      # default; schema auto-created on first connect
+export STORAGE_DIR="./storage"
+mkdir -p "$STORAGE_DIR"
+uvicorn portal.backend.app:app --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000/  (no /portal prefix locally; proxy strips it in prod)
+```
+
+**First use:** sign up (`POST /api/auth/signup` or the UI) → creates user + org. Then pair a controller (§15), publish a program, upload audio/voices (`.onnx` + `.onnx.json` pair per voice). Back up `pg-data` (or `dev.db`) + `STORAGE_DIR` nightly. Never commit `PORTAL_SECRET`.
+
+---
+
+## 12B. Front controller Pi setup — Pi 4B
+
+The bus brain: core + player + agent + keypad + front HUB75 + AP + bus-LAN server. See `pi/install.sh`, `pi/nsl_pi/service_main.py`, `pi/nsl_pi/agent_main.py`, `pi/nsl_pi/netmode.py`.
+
+**Hardware:** Pi 4B (2 GB+), 32 GB+ SD, buffered HAT (74AHCT245 level shifter, E-line routed), 5 V/3 A Pi tap, USB keypad at cab, USB audio to PA/amp, CAT5e to switch. Panels wired per §4.1, ribbon <50 cm.
+
+**1. Flash OS:** Raspberry Pi OS **Lite 64-bit**, hostname `nsl-front`, user `pi`, SSH on. Boot, `sudo apt-get update && sudo apt-get upgrade -y`.
+
+**2. Clone + install:**
+
+```bash
+git clone <repo> ~/nsl-displays && cd ~/nsl-displays
+sudo bash pi/install.sh front bus-1
+# args: role front|side|rear, unit name (used for AP name NSL-<unit>)
+```
+
+What `pi/install.sh` does:
+- `hostnamectl set-hostname nsl-front`.
+- Appends `dtparam=audio=off` to `/boot/firmware/config.txt` (or `/boot/config.txt`) — required, onboard audio clashes with HUB75. USB audio is front-only.
+- `apt-get install python3-pip python3-pil python3-fastapi python3-uvicorn sqlite3 flac alsa-utils network-manager evtest watchdog`.
+- `mkdir -p /var/lib/nsl /opt/nsl`, bootstraps `/var/lib/nsl/controller.db` via `pi/nsl_pi/store.py::init_controller_db` (state row, `controller_config`, keypad map, 3 `display_outputs` from `WIRING_PRESETS["bus-10m"]`).
+- Adds wired `bus-lan` connection `10.9.0.1/24` (`ipv4.never-default yes`, no gateway/DNS).
+- Copies `deploy/nsl-*.service` → `/etc/systemd/system`, enables `nsl-core nsl-agent nsl-display nsl-local-ui watchdog`.
+
+**3. Install the LED matrix library (once):**
+
+```bash
+git clone https://github.com/hzeller/rpi-rgb-led-matrix.git ~/rpi-rgb-led-matrix
+(cd ~/rpi-rgb-led-matrix && make build-python PYTHON=$(which python3) && sudo make install-python PYTHON=$(which python3))
+# verify one 80x40 panel, E-line working:
+python3 ~/rpi-rgb-led-matrix/examples/runtext.py --led-rows=40 --led-cols=80 \
+  --led-chain=3 --led-parallel=1 --led-gpio-mapping=regular --led-slowdown-gpio=4 \
+  --led-brightness=70 -t "NSL"
+```
+
+Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, parallel 1, rows 40, cols 80, brightness 70, slowdown-gpio 4, pwm-bits 11`).
+
+**4. Environment + services:**
+
+- `nsl-core`/`nsl-display` run `python3 -m nsl_pi.service_main` (`NSL_ROLE=front`, `NSL_BASE=/var/lib/nsl`): renders front 240x40, serves `http://10.9.0.1:8090/state` for receivers.
+- `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync runs every 60 s.
+- `nsl-local-ui` serves `http://192.168.4.1` on the AP interface only.
+
+```bash
+sudo systemctl edit nsl-agent   # add: [Service] Environment="PORTAL_URL=https://nslboards.com/portal" Environment="NSL_TOKEN=<token>"
+sudo systemctl restart nsl-agent nsl-core nsl-display nsl-local-ui
+systemctl is-active nsl-core nsl-agent nsl-display nsl-local-ui
+```
+
+**5. Network (NetworkManager):** keep bus LAN and Wi-Fi apart — `10.9.0.0/24` wired only, `192.168.4.0/24` AP only (§6). Save the phone hotspot with `nmcli`, then boot logic (`netmode.py`) joins it ~60 s if visible else starts AP `NSL-<unit>` at `192.168.4.1`.
+
+**6. Verify:** `ping 10.9.0.2; ping 10.9.0.3`, `curl http://10.9.0.1:8090/state`, `aplay -l` shows USB audio, keypad types 8 digits → front display selects, `vcgencmd get_throttled` → `0x0`. Unpaired boards show the 6-char pairing code.
+
+---
+
+## 12C. Receiver Pi setup — side/rear Pi 3B
+
+Render-only: poll front state @10 Hz, render with the same Pillow renderer, hold last frame on drop. No portal, audio, or keypad. See `pi/nsl_pi/receiver.py`, `service_main.py` (`ROLE != front` → `Receiver(...).run_forever()`).
+
+**Hardware:** Pi 3B per sign, 16 GB+ SD, single-chain HAT or direct wiring (`parallel=1`), 5 V/2.5 A Pi tap. Mount within 50 cm of its panels: side = 2 panels (160x40, `chain=2`), rear = 1 panel (80x40, `chain=1`).
+
+**Setup (repeat per sign, only the role/IP differs):**
+
+```bash
+# side:
+git clone <repo> ~/nsl-displays && cd ~/nsl-displays
+sudo bash pi/install.sh side bus-1   # → hostname nsl-side, bus-lan 10.9.0.2/24
+# rear:
+sudo bash pi/install.sh rear bus-1   # → hostname nsl-rear, bus-lan 10.9.0.3/24
+# same matrix library build as front, then smoke-test the local chain:
+python3 ~/rpi-rgb-led-matrix/examples/runtext.py --led-rows=40 --led-cols=80 \
+  --led-chain=2 --led-parallel=1 --led-gpio-mapping=regular --led-slowdown-gpio=4 \
+  --led-brightness=70 -t "SIDE"   # use --led-chain=1 on rear
+```
+
+**Receiver-only services:** `install.sh` enables the full set; on receivers disable what they never use (no portal contact, no AP hosting, no audio/keypad):
+
+```bash
+sudo systemctl disable --now nsl-agent nsl-local-ui
+sudo systemctl enable --now nsl-core nsl-display watchdog
+```
+
+Bus LAN is wired only (`10.9.0.2/24` side, `10.9.0.3/24` rear, `ipv4.never-default yes`). Receivers never need `PORTAL_URL`/`NSL_TOKEN`, hotspot credentials, or AP config.
+
+**Verify per receiver:** `ping 10.9.0.1`, `curl http://10.9.0.1:8090/state` (front snapshot JSON), then check its own sign follows destination changes and freezes (holds last frame) if you unplug Ethernet. If blank: check `receiver_addr` (`10.9.0.2`/`10.9.0.3` in `display_outputs`), `ping`, and `journalctl -u nsl-core -u nsl-display`.
 
 ---
 
