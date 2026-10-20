@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "playwright>=1.40"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -22,3 +22,6 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+markers = ["e2e: real-browser end-to-end tests (need playwright chromium)"]

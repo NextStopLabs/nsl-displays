@@ -14,13 +14,17 @@ function apiHeaders(json) {
 }
 async function api(path, opts) {
   opts = opts || {};
-  opts.headers = Object.assign(apiHeaders(opts.json !== false && opts.body && typeof opts.body !== "string"), opts.headers || {});
-  if (opts.body && typeof opts.body !== "string" && !(opts.body instanceof FormData)) opts.body = JSON.stringify(opts.body);
-  const r = await fetch(PREFIX + path, opts);
-  let body = null;
-  try { body = await r.json(); } catch (e) { body = null; }
-  if (!r.ok) throw new Error((body && body.detail) || ("HTTP " + r.status));
-  return body;
+  const headers = Object.assign({ Authorization: "Bearer " + S.token }, opts.headers || {});
+  let body = opts.body;
+  if (body && typeof body === "object" && !(body instanceof FormData)) {
+    body = JSON.stringify(body);
+    headers["Content-Type"] = "application/json";
+  }
+  const r = await fetch(PREFIX + path, { method: opts.method || "GET", headers, body });
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok) throw new Error((data && data.detail) || ("HTTP " + r.status));
+  return data;
 }
 function formData(obj) { const f = new FormData(); for (const k in obj) f.append(k, obj[k]); return f; }
 
@@ -53,8 +57,14 @@ async function doLogin() {
 }
 async function doSignup() {
   const extra = $("auth-signup-extra");
-  if (extra.style.display === "none") { extra.style.display = ""; return; }
+  const open = extra.style.display !== "none";
+  extra.style.display = open ? "none" : "";
+  $("btn-signup").textContent = open ? "Sign up (new organisation)" : "Cancel sign up";
+  if (!open) $("su-name").focus();
+}
+async function doCreate() {
   $("auth-err").textContent = "";
+  if (!$("su-org").value.trim()) { $("auth-err").textContent = "Organisation name is required."; return; }
   try {
     const r = await api("/api/auth/signup", { method: "POST", body: formData({
       email: $("li-email").value, password: $("li-pass").value,
@@ -100,7 +110,8 @@ $("progrows").addEventListener("click", async (e) => {
       if (!r.ok) throw new Error("HTTP " + r.status);
       const blob = await r.blob();
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob); a.download = `${p.name}-v${p.published_version}.nslpack`; a.click();
+      a.href = URL.createObjectURL(blob); a.download = `${p.name}-v${p.published_version}.nslpack`;
+      document.body.appendChild(a); a.click(); a.remove();
     }
   } catch (ex) { err(String(ex.message || ex)); }
 });
@@ -173,7 +184,6 @@ function renderProgram() {
   };
   $("pd-body").querySelectorAll("[data-adddest]").forEach((b) => b.onclick = async () => {
     const sid = b.dataset.adddest;
-    const q = (n) => $(`pd-body`).querySelector(`[data-n${n}="${sid}"]`).value;
     try {
       await api(`/api/services/${sid}/destinations`, { method: "POST",
         body: { code: document.querySelector(`[data-ncode="${sid}"]`).value, name: document.querySelector(`[data-nname="${sid}"]`).value,
@@ -377,6 +387,7 @@ $("btn-rc-refresh").addEventListener("click", async () => {
 // ---------- boot ----------
 $("btn-login").addEventListener("click", doLogin);
 $("btn-signup").addEventListener("click", doSignup);
+$("btn-create").addEventListener("click", doCreate);
 $("btn-logout").addEventListener("click", () => {
   S.token = ""; localStorage.removeItem("nsl_token"); showAuth(false);
 });
