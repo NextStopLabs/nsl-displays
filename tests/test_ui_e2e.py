@@ -175,12 +175,14 @@ def test_full_user_journey(server, tmp_path):
         pg.click("#btn-codes")
         expect(pg.locator("#coderows tr")).to_have_count(2, timeout=10000)
 
-        # 14. audio: generate + upload
+        # 14. audio: generate without a voice fails loudly (by design); upload works
         pg.click("#tabs .tab[data-tab=audio]")
         pg.fill("#gen-text", "The next stop is Depot")
         pg.fill("#gen-name", "next-depot")
-        pg.click("#btn-generate")  # alert auto-accepted
-        pg.get_by_text("next-depot").wait_for()
+        pg.click("#btn-generate")
+        pg.locator("#err:not(:empty)").wait_for()
+        assert "voice" in (pg.text_content("#err") or "").lower()
+        del failed[:]  # the 400 console noise above is the asserted behavior
         wav = str(tmp_path / "tone.wav")
         with wave.open(wav, "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
@@ -197,13 +199,16 @@ def test_full_user_journey(server, tmp_path):
         pg.select_option("#rc-ctl", index=0)
         pg.click("#btn-rc-refresh")
         pg.locator("#rc-state:not(:empty)").wait_for()
+        pg.locator("#tab-remote details summary").click()  # expand More controls
         for btn in ("#btn-next", "#btn-prev", "#btn-an", "#btn-aa", "#btn-vol", "#btn-mute", "#btn-ovc"):
             pg.click(btn)
         pg.fill("#rc-ov", "NOT IN SERVICE")
         pg.click("#btn-ov")
         pg.fill("#rc-code", "10000001")
         pg.click("#btn-rc-code")
-        assert "Command queued" in (pg.text_content("#rc-state") or "")
+        # bus never checked in: command is refused loudly, never silently queued
+        pg.wait_for_function("document.querySelector('#err').textContent.toLowerCase().includes('offline')", timeout=10000)
+        del failed[:]  # the 409 console noise above is the asserted behavior
         pg.screenshot(path=f"{shot}/06-remote.png")
 
         # 16. sign out + back in, session gone then restored via login

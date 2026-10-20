@@ -291,7 +291,7 @@ function renderProgram() {
   h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
     <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
   h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
-  h += `<details id=up-details open><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers</label><div id=pd-ctls>` +
+  h += `<details id=up-details><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers</label><div id=pd-ctls>` +
     S.controllers.map((c) => {
       const act = (c.programs || []).find((x) => x.active_version != null);
       const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
@@ -406,7 +406,6 @@ function renderProgram() {
   if (window._upTimer) clearInterval(window._upTimer);
   window._upTimer = setInterval(() => { if ($("pd-ctls")) refreshUploadStatus(); }, 5000);
   refreshUploadStatus();
-}
 function upStatusText(c, pid) {
   const row = ((c.programs || []).find((x) => x.program_id === pid)) || null;
   if (!row || row.desired_version == null) return "not uploaded";
