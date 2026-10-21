@@ -171,11 +171,16 @@ via the local UI (§2) or `sudo nsl-set-unit bus-2`. Boards need nothing further
 2. Give the front Pi internet (phone hotspot; `nsl-pairing` re-registers
    automatically if the 15-min code lapses).
 3. Portal → Controllers → Pair controller → enter code + name (e.g. `bus-1`).
-   Click Pair.
+   Click Pair. The row briefly shows “waiting for Pi”, then flips to online by
+   itself.
 4. The Pi polls `POST /api/device/claim`, fetches its device token itself,
    stores it (`/var/lib/nsl/device-token`, mode 0600, + agent drop-in),
    restarts `nsl-agent`, and **plays the test chime** (§4). Boards switch from
-   the pairing frame to normal content. No token copy-paste.
+   the pairing frame to normal content. No token copy-paste. A row stuck on
+   “waiting for Pi” means the Pi can't reach the portal (wrong base URL or no
+   internet — the Pi logs which base it tried every minute).
+5. Removing a bus: Controllers → Remove deletes the controller entirely
+   (token revoked, row gone; audit history kept).
 
 ---
 
