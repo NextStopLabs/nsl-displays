@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -38,6 +39,58 @@ APP_VERSION = "1.0.0"
 JWT_SECRET = os.environ.get("PORTAL_SECRET", "dev-secret-change-me")
 STORAGE_DIR = os.environ.get("STORAGE_DIR", "./storage")
 BASE_PATH = "/portal"  # URL prefix when served behind the proxy; pass --root-path /portal to the server
+
+# Release signing: private key in PEM or raw 64-byte hex. If set, uploaded
+# bundles are signed automatically; otherwise the uploader must supply a
+# signature hex string.
+RELEASE_PRIVATE_KEY = os.environ.get("NSL_RELEASE_PRIVATE_KEY", "")
+RELEASE_PUBLIC_KEY = os.environ.get("NSL_RELEASE_PUBLIC_KEY", "")
+
+
+def _load_signing_key():
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import (
+            load_pem_private_key, Encoding, PublicFormat)
+    except Exception:
+        return None
+    if not RELEASE_PRIVATE_KEY:
+        return None
+    raw = RELEASE_PRIVATE_KEY.strip()
+    try:
+        if raw.startswith("-"):
+            key = load_pem_private_key(raw.encode(), password=None)
+        else:
+            key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(raw))
+        if not isinstance(key, Ed25519PrivateKey):
+            return None
+        return key
+    except Exception:
+        return None
+
+
+def _signing_public_key_pem() -> str | None:
+    key = _load_signing_key()
+    if not key:
+        return None
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    return key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+
+
+def _sign_bundle(path: str) -> str:
+    key = _load_signing_key()
+    if not key:
+        raise RuntimeError("NSL_RELEASE_PRIVATE_KEY not configured")
+    with open(path, "rb") as f:
+        sig = key.sign(f.read())
+    return sig.hex()
+
+
+def _require_admin(u: dict):
+    # In this app the only global admin distinction is the first user of an org;
+    # release management is restricted to org owners. Each org manages its own
+    # release channel independently.
+    pass
 
 app = FastAPI(title="NSL Portal")
 
@@ -1637,11 +1690,116 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
 @app.get("/api/device/release")
 def device_release(authorization: str | None = Header(default=None)):
     c = device_controller(authorization)
-    row = db().execute("SELECT * FROM releases WHERE channel=? ORDER BY created_at DESC LIMIT 1",
-                       (c["channel"] or "stable",)).fetchone()
+    row = db().execute(
+        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC LIMIT 1",
+        (c["organisation_id"], c["channel"] or "stable")).fetchone()
     if not row:
         return {"version": None}
-    return {"version": row["version"], "bundle_key": row["bundle_key"], "signature": row["signature"]}
+    path = os.path.join(STORAGE_DIR, str(row["bundle_key"]))
+    return {
+        "version": row["version"],
+        "bundle_url": f"/api/device/release/bundle?v={row['version']}",
+        "bundle_key": row["bundle_key"],
+        "signature": row["signature"],
+        "sha256": row["bundle_sha256"] if "bundle_sha256" in row.keys() else "",
+        "bytes": os.path.getsize(path) if os.path.exists(path) else 0,
+        "notes": row["notes"] if "notes" in row.keys() else "",
+        "min_agent_version": "1.0.0",
+    }
+
+
+@app.get("/api/device/release/bundle")
+def device_release_bundle(v: str, authorization: str | None = Header(default=None)):
+    c = device_controller(authorization)
+    row = db().execute(
+        "SELECT * FROM releases WHERE organisation_id=? AND channel=? AND version=? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (c["organisation_id"], c["channel"] or "stable", v)).fetchone()
+    if not row:
+        raise HTTPException(404, "no release")
+    path = os.path.join(STORAGE_DIR, str(row["bundle_key"]))
+    if not os.path.exists(path):
+        raise HTTPException(404, "bundle missing")
+    return FileResponse(path, filename=f"nsl-release-{v}.tar.gz",
+                        media_type="application/gzip")
+
+
+@app.get("/api/admin/releases")
+def admin_list_releases(organisation_id: str, u: dict = Depends(current_user)):
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    rows = db().execute(
+        "SELECT id, version, channel, bundle_sha256, notes, created_at FROM releases "
+        "WHERE organisation_id=? ORDER BY created_at DESC",
+        (organisation_id,)).fetchall()
+    return {"releases": [dict(r) for r in rows]}
+
+
+@app.post("/api/admin/releases")
+def admin_upload_release(
+    organisation_id: str = Form(...),
+    version: str = Form(...),
+    channel: str = Form(default="stable"),
+    notes: str = Form(default=""),
+    signature: str = Form(default=""),
+    file: UploadFile = File(...),
+    u: dict = Depends(current_user)
+):
+    """Upload a new software release bundle. Organisation owners/editors may
+    publish releases for their own buses. The bundle must be a .tar.gz archive
+    of the application code that installs into /opt/nsl/vN. If
+    NSL_RELEASE_PRIVATE_KEY is set, the portal signs the bundle automatically;
+    otherwise the caller must supply a hex Ed25519 signature.
+    """
+    require_role(u["id"], organisation_id, "owner", "editor")
+    if not version or not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", version):
+        raise HTTPException(400, "bad version string")
+    if channel not in ("stable", "beta", "dev"):
+        raise HTTPException(400, "channel must be stable, beta or dev")
+    raw = file.file.read()
+    if len(raw) < 100:
+        raise HTTPException(400, "bundle too small")
+    if raw[:2] != b"\x1f\x8b":
+        raise HTTPException(400, "bundle must be a gzip tar archive")
+    h = hashlib.sha256(raw).hexdigest()
+    os.makedirs(os.path.join(STORAGE_DIR, "releases"), exist_ok=True)
+    path = os.path.join(STORAGE_DIR, "releases", f"{version}.tar.gz")
+    with open(path, "wb") as f:
+        f.write(raw)
+    if not signature:
+        try:
+            signature = _sign_bundle(path)
+        except Exception as e:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            raise HTTPException(400, f"could not sign bundle: {e}")
+    try:
+        bytes.fromhex(signature)
+    except ValueError:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise HTTPException(400, "signature must be a hex string")
+    con = db()
+    if con.execute("SELECT 1 FROM releases WHERE organisation_id=? AND channel=? AND version=?",
+                   (organisation_id, channel, version)).fetchone():
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise HTTPException(400, f"release {version} already exists for channel {channel}")
+    rid = str(uuid.uuid4())
+    con.execute(
+        "INSERT INTO releases (id, organisation_id, version, channel, bundle_key, bundle_sha256, signature, notes, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (rid, organisation_id, version, channel, f"releases/{version}.tar.gz", h, signature, notes, _utcnow()))
+    con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
+                (organisation_id, u["id"], "release.upload", f"{version} ({channel})", _utcnow()))
+    con.commit()
+    return {"release_id": rid, "version": version, "channel": channel,
+            "sha256": h, "bytes": len(raw), "signature": signature}
 
 
 # remote command fan-out: portal persists, Pi picks up on next heartbeat (<=60 s).

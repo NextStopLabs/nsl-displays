@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 
@@ -334,3 +335,51 @@ def test_program_template_crud_and_default(tmp_path, monkeypatch):
     assert r.status_code == 200
     prog = c.get(f"/api/programs/{pid}", headers=H).json()
     assert not any(x["id"] == tid for x in prog["templates"])
+
+
+def test_release_upload_and_device_download(tmp_path, monkeypatch):
+    import io
+    import tarfile
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "r@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    dev = c.post("/api/device/register", json={}).json()
+    pr = c.post("/api/controllers/pair",
+                data={"organisation_id": org, "code": dev["pairing_code"], "name": "bus-1"}, headers=H).json()
+    DH = {"Authorization": f"Bearer {pr['device_token']}"}
+    # Generate a signing key for this test so the portal auto-signs the bundle.
+    import portal.backend.app as appmod
+    test_key = Ed25519PrivateKey.generate()
+    pem = test_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
+    monkeypatch.setattr(appmod, "RELEASE_PRIVATE_KEY", pem)
+    # Build a minimal tar.gz bundle.
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        data = b"version 2.0.0 code"
+        info = tarfile.TarInfo(name="code.txt")
+        info.size = len(data)
+        t.addfile(info, io.BytesIO(data))
+    bundle_bytes = buf.getvalue()
+    h = hashlib.sha256(bundle_bytes).hexdigest()
+    files = {"file": ("release.tar.gz", bundle_bytes, "application/gzip")}
+    up = c.post("/api/admin/releases",
+                data={"organisation_id": org, "version": "2.0.0", "channel": "stable", "notes": "bug fixes"},
+                files=files, headers=H)
+    assert up.status_code == 200, up.text
+    assert up.json()["version"] == "2.0.0"
+    assert up.json()["sha256"] == h
+    assert len(up.json()["signature"]) == 128  # Ed25519 signature hex
+    # Device sees the release
+    rel = c.get("/api/device/release", headers=DH).json()
+    assert rel["version"] == "2.0.0"
+    assert rel["bundle_url"] == "/api/device/release/bundle?v=2.0.0"
+    assert rel["sha256"] == h
+    assert rel["bytes"] == len(bundle_bytes)
+    # Device downloads the bundle
+    dl = c.get("/api/device/release/bundle", params={"v": "2.0.0"}, headers=DH)
+    assert dl.status_code == 200
+    assert dl.content == bundle_bytes
+    # Missing release returns 404
+    assert c.get("/api/device/release/bundle", params={"v": "9.9.9"}, headers=DH).status_code == 404

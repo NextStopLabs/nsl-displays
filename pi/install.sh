@@ -42,7 +42,16 @@ fi
 sudo apt-get update
 sudo apt-get install -y python3-pip python3-pil python3-fastapi python3-uvicorn \
   sqlite3 flac alsa-utils network-manager evtest watchdog
-sudo mkdir -p /var/lib/nsl /opt/nsl
+sudo mkdir -p /var/lib/nsl /opt/nsl /etc/nsl
+# Release signing public key. Replace NSL_RELEASE_PUBLIC_KEY in the environment
+# with the real key before imaging; otherwise OTA updates will fail verification.
+if [ -n "${NSL_RELEASE_PUBLIC_KEY:-}" ] && [ -f "$NSL_RELEASE_PUBLIC_KEY" ]; then
+  sudo cp "$NSL_RELEASE_PUBLIC_KEY" /etc/nsl/release.pub
+  sudo chmod 644 /etc/nsl/release.pub
+elif [ -n "${NSL_RELEASE_PUBLIC_KEY_PEM:-}" ]; then
+  printf '%s' "$NSL_RELEASE_PUBLIC_KEY_PEM" | sudo tee /etc/nsl/release.pub >/dev/null
+  sudo chmod 644 /etc/nsl/release.pub
+fi
 # NOTE: plain `sudo python3` (no env tricks): sudo strips PYTHONPATH even with
 # -E, so the repo paths go on sys.path inside the script itself.
 sudo python3 -c "import sys; sys.path.insert(0, '$REPO'); sys.path.insert(0, '$REPO/pi'); from nsl_pi.store import init_controller_db; init_controller_db('/var/lib/nsl/controller.db', controller_name='$UNIT')"

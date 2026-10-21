@@ -108,8 +108,10 @@ CREATE TABLE IF NOT EXISTS command_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, controller_id TEXT NOT NULL, user_id TEXT,
   source TEXT NOT NULL, command TEXT NOT NULL, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS releases (
-  id TEXT PRIMARY KEY, version TEXT NOT NULL, channel TEXT NOT NULL DEFAULT 'stable',
-  bundle_key TEXT NOT NULL, signature TEXT NOT NULL, notes TEXT DEFAULT '', created_at TEXT NOT NULL);
+  id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, version TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'stable', bundle_key TEXT NOT NULL,
+  bundle_sha256 TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL, notes TEXT DEFAULT '',
+  created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, organisation_id TEXT, user_id TEXT,
   action TEXT NOT NULL, detail TEXT DEFAULT '', at TEXT NOT NULL);
@@ -137,7 +139,9 @@ def connect(url: str | None = None) -> sqlite3.Connection:
                        "ALTER TABLE controllers ADD COLUMN pending_token TEXT DEFAULT NULL",
                        "ALTER TABLE controllers ADD COLUMN live_state TEXT DEFAULT NULL",
                        "ALTER TABLE voices ADD COLUMN num_speakers INTEGER DEFAULT 1",
-                       "ALTER TABLE voices ADD COLUMN speakers TEXT DEFAULT '[]'"):
+                       "ALTER TABLE voices ADD COLUMN speakers TEXT DEFAULT '[]'",
+                       "ALTER TABLE releases ADD COLUMN bundle_sha256 TEXT NOT NULL DEFAULT ''",
+                       "ALTER TABLE releases ADD COLUMN organisation_id TEXT"):
             try:
                 con.execute(_ddl)
                 con.commit()

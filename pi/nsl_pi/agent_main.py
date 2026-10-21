@@ -35,6 +35,15 @@ def main():
     interval = _poll_interval()
     print(f"nsl-agent starting: portal={portal} base={BASE} token={'set' if token else 'MISSING'} "
           f"poll={interval}s", flush=True)
+    # Resume a previously-staged update if the Pi rebooted before it activated.
+    try:
+        from .update import pending_activation, run_activation_helper
+        pending = pending_activation()
+        if pending and pending.get("version") and (time.time() - (pending.get("scheduled_at") or 0)) > 60:
+            print(f"resuming pending update to {pending['version']}", flush=True)
+            run_activation_helper(pending["version"])
+    except Exception as e:
+        print("pending update resume failed:", e, flush=True)
     while True:
         try:
             hb = ag.heartbeat(db)
@@ -48,15 +57,22 @@ def main():
                     except Exception:
                         cmd = {}
                 print("portal command received:", json.dumps(cmd)[:300], flush=True)
+                status, detail = "failed", "unhandled"
                 try:
-                    res = core.apply_command(cmd, source="portal")
-                    status, detail = "applied", json.dumps(res)[:200]
-                    if isinstance(res, dict) and res.get("announcement"):
-                        from nsl_pi.player import play_announcement
-                        prep = play_announcement(res["announcement"], BASE)
-                        print(f"portal announcement: {prep.get('clips')} clip(s) "
-                              f"played={prep.get('played')} device={prep.get('device')}", flush=True)
-                        detail += f" played={prep.get('played')}"
+                    if isinstance(cmd, dict) and cmd.get("command") == "update_now":
+                        rep = ag.sync_once(db)
+                        rel = rep.get("release", {})
+                        status = "applied" if rel.get("ok") else ("failed" if rel.get("error") else "no_update")
+                        detail = json.dumps(rel)[:200]
+                    else:
+                        res = core.apply_command(cmd, source="portal")
+                        status, detail = "applied", json.dumps(res)[:200]
+                        if isinstance(res, dict) and res.get("announcement"):
+                            from nsl_pi.player import play_announcement
+                            prep = play_announcement(res["announcement"], BASE)
+                            print(f"portal announcement: {prep.get('clips')} clip(s) "
+                                  f"played={prep.get('played')} device={prep.get('device')}", flush=True)
+                            detail += f" played={prep.get('played')}"
                 except Exception as e:
                     status, detail = "failed", str(e)
                 print(f"portal command {status}: {detail}", flush=True)

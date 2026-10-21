@@ -13,6 +13,7 @@
 #   --dir /opt/nsl-displays                  checkout location
 #   --skip-matrix                            skip rpi-rgb-led-matrix build
 #   --audio jack|usb                         3.5mm onboard jack (default) or USB adapter
+#   --release-key /path/to/release.pub       Ed25519 public key for OTA verification
 #
 # Flow: install -> reboot if asked -> code shows on the front board AND in
 # the terminal -> portal Controllers -> Pair controller -> enter code + name
@@ -26,6 +27,7 @@ REPO="https://github.com/NextStopLabs/nsl-displays.git"
 DIR="/opt/nsl-displays"
 SKIP_MATRIX=0
 AUDIO="jack"
+RELEASE_KEY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +37,7 @@ while [ $# -gt 0 ]; do
     --dir) DIR="${2:?}"; shift 2;;
     --skip-matrix) SKIP_MATRIX=1; shift;;
     --audio) AUDIO="${2:?}"; shift 2;;
+    --release-key) RELEASE_KEY="${2:?}"; shift 2;;
     -h|--help) sed -n '1,20p' "$0"; exit 0;;
     *) echo "unknown flag: $1 (see --help)"; exit 1;;
   esac
@@ -63,6 +66,9 @@ else
 fi
 
 echo "==> base install (hostname, audio, bus-LAN, units)"
+if [ -n "$RELEASE_KEY" ]; then
+  export NSL_RELEASE_PUBLIC_KEY="$RELEASE_KEY"
+fi
 NSL_AUDIO="$AUDIO" bash "$DIR/pi/install.sh" front "$UNIT" "$AUDIO"
 
 echo "==> LED matrix library"

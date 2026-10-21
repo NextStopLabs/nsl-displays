@@ -1,4 +1,6 @@
+import hashlib
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -82,3 +84,84 @@ def test_player_announce_writes_wav_without_alsa(tmp_path):
     rep = announce([h], str(adir), device="no-such-device-xyz", out_wav=out)
     assert rep["clips"] == 1 and rep["played"] is False
     assert os.path.getsize(out) > 1000
+
+
+def _release_agent(tmp_path, monkeypatch):
+    """Create an agent with NSL_ROOT pointing into tmp_path so update slots
+    are created there instead of under /opt/nsl."""
+    root = tmp_path / "nslroot"
+    root.mkdir()
+    monkeypatch.setenv("NSL_ROOT", str(root))
+    return _agent(tmp_path, monkeypatch)
+
+
+def test_sync_downloads_release_when_newer(tmp_path, monkeypatch):
+    """Agent checks /api/device/release, downloads the bundle, and stages it."""
+    import tarfile
+    ag, db, _ = _release_agent(tmp_path, monkeypatch)
+    bundle = tmp_path / "release.tar.gz"
+    with tarfile.open(bundle, "w:gz") as t:
+        import io as _io
+        data = b"v2 code"
+        info = tarfile.TarInfo(name="README.txt")
+        info.size = len(data)
+        t.addfile(info, _io.BytesIO(data))
+    h = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    monkeypatch.setenv("NSL_SKIP_VERIFY", "1")
+    # Don't actually fork the activation helper in tests.
+    monkeypatch.setattr("pi.nsl_pi.update.run_activation_helper", lambda v: None)
+    monkeypatch.setattr(ag, "fetch_manifest", lambda *a: {"programs": []})
+    monkeypatch.setattr(ag, "fetch_release", lambda *a: {
+        "version": "2.0.0", "bundle_url": "/rel", "sha256": h,
+        "signature": "00" * 64, "bytes": bundle.stat().st_size})
+    def fake_download(url, dest, sha):
+        shutil.copy(str(bundle), dest)
+        return dest
+    monkeypatch.setattr(ag, "download", fake_download)
+    rep = ag.sync_once(db)
+    rel = rep.get("release", {})
+    assert rel.get("ok") is True, rel
+    assert rel.get("version") == "2.0.0"
+    # Inactive slot should contain the unpacked bundle.
+    from pi.nsl_pi.update import slots
+    active, inactive = slots()
+    assert open(os.path.join(inactive, ".nsl-version")).read().strip() == "2.0.0"
+    assert open(os.path.join(inactive, "README.txt")).read() == "v2 code"
+
+
+def test_sync_release_with_real_signature(tmp_path, monkeypatch):
+    """Agent verifies a real Ed25519 signature before staging."""
+    import tarfile
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    key = Ed25519PrivateKey.generate()
+    pub_pem = key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+    ag, db, _ = _release_agent(tmp_path, monkeypatch)
+    bundle = tmp_path / "release.tar.gz"
+    with tarfile.open(bundle, "w:gz") as t:
+        import io as _io
+        data = b"signed v2 code"
+        info = tarfile.TarInfo(name="signed.txt")
+        info.size = len(data)
+        t.addfile(info, _io.BytesIO(data))
+    sig = key.sign(bundle.read_bytes()).hex()
+    h = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    # Write public key to a temp file and point NSL_RELEASE_PUBLIC_KEY at it.
+    pub_path = tmp_path / "release.pub"
+    pub_path.write_text(pub_pem)
+    monkeypatch.setenv("NSL_RELEASE_PUBLIC_KEY", str(pub_path))
+    monkeypatch.setattr("pi.nsl_pi.update.run_activation_helper", lambda v: None)
+    monkeypatch.setattr(ag, "fetch_manifest", lambda *a: {"programs": []})
+    monkeypatch.setattr(ag, "fetch_release", lambda *a: {
+        "version": "2.0.1", "bundle_url": "/rel", "sha256": h,
+        "signature": sig, "bytes": bundle.stat().st_size})
+    def fake_download(url, dest, sha):
+        shutil.copy(str(bundle), dest)
+        return dest
+    monkeypatch.setattr(ag, "download", fake_download)
+    rep = ag.sync_once(db)
+    rel = rep.get("release", {})
+    assert rel.get("ok") is True, rel
+    from pi.nsl_pi.update import slots
+    _, inactive = slots()
+    assert open(os.path.join(inactive, "signed.txt")).read() == "signed v2 code"

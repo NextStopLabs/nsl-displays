@@ -21,6 +21,7 @@ services:
       DATABASE_URL: sqlite:/data/portal.db
       STORAGE_DIR: /data/storage
       PORTAL_SECRET: ${PORTAL_SECRET:?set PORTAL_SECRET in deploy/.env}
+      NSL_RELEASE_PRIVATE_KEY: ${NSL_RELEASE_PRIVATE_KEY:-}
     volumes:
       - portal-data:/data
     restart: unless-stopped

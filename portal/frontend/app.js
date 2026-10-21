@@ -115,10 +115,12 @@ const Preview = (() => {
         const tw1 = han ? H.width(han, text, hsp) : 0;
         const tw = han ? tw1 * sc : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
-        const hanStrip = () => {
+        const ink = el.colour || AMBER;
+        const paper = lay.background || "#000000";
+        const hanStrip = (colour) => {
           const c1 = document.createElement("canvas");
           c1.width = Math.max(1, tw1); c1.height = han.height;
-          H.draw(c1.getContext("2d"), han, text, 0, 0, el.colour || AMBER, hsp);
+          H.draw(c1.getContext("2d"), han, text, 0, 0, colour || ink, hsp);
           if (sc <= 1) return c1;
           const c2 = document.createElement("canvas");
           c2.width = c1.width * sc; c2.height = c1.height * sc;
@@ -129,6 +131,10 @@ const Preview = (() => {
         };
         // No clipping for static text (matches the bus): ink may overflow its
         // box and still shows. Only scrolling crops to the element.
+        // Inverted boxes fill the whole element area (matches layout editor + bus).
+        if (el.invert && !needScroll) {
+          g.fillStyle = ink; g.fillRect(bx, by, bw, bh);
+        }
         if (han && !needScroll) {
           const sh = han.height * sc;
           const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
@@ -136,11 +142,12 @@ const Preview = (() => {
           let tx = bx + 1;
           if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
           if (el.align === "right") tx = bx + bw - tw;
-          g.drawImage(hanStrip(), tx, y0);
+          g.drawImage(hanStrip(el.invert ? paper : ink), tx, y0);
           continue;
         }
         if (!han && !needScroll) {
           g.font = "12px monospace";
+          g.fillStyle = el.invert ? paper : ink;
           let tx = bx + 1;
           if (g.textAlign === "center") tx = bx + bw / 2;
           if (g.textAlign === "right") tx = bx + bw - 1;
@@ -149,12 +156,13 @@ const Preview = (() => {
         }
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+        if (el.invert) { g.fillStyle = ink; g.fillRect(bx, by, bw, bh); }
         if (han) {
           const sh = han.height * sc;
           const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
             : (el.valign === "bottom" ? by + bh - sh : by);
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
-          const strip = hanStrip();
+          const strip = hanStrip(el.invert ? paper : ink);
           const s2 = document.createElement("canvas");
           s2.width = Math.ceil(tw + bw); s2.height = bh;
           s2.getContext("2d").drawImage(strip, 0, Math.max(0, y0 - by));
@@ -163,6 +171,7 @@ const Preview = (() => {
           continue;
         }
         g.font = "12px monospace";
+        g.fillStyle = el.invert ? paper : ink;
         let tx = bx + 1;
         if (g.textAlign === "center") tx = bx + bw / 2;
         if (g.textAlign === "right") tx = bx + bw - 1;
@@ -829,14 +838,14 @@ function upStatusText(c, pid) {
   const inst = row.installed_version, des = row.desired_version, act = row.active_version;
   const sync = c.sync_state;
   if (sync && sync.phase && sync.phase !== "idle")
-    return (sync.phase === "audio" && sync.total ? `fetching audio ${sync.done || ""}/${sync.total}…`
-      : sync.phase === "bundle" ? `downloading v${sync.version || ""}…`
-      : sync.phase === "installing" ? "installing…" : `${sync.phase}…`);
-  if (inst == null) return c.online ? `queued v${des} - bus downloading…` : `queued v${des} - waiting for bus`;
-  if (inst !== des) return `installing v${des}… (bus has v${inst})`;
+    return (sync.phase === "audio" && sync.total ? `fetching audio ${esc(sync.done)}/${esc(sync.total)}…`
+      : sync.phase === "bundle" ? `downloading v${esc(sync.version)}…`
+      : sync.phase === "installing" ? "installing…" : `${esc(sync.phase)}…`);
+  if (inst == null) return c.online ? `queued v${esc(des)} - bus downloading…` : `queued v${esc(des)} - waiting for bus`;
+  if (inst !== des) return `installing v${esc(des)}… (bus has v${esc(inst)})`;
   const okIcon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:2px"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
-  if (act == null || act !== des) return `${okIcon} installed v${des}` + (act != null ? ` - bus parked on v${act}, select a destination to switch` : " - bus will adopt it");
-  return `${okIcon} live on v${des}`;
+  if (act == null || act !== des) return `${okIcon} installed v${esc(des)}` + (act != null ? ` - bus parked on v${esc(act)}, select a destination to switch` : " - bus will adopt it");
+  return `${okIcon} live on v${esc(des)}`;
 }
 async function refreshUploadStatus() {
   try {
@@ -845,7 +854,7 @@ async function refreshUploadStatus() {
     const pid = S.curProg && S.curProg.id;
     for (const el of document.querySelectorAll("[data-upstat]")) {
       const c = S.controllers.find((x) => x.id === el.dataset.upstat);
-      if (c && pid) el.textContent = upStatusText(c, pid);
+      if (c && pid) el.innerHTML = upStatusText(c, pid);
     }
   } catch (e) { /* keep old text on failure */ }
 }

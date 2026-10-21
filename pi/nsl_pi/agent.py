@@ -12,6 +12,7 @@ import sqlite3
 import urllib.request
 
 MANIFEST_PATH = "manifest.json"
+APP_VERSION = "1.0.0"
 
 
 def _req(url: str, token: str | None = None, data: bytes | None = None,
@@ -57,6 +58,10 @@ class Agent:
 
     def fetch_manifest(self, program_id: str | None = None) -> dict:
         status, raw, _ = _req(self._api("/api/device/manifest"), token=self.token)
+        return json.loads(raw.decode())
+
+    def fetch_release(self) -> dict | None:
+        status, raw, _ = _req(self._api("/api/device/release"), token=self.token)
         return json.loads(raw.decode())
 
     def download(self, url: str, dest: str, sha256: str, resume: bool = True):
@@ -191,14 +196,46 @@ class Agent:
                     except Exception as e:
                         report["errors"].append(f"{pid}@{ver} auto-select: {e}")
             # 4. software last: check release
-            try:
-                _, raw, _ = _req(self._api("/api/device/release"), token=self.token)
-                report["release"] = json.loads(raw.decode())
-            except Exception as e:
-                report["release"] = {"info": f"no release check: {e}"}
+            report["release"] = self._sync_release()
         finally:
             con.close()
         return report
+
+    def _sync_release(self) -> dict:
+        """Check portal release, download+verify if newer, stage activation."""
+        try:
+            rel = self.fetch_release()
+        except Exception as e:
+            return {"info": f"no release check: {e}"}
+        if not rel or not rel.get("version"):
+            return {"info": "no release available"}
+        new_ver = str(rel["version"])
+        # Don't re-download same version.
+        from .update import current_version, staged_version
+        if current_version() == new_ver:
+            return {"version": new_ver, "info": "already running"}
+        if staged_version() == new_ver:
+            return {"version": new_ver, "info": "already staged"}
+        if rel.get("min_agent_version") and rel["min_agent_version"] > APP_VERSION:
+            return {"version": new_ver, "error": f"needs agent >= {rel['min_agent_version']}"}
+        url = rel.get("bundle_url") or rel.get("url")
+        if not url:
+            return {"version": new_ver, "error": "no bundle_url in release"}
+        bundle_dest = os.path.join(self.incoming, f"release-{new_ver}.tar.gz")
+        self.progress = {"phase": "software", "version": new_ver}
+        try:
+            self.download(url, bundle_dest, rel.get("sha256", ""))
+        except Exception as e:
+            self.progress = None
+            return {"version": new_ver, "error": f"download failed: {e}"}
+        from .update import check_and_apply, run_activation_helper
+        res = check_and_apply(rel, bundle_dest)
+        self.progress = None
+        if res.get("ok"):
+            # Trigger the background helper; the agent will restart as part of
+            # service restart, and the helper will report the final result.
+            run_activation_helper(new_ver)
+        return {"version": new_ver, **res}
 
     def heartbeat(self, controller_db: str, extra: dict | None = None) -> dict:
         con = sqlite3.connect(controller_db)

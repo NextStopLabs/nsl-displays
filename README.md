@@ -394,7 +394,7 @@ Truth rules: a command to an **offline** bus is refused immediately (`controller
 
 Order: program data + config first, audio second, software last - so a short hotspot window still lands the important changes. Sync never changes current state or clears an override.
 
-**Software auto-update:** check on connect → download signed bundle (resume + hash) → verify signature against baked-in public key (key lives off the web server) → install to inactive slot → symlink switch → restart → health check (agent, core, player, display, local UI responsive) → roll back on failure, report. Never switches mid-service unless forced; waits for idle/restart/Apply-now.
+**Software auto-update:** on hotspot connect the agent checks `/api/device/release` for its release channel, downloads the signed bundle (resume + hash), verifies the Ed25519 signature against the public key installed at `/etc/nsl/release.pub`, unpacks it into the inactive A/B slot at `/opt/nsl/vN`, and schedules activation. A background helper switches the `/opt/nsl/current` symlink, restarts the NSL services, and runs a health check (systemd services + local UI `/api/health`); on failure it rolls back to the previous slot. Result is reported via the outbox on the next heartbeat. The bus never switches mid-service unless forced via a portal/local `update_now` command. To prepare release bundles, see `tools/generate-release-key.py` and `POST /api/admin/releases`.
 
 ---
 
@@ -489,6 +489,8 @@ curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/i
   | sudo bash -s -- --unit bus-1
 # --portal defaults to https://nsldisplays.com/portal; --unit sets the AP name NSL-<unit>
 # 3.5mm onboard jack is the default; pass --audio usb for a USB adapter.
+# For OTA updates, generate a key pair with tools/generate-release-key.py and pass
+# --release-key /path/to/release.pub so the Pi can verify signed bundles.
 # Jack mode needs software pulsing (the default) and a reboot after install.
 ```
 

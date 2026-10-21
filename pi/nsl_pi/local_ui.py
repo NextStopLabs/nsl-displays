@@ -197,6 +197,50 @@ def api_identity_get():
         return {"unit": "", "ap": ""}
 
 
+@app.get("/api/update")
+def api_update_status():
+    """Current software version and pending update state."""
+    from .update import current_version, pending_activation
+    return {"current_version": current_version(), "pending_version": pending_activation()}
+
+
+@app.post("/api/update")
+def api_update_trigger(body: dict):
+    """Check portal for a release and stage it (triggered from local UI)."""
+    import os as _os
+    from .agent import Agent
+    from .store import init_controller_db
+    base = _os.environ.get("NSL_BASE", "/var/lib/nsl")
+    db = os.path.join(base, "controller.db")
+    init_controller_db(db)
+    token = _os.environ.get("NSL_TOKEN")
+    portal = _os.environ.get("PORTAL_URL", "https://nsldisplays.com/portal")
+    ag = Agent(portal, base, token)
+    rep = ag.sync_once(db)
+    return rep.get("release", {"info": "no release sync performed"})
+
+
+@app.post("/api/update/local")
+def api_update_local(file: UploadFile = File(...)):
+    """Install a locally-uploaded signed bundle (offline update)."""
+    import tempfile
+    from .update import check_and_apply, run_activation_helper
+    base = os.environ.get("NSL_BASE", "/var/lib/nsl")
+    raw = file.file.read()
+    if raw[:2] != b"\x1f\x8b":
+        raise HTTPException(400, "bundle must be a gzip tar archive")
+    tmp = tempfile.mkdtemp(prefix="nsl-update-")
+    bundle = os.path.join(tmp, "release.tar.gz")
+    with open(bundle, "wb") as f:
+        f.write(raw)
+    # Version is taken from filename or marker inside bundle if available.
+    version = (file.filename or "local").replace(".tar.gz", "").replace(".tgz", "")[-32:]
+    res = check_and_apply({"version": version, "sha256": "", "signature": ""}, bundle)
+    if res.get("ok"):
+        run_activation_helper(version)
+    return res
+
+
 @app.post("/api/identity")
 def api_identity(body: dict):
     """Rename this bus (unit) without SSH: join the AP, open 192.168.4.1,
@@ -245,6 +289,9 @@ INDEX_HTML = """<!doctype html><html><head><meta charset=utf8><meta name=viewpor
 <div class=row><button onclick="setUnit()">Apply + reboot</button><button onclick="audioTest()">Test audio</button></div>
 <div class=hint id=unitmsg></div></div>
 <script>fetch('/api/identity').then(r=>r.json()).then(j=>{if(j.unit)document.getElementById('unit').value=j.unit;}).catch(()=>{})</script>
+<div class=group><div class=grouptitle>Software update</div>
+<div class=row><button onclick="checkUpdate()">Check for update</button></div>
+<div class=hint id=updatemsg></div></div>
 <div class=group><div class=grouptitle>Status</div><pre id=state>…</pre></div>
 </div></div>
 <script>
@@ -260,6 +307,10 @@ const j=await r.json().catch(()=>({}));
 document.getElementById('unitmsg').textContent=r.ok?('unit '+j.unit+' applied - rebooting, rejoin the AP in ~1 min'):('failed: '+(j.detail||r.status))}
 async function audioTest(){const r=await fetch('/api/audio-test',{method:'POST'});const j=await r.json().catch(()=>({}));
 alert(r.ok?(j.played?('chime played on '+j.device):('silent: '+(j.reason||'no output'))):('failed: '+(j.detail||r.status)))}
+async function checkUpdate(){document.getElementById('updatemsg').textContent='checking…';
+const r=await fetch('/api/update',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+const j=await r.json().catch(()=>({}));
+document.getElementById('updatemsg').textContent=r.ok?(j.ok?('update staged to '+j.version+' - services will restart shortly'):('no update: '+(j.error||j.info||'unknown'))):('failed: '+(j.detail||r.status))}
 refresh();setInterval(refresh,2000);
 </script></body></html>
 """

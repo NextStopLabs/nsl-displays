@@ -248,6 +248,10 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
                 img.paste(window, (x, y))
             else:
                 if invert:
+                    # Full-box invert to match portal LED preview:
+                    # fill the whole element area, then blit the
+                    # (amber-bg / black-glyph) strip centred on it.
+                    dr.rectangle([x, y, x + ww - 1, y + hh - 1], fill=colour)
                     img.paste(strip, (tx, ty))
                 else:
                     img.paste(strip, (tx, ty), strip)
@@ -255,7 +259,7 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
         scroll = el.get("scroll", "none")
         needs_scroll = scroll == "always" or (scroll == "if_too_long" and tw > ww)
         if invert:
-            dr.rectangle([x, y, x + ww, y + hh], fill=colour)
+            dr.rectangle([x, y, x + ww - 1, y + hh - 1], fill=colour)
         if needs_scroll:
             off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
             tx = x + ww - off
