@@ -129,6 +129,43 @@ def fetch_timetable(service_id: int | str) -> list[dict]:
     return _cached(f"timetable:{service_id}", lambda: parse_timetable_csv(_http_get_text(url)))
 
 
+# Words bustimes puts after the comma that describe the stop position rather
+# than name it ("Tutbury, adj St Christopher Church"). Common-word ones
+# (in, by, ...) only count when lowercase, so a street actually called
+# "By ..." is never mangled.
+_STOP_QUALIFIERS_LOWER = {"adj", "adjacent", "opp", "opposite", "o/s", "os", "outside",
+                          "nr", "near", "by", "in", "at", "on", "cnr", "corner"}
+_STOP_QUALIFIERS_ANY_CASE = {"adj", "opp", "nr", "o/s", "os", "cnr"}
+
+
+def spoken_stop_name(full_name: str) -> str:
+    """Short spoken form of a timetable stop for audio clips.
+
+    Strips the "Place, qualifier" prefix ("Tutbury, adj St Christopher
+    Church" -> "St Christopher Church") and ensures terminal punctuation
+    ("St Christopher Church" -> "St Christopher Church."), which gives the
+    TTS sentence-final prosody instead of a clipped fragment. Names without
+    a comma are kept whole. The stop record itself keeps the full name —
+    only the clip name and spoken audio use this form.
+    """
+    s = (full_name or "").strip()
+    if "," in s:
+        head, _, tail = s.partition(",")
+        tail = tail.strip()
+        if tail:
+            first, _, rest = tail.partition(" ")
+            low = first.lower().rstrip(".")
+            if rest.strip() and (low in _STOP_QUALIFIERS_ANY_CASE or
+                                 (first == low and low in _STOP_QUALIFIERS_LOWER)):
+                s = rest.strip()
+            else:
+                s = tail
+    s = s.strip()
+    if s and s[-1] not in ".!?":
+        s += "."
+    return s
+
+
 def auto_direction_for_part(part: str, directions: list[dict]) -> int | None:
     """Guess which timetable block serves a description part.
 

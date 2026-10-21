@@ -18,9 +18,10 @@ def _client(tmp_path, monkeypatch):
     return TestClient(appmod.app), appmod
 
 
-def _fake_wav(appmod):
+def _fake_wav(appmod, seed_text="x"):
     import struct
-    return appmod._wav_bytes_from_pcm(struct.pack("<2205h", *([1000] * 2205)))
+    fill = 1000 + (abs(hash(seed_text)) % 20000)
+    return appmod._wav_bytes_from_pcm(struct.pack("<2205h", *([fill] * 2205)))
 
 
 def _mock_bustimes(btmod):
@@ -57,6 +58,22 @@ def test_split_description_cases():
     assert split_description("") == []
 
 
+def test_spoken_stop_name():
+    from portal.backend.bustimes import spoken_stop_name as s
+    # place + qualifier stripped, full stop added
+    assert s("Tutbury, adj St Christopher Church") == "St Christopher Church."
+    assert s("Bolehall, opp Kettlebrook Road") == "Kettlebrook Road."
+    assert s("Christ Church, in The Friary School") == "The Friary School."
+    assert s("Stonydelph, nr Crowden Road") == "Crowden Road."
+    # no comma: kept whole, period added
+    assert s("Lichfield Bus Station (Stand 2)") == "Lichfield Bus Station (Stand 2)."
+    assert s("St Christopher Church") == "St Christopher Church."
+    # existing terminal punctuation respected
+    assert s("Foo.") == "Foo."
+    assert s("Bar, opp Foo!") == "Foo!"
+    assert s("") == ""
+
+
 def test_parse_timetable_two_directions():
     from portal.backend.bustimes import parse_timetable_csv
     text = ("stop,NaPTAN code,ATCO code,X66,X66\r\n"
@@ -74,8 +91,7 @@ def test_bustimes_import_service_with_background_audio(tmp_path, monkeypatch):
     _mock_bustimes(btmod)
 
     def fake_synth(texts, voice_id, org):
-        wav = _fake_wav(appmod)
-        return {t: ((wav, 100), "") for t in texts}
+        return {t: ((_fake_wav(appmod, t), 100), "") for t in texts}
     monkeypatch.setattr(appmod, "_synth_many_piper", fake_synth)
 
     r = c.post("/api/auth/signup", data={"email": "b@x.com", "password": "secret123"}).json()
@@ -107,6 +123,11 @@ def test_bustimes_import_service_with_background_audio(tmp_path, monkeypatch):
     assert [s["name"] for s in d0["stops"]] == ["St Francis College", "Mid Point", "Perry Crofts"]
     assert d0["stops"][-1]["is_terminus"] == 1
     assert all(s["audio"] for s in d0["stops"])
+    # clips use the spoken form: slug + tts text, with trailing period
+    clips = c.get("/api/audio", params={"organisation_id": org}, headers=H).json()["clips"]
+    by_name = {a["name"]: a for a in clips}
+    assert "st-francis-college" in by_name, sorted(by_name)
+    assert "mid-point" in by_name and "perry-crofts" in by_name
     # re-import reuses the clips: no new job, nothing pending
     ri2 = c.post("/api/bustimes/import", json={
         "program_id": pid, "bustimes_id": 84914, "voice_id": "v1",

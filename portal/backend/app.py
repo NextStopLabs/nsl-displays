@@ -1892,20 +1892,22 @@ def _job_finish(jid: str, state: str, result: dict | None = None, error: str | N
             j["state"], j["result"], j["error"], j["updated_at"] = state, result, error, _utcnow()
 
 
-def _find_clip_for_stop(con, org: str, name: str) -> str | None:
-    """Reuse lookup for a stop name: library clip by spoken text or friendly
-    filename, else the audio of an already-imported stop with the same name.
+def _find_clip_for_stop(con, org: str, spoken_name: str, stop_name: str | None = None) -> str | None:
+    """Reuse lookup for a stop: library clip by spoken text (short form with
+    trailing period) or friendly filename, else the audio of an
+    already-imported stop with the same full name.
     (The last leg covers byte-identical clips shared under one hash.)"""
     row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND tts_text=?",
-                      (org, name)).fetchone()
-    if not row and _slugify_clip(name):
+                      (org, spoken_name)).fetchone()
+    if not row and _slugify_clip(spoken_name):
         row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND filename=?",
-                          (org, _slugify_clip(name))).fetchone()
+                          (org, _slugify_clip(spoken_name))).fetchone()
     if not row:
-        row = con.execute("SELECT audio FROM p_stops WHERE organisation_id=? AND name=? "
-                          "AND audio IS NOT NULL AND audio<>'' LIMIT 1", (org, name)).fetchone()
-        if row:
-            return row[0]
+        for cand in ([stop_name] if stop_name else []) + [spoken_name]:
+            row = con.execute("SELECT audio FROM p_stops WHERE organisation_id=? AND name=? "
+                              "AND audio IS NOT NULL AND audio<>'' LIMIT 1", (org, cand)).fetchone()
+            if row:
+                return row[0]
         return None
     return row[0]
 
@@ -1938,26 +1940,31 @@ def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, n
     except Exception:
         pass
     try:
+        from . import bustimes as _bt
         total = len(names)
         _job_progress(jid, "synthesising stop audio", 0, total)
+        # Spoken form: "Tutbury, adj St Christopher Church" is announced as
+        # "St Christopher Church." — the stop record keeps the full name,
+        # only the clip name and spoken audio use the short form.
+        spoken = {n: _bt.spoken_stop_name(n) for n in names}
         # Single model load for the whole batch (was: one `piper` process
         # per stop, each reloading the ONNX voice — minutes of hang).
-        synth = _synth_many_piper(names, voice_id, org)
+        synth = _synth_many_piper([spoken[n] for n in names], voice_id, org)
         generated, reused, errors, silent = 0, 0, [], []
         for i, name in enumerate(names, 1):
             try:
-                h = _find_clip_for_stop(con, org, name)
+                h = _find_clip_for_stop(con, org, spoken[name], name)
                 if h:
                     reused += 1
                 else:
-                    real, tts_error = synth.get(name, (None, "voice generation failed"))
+                    real, tts_error = synth.get(spoken[name], (None, "voice generation failed"))
                     if real is None:
                         errors.append(f"{name}: {tts_error or 'voice generation failed'}")
                         silent.append(name)
                         _job_progress(jid, f"synthesising stop audio ({i}/{total})", i, total)
                         continue
                     wav, duration_ms = real
-                    h = _store_clip(con, org, name, voice_id, wav, duration_ms)
+                    h = _store_clip(con, org, spoken[name], voice_id, wav, duration_ms)
                     generated += 1
                 con.execute("UPDATE p_stops SET audio=? WHERE program_id=? AND name=? "
                             "AND (audio IS NULL OR audio='')", (h, program_id, name))
@@ -2092,7 +2099,7 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
     unique_stops = list(dict.fromkeys(all_stops))
     linked, pending = 0, []
     for sname in unique_stops:
-        h = _find_clip_for_stop(con, org, sname)
+        h = _find_clip_for_stop(con, org, _bt.spoken_stop_name(sname), sname)
         if h:
             con.execute("UPDATE p_stops SET audio=? WHERE program_id=? AND name=? "
                         "AND (audio IS NULL OR audio='')", (h, pid, sname))
