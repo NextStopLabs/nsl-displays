@@ -318,6 +318,12 @@ def get_program(pid: str, u: dict = Depends(current_user)):
     con = db()
     p = dict(con.execute("SELECT * FROM programs WHERE id=?", (pid,)).fetchone())
     p["displays"] = [dict(r) for r in con.execute("SELECT * FROM program_displays WHERE program_id=? ORDER BY position", (pid,))]
+    p["templates"] = [dict(r) for r in con.execute("SELECT * FROM p_templates WHERE program_id=? ORDER BY name", (pid,))]
+    for t in p["templates"]:
+        try:
+            t["layout"] = json.loads(t["layout"])
+        except Exception:
+            t["layout"] = {}
     p["services"] = [dict(r) for r in con.execute("SELECT * FROM p_services WHERE program_id=? ORDER BY position", (pid,))]
     for s in p["services"]:
         s["destinations"] = [dict(r) for r in con.execute(
@@ -385,6 +391,99 @@ def delete_program_display(pid: str, did: str, u: dict = Depends(current_user)):
     if prog and prog["default_display"] == did:
         first = con.execute("SELECT id FROM program_displays WHERE program_id=? ORDER BY position LIMIT 1", (pid,)).fetchone()
         con.execute("UPDATE programs SET default_display=? WHERE id=?", ((first or {})["id"] or "", pid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
+# ---------- program layout templates (preset/default layouts per display) ----------
+@app.get("/api/programs/{pid}/templates")
+def list_program_templates(pid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor", "viewer")
+    con = db()
+    rows = [dict(r) for r in con.execute(
+        "SELECT t.*, d.name AS display_name FROM p_templates t "
+        "JOIN program_displays d ON t.display_id=d.id "
+        "WHERE t.program_id=? ORDER BY d.position, t.name", (pid,))]
+    for r in rows:
+        try:
+            r["layout"] = json.loads(r["layout"])
+        except Exception:
+            r["layout"] = {}
+    return {"templates": rows}
+
+
+@app.post("/api/programs/{pid}/templates")
+def add_program_template(pid: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    did = body.get("display_id", "")
+    name = (body.get("name") or "").strip()
+    if not did or not name:
+        raise HTTPException(400, "display_id and name are required")
+    con = db()
+    if not con.execute("SELECT 1 FROM program_displays WHERE id=? AND program_id=?", (did, pid)).fetchone():
+        raise HTTPException(404, "no display")
+    if con.execute("SELECT 1 FROM p_templates WHERE program_id=? AND display_id=? AND name=?", (pid, did, name)).fetchone():
+        raise HTTPException(400, "a template with that name already exists for this display")
+    layout = body.get("layout") or {
+        "schema": 1, "width": int(body.get("width_px", 240)), "height": int(body.get("height_px", 40)),
+        "background": "#000000", "page_seconds": 3,
+        "override": {"mode": "replace", "replaces": "dest", "hide": []}, "elements": []}
+    tid = str(uuid.uuid4())
+    is_default = 1 if body.get("is_default") else 0
+    if is_default:
+        con.execute("UPDATE p_templates SET is_default=0 WHERE program_id=? AND display_id=?", (pid, did))
+    con.execute("INSERT INTO p_templates VALUES (?,?,?,?,?,?,?)",
+                (tid, org, pid, did, name, json.dumps(layout, separators=(",", ":")), is_default))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"template_id": tid}
+
+
+@app.put("/api/programs/{pid}/templates/{tid}")
+def update_program_template(pid: str, tid: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    t = con.execute("SELECT * FROM p_templates WHERE id=? AND program_id=?", (tid, pid)).fetchone()
+    if not t:
+        raise HTTPException(404, "no template")
+    name = (body.get("name") or t["name"]).strip()
+    if name != t["name"] and con.execute(
+            "SELECT 1 FROM p_templates WHERE program_id=? AND display_id=? AND name=? AND id<>?",
+            (pid, t["display_id"], name, tid)).fetchone():
+        raise HTTPException(400, "a template with that name already exists for this display")
+    layout = body.get("layout")
+    is_default = body.get("is_default")
+    if is_default:
+        con.execute("UPDATE p_templates SET is_default=0 WHERE program_id=? AND display_id=?", (pid, t["display_id"]))
+    updates = []
+    vals = []
+    if name:
+        updates.append("name=?"); vals.append(name)
+    if layout is not None:
+        updates.append("layout=?"); vals.append(json.dumps(layout, separators=(",", ":")))
+    if is_default is not None:
+        updates.append("is_default=?"); vals.append(1 if is_default else 0)
+    if updates:
+        vals.append(tid)
+        con.execute(f"UPDATE p_templates SET {', '.join(updates)} WHERE id=?", tuple(vals))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/programs/{pid}/templates/{tid}")
+def delete_program_template(pid: str, tid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    t = con.execute("SELECT * FROM p_templates WHERE id=? AND program_id=?", (tid, pid)).fetchone()
+    if not t:
+        raise HTTPException(404, "no template")
+    con.execute("DELETE FROM p_templates WHERE id=?", (tid,))
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
     con.commit()
     return {"ok": True}

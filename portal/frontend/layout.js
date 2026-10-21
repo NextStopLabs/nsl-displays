@@ -320,29 +320,50 @@ const LayoutEditor = (() => {
   }
 
   // ---------- properties panel ----------
-  function fontOptions(selected) {
+  function fontSizeKey(font) {
+    if (FONTS.includes(font)) return font;
+    const m = (font || "").match(/^han-(\d{2})/);
+    return m ? "han-" + m[1] : (font || "");
+  }
+  function fontSizeOptions(selectedFont) {
     const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith("han-"));
     const groups = new Map();
-    const other = [];
     for (const f of han) {
       const m = f.match(/^han-(\d{2})(.+)$/);
       if (m) {
-        const size = m[1] + " px";
-        if (!groups.has(size)) groups.set(size, []);
-        groups.get(size).push({ id: f, label: m[2] });
-      } else {
-        other.push(f);
+        const key = "han-" + m[1];
+        if (!groups.has(key)) groups.set(key, `Hanover ${m[1]} px`);
       }
     }
-    const sortedSizes = [...groups.keys()].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-    let html = `<optgroup label="Built-in fonts">${FONTS.map((f) => `<option${f === selected ? " selected" : ""}>${f}</option>`).join("")}</optgroup>`;
-    for (const size of sortedSizes) {
-      html += `<optgroup label="Hanover ${size}">${groups.get(size).map((f) => `<option value="${esc(f.id)}"${f.id === selected ? " selected" : ""}>${esc(f.label)}</option>`).join("")}</optgroup>`;
+    const sizes = [
+      { key: "pixel-small", label: "Built-in 8 px" },
+      { key: "pixel-medium", label: "Built-in 12 px" },
+      { key: "pixel-large", label: "Built-in 20 px" },
+      { key: "pixel-huge", label: "Built-in 32 px" },
+      { key: "mono-5x7", label: "Built-in 5×7" },
+      { key: "mono-6x8", label: "Built-in 6×8" },
+      ...[...groups.keys()].sort().map((k) => ({ key: k, label: groups.get(k) }))
+    ];
+    const sel = fontSizeKey(selectedFont);
+    return sizes.map((s) => `<option value="${esc(s.key)}"${s.key === sel ? " selected" : ""}>${esc(s.label)}</option>`).join("");
+  }
+  function fontStyleOptions(selectedFont) {
+    const size = fontSizeKey(selectedFont);
+    if (FONTS.includes(size)) {
+      return `<option value="${esc(size)}" selected>${esc(size)}</option>`;
     }
-    if (other.length) {
-      html += `<optgroup label="Hanover other">${other.map((f) => `<option${f === selected ? " selected" : ""}>${f}</option>`).join("")}</optgroup>`;
-    }
-    return html;
+    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size + "-"));
+    const m = (selectedFont || "").match(/^han-\d{2}(.+)$/);
+    const currentStyle = m ? m[1] : "";
+    return han.map((f) => {
+      const sm = f.match(/^han-\d{2}(.+)$/);
+      const label = sm ? sm[1] : f;
+      return `<option value="${esc(f)}"${label === currentStyle ? " selected" : ""}>${esc(label)}</option>`;
+    }).join("");
+  }
+  function stylesForSize(size) {
+    if (FONTS.includes(size)) return [size];
+    return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size + "-"));
   }
   function renderProps() {
     const box = document.getElementById("lay-props");
@@ -369,15 +390,15 @@ const LayoutEditor = (() => {
       </div>
       <div class="props-section"><div class="props-title">Appearance</div>
         <div class=row>
-          <div class=col><label>Font</label><select data-p=font>${fontOptions(el.font)}</select></div>
+          <div style="flex:0 0 130px"><label>Font size</label><select data-p=font-size>${fontSizeOptions(el.font)}</select></div>
+          <div class=col><label>Font style</label><select data-p=font-style>${fontStyleOptions(el.font)}</select></div>
           <div style="flex:0 0 80px"><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
-          <div style="flex:0 0 110px"><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-          <div style="flex:0 0 110px"><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
         </div>
         <div class=row>
+          <div style="flex:0 0 110px"><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+          <div style="flex:0 0 110px"><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
           <div style="flex:0 0 90px"><label>Scale</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
           <div style="flex:0 0 90px"><label>Spacing</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
-          <div class=col></div>
         </div>
       </div>
       <div class="props-section"><div class="props-title">Behaviour</div>
@@ -396,7 +417,14 @@ const LayoutEditor = (() => {
         v = k === "scale" ? Math.min(8, Math.max(1, parseInt(v || "1", 10) || 1))
           : k === "spacing" ? Math.min(16, Math.max(-8, parseInt(v || "0", 10) || 0))
           : Math.max(k === "w" || k === "h" ? 1 : 0, parseInt(v || "0", 10));
-      el[k] = v;
+      if (k === "font-size") {
+        const styles = stylesForSize(v);
+        el.font = styles[0] || v;
+      } else if (k === "font-style") {
+        el.font = v;
+      } else {
+        el[k] = v;
+      }
       if (k === "page") ed.pageLock = parseInt(v || "1", 10);
       updateStatus(); drawEditor(); renderProps(); renderPageTabs();
     }));
@@ -681,5 +709,33 @@ const LayoutEditor = (() => {
     raf = requestAnimationFrame(loop);
   }
 
-  return { open, stop, hanover };
+  function isOpen() { return !!ed; }
+  function loadLayout(layout, source, displayId) {
+    if (!ed) return false;
+    const dispSel = document.getElementById("lay-disp");
+    if (displayId && dispSel) {
+      const match = (ed.displays || []).find((d) => d.id === displayId);
+      if (match && dispSel.value !== displayId) {
+        dispSel.value = displayId;
+        dispSel.dispatchEvent(new Event("change"));
+      }
+    }
+    const d = (ed.displays || []).find((x) => x.id === document.getElementById("lay-disp").value) || ed.displays[0];
+    if (!d) return false;
+    if (layout.width !== d.width_px || layout.height !== d.height_px) {
+      document.getElementById("lay-err").textContent =
+        `Warning: preset is ${layout.width}×${layout.height} but ${d.name} is ${d.width_px}×${d.height_px}. Resize the display first if needed.`;
+    }
+    ed.lay = JSON.parse(JSON.stringify(layout));
+    ed.src = source || "template";
+    ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+    ed.pageLock = 1;
+    document.getElementById("lay-showall").checked = false;
+    document.getElementById("lay-cycle").checked = false;
+    document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
+    updateStatus(); drawEditor(); renderProps(); renderOverride();
+    return true;
+  }
+
+  return { open, stop, hanover, isOpen, loadLayout };
 })();

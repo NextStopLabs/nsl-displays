@@ -371,6 +371,7 @@ function renderProgram() {
   h += `<div class=tabs id=pd-tabs>`;
   h += `<button class="tab on" data-pdtab=destinations>Destinations</button>`;
   h += `<button class=tab data-pdtab=displays>Displays</button>`;
+  h += `<button class=tab data-pdtab=templates>Layouts</button>`;
   h += `<button class=tab data-pdtab=services>Services</button>`;
   h += `<button class=tab data-pdtab=preview>Preview</button>`;
   h += `<button class=tab data-pdtab=publish>Publish &amp; Upload</button>`;
@@ -444,6 +445,35 @@ function renderProgram() {
     <div style="align-self:end"><button id=pd-disp-add class=primary>Add display</button></div>
   </div><div class=err id=pd-disp-err></div></div>`;
   h += `</section>`;
+
+  // ---- Layouts (templates) tab ----
+  h += `<section id=pdtab-templates style="display:none">`;
+  h += `<div class=group><div class=grouptitle>Layout presets</div>`;
+  h += `<p class=hint>Save default layouts for each display. New destinations start from the default layout for that display. You can also apply a preset while editing a destination layout.</p>`;
+  h += `<div id=pd-templates-list>`;
+  for (const d of (p.displays || [])) {
+    const tmpls = (p.templates || []).filter((t) => t.display_id === d.id);
+    h += `<div class=group><div class=grouptitle>${esc(d.name)} · ${esc(d.width_px)}×${esc(d.height_px)}</div>`;
+    if (tmpls.length) {
+      h += `<div class="tablewrap"><table class=dataTable><thead><tr><th>Name</th><th style="width:90px">Default</th><th></th></tr></thead><tbody>`;
+      for (const t of tmpls) {
+        h += `<tr data-tmpl-id="${esc(t.id)}">
+          <td><input data-tmpl-name value="${esc(t.name)}"></td>
+          <td style="text-align:center"><input data-tmpl-default type=checkbox${t.is_default ? " checked" : ""}></td>
+          <td class=row><button data-tmpl-save=1 class=primary>Save</button><button data-tmpl-apply=1>Apply to current destination</button><button data-tmpl-del=1 class=danger>Delete</button></td>
+        </tr>`;
+      }
+      h += `</tbody></table></div>`;
+    } else {
+      h += `<p class=hint>No presets for this display yet.</p>`;
+    }
+    h += `<div class=row style="margin-top:10px">
+      <div style="flex:1"><label>New preset name</label><input data-tmpl-new-name data-tmpl-disp="${esc(d.id)}" placeholder="e.g. route/dest/via"></div>
+      <div style="align-self:end"><button data-tmpl-add=1 data-tmpl-disp="${esc(d.id)}" class=primary>Add preset</button></div>
+    </div>`;
+    h += `</div>`;
+  }
+  h += `</div><div class=err id=pd-tmpl-err></div></div></section>`;
 
   // ---- Services tab ----
   h += `<section id=pdtab-services style="display:none">`;
@@ -542,7 +572,7 @@ function renderProgram() {
   document.querySelectorAll("#pd-tabs .tab").forEach((t) => t.addEventListener("click", () => {
     document.querySelectorAll("#pd-tabs .tab").forEach((x) => x.classList.remove("on"));
     t.classList.add("on");
-    ["destinations", "displays", "services", "preview", "publish"].forEach((n) => { $("pdtab-" + n).style.display = (n === t.dataset.pdtab) ? "" : "none"; });
+    ["destinations", "displays", "templates", "services", "preview", "publish"].forEach((n) => { $("pdtab-" + n).style.display = (n === t.dataset.pdtab) ? "" : "none"; });
     if (t.dataset.pdtab === "preview") loadPreview();
   }));
 
@@ -577,6 +607,45 @@ function renderProgram() {
         openProgram(p.id);
       }
     } catch (e) { $("pd-disp-err").textContent = String(e.message || e); }
+  });
+
+  // ---- templates (layout presets) ----
+  $("pd-templates-list").addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const errBox = $("pd-tmpl-err"); errBox.textContent = "";
+    try {
+      if (b.dataset.tmplAdd) {
+        const did = b.dataset.tmplDisp;
+        const name = (b.closest(".row") || b.parentElement).querySelector("[data-tmpl-new-name]").value.trim();
+        if (!name) throw new Error("Preset name is required.");
+        const d = (p.displays || []).find((x) => x.id === did);
+        await api(`/api/programs/${p.id}/templates`, { method: "POST", body: {
+          display_id: did, name, width_px: d && d.width_px, height_px: d && d.height_px } });
+        openProgram(p.id);
+      }
+      if (b.dataset.tmplSave) {
+        const row = b.closest("[data-tmpl-id]");
+        await api(`/api/programs/${p.id}/templates/${row.dataset.tmplId}`, { method: "PUT", body: {
+          name: row.querySelector("[data-tmpl-name]").value,
+          is_default: row.querySelector("[data-tmpl-default]").checked } });
+        openProgram(p.id);
+      }
+      if (b.dataset.tmplDel) {
+        const row = b.closest("[data-tmpl-id]");
+        if (!confirm("Delete this preset?")) return;
+        await api(`/api/programs/${p.id}/templates/${row.dataset.tmplId}`, { method: "DELETE" });
+        openProgram(p.id);
+      }
+      if (b.dataset.tmplApply) {
+        const row = b.closest("[data-tmpl-id]");
+        const t = (p.templates || []).find((x) => x.id === row.dataset.tmplId);
+        if (LayoutEditor.isOpen() && t && t.layout) {
+          LayoutEditor.loadLayout(JSON.parse(JSON.stringify(t.layout)), `template: ${t.name}`);
+        } else {
+          errBox.textContent = "Open a destination layout first, then click Apply.";
+        }
+      }
+    } catch (e) { errBox.textContent = String(e.message || e); }
   });
 
   // ---- close / publish / upload ----

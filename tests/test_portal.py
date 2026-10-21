@@ -301,3 +301,36 @@ def test_program_display_crud(tmp_path, monkeypatch):
     assert r.status_code == 200
     prog = c.get(f"/api/programs/{pid}", headers=H).json()
     assert not any(d["id"] == did for d in prog["displays"])
+
+
+def test_program_template_crud_and_default(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "t@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "T"}, headers=H).json()["program_id"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    disp = prog["displays"][0]
+    # add template
+    layout = {"schema": 1, "width": disp["width_px"], "height": disp["height_px"], "background": "#000000", "page_seconds": 3, "elements": []}
+    r = c.post(f"/api/programs/{pid}/templates", json={"display_id": disp["id"], "name": "Standard", "layout": layout}, headers=H)
+    assert r.status_code == 200, r.text
+    tid = r.json()["template_id"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    t = [x for x in prog["templates"] if x["id"] == tid][0]
+    assert t["name"] == "Standard" and t["is_default"] == 0
+    # set as default
+    r = c.put(f"/api/programs/{pid}/templates/{tid}", json={"is_default": True}, headers=H)
+    assert r.status_code == 200
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert [x["is_default"] for x in prog["templates"] if x["id"] == tid] == [1]
+    # destination without a layout falls back to default template
+    sid = c.post(f"/api/programs/{pid}/services", json={"number": "1", "name": "Svc"}, headers=H).json()["service_id"]
+    did = c.post(f"/api/services/{sid}/destinations", json={"code": "00000001", "name": "Dest"}, headers=H).json()["destination_id"]
+    l = c.get(f"/api/destinations/{did}/layouts/{disp['name']}", headers=H).json()
+    assert l["source"] == "template"
+    assert l["layout"]["width"] == disp["width_px"]
+    # delete template
+    r = c.delete(f"/api/programs/{pid}/templates/{tid}", headers=H)
+    assert r.status_code == 200
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert not any(x["id"] == tid for x in prog["templates"])
