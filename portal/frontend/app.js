@@ -1044,7 +1044,44 @@ async function rcSend(body) {
   const msg = `Sent to “${c ? c.name : cid}” at ${when} — the bus picks it up within ~10 s.`;
   $("rc-state").textContent = msg;
   if ($("rc-result")) $("rc-result").textContent = msg;
+  refreshLive();
   return r;
+}
+function rcLiveHtml(l) {
+  if (!l) return "Select a controller to see its current stop.";
+  const stale = l.stale ? ` <span class=err>(last known — bus offline, last seen ${esc(l.last_seen_at || "never")})</span>` : "";
+  if (!l.program) return `Idle — no program selected on the bus.${stale}`;
+  const dest = l.destination
+    ? `<span class=kbd>${esc(l.destination.code || "")}</span> ${esc(l.destination.name || "")}` : "—";
+  const svc = l.service ? `Service <b>${esc(l.service.number || "")}</b> · ` : "";
+  const stop = l.stop
+    ? `<br>Current stop <b>${l.stop.position}/${l.stop.count}: ${esc(l.stop.board_text || l.stop.name)}</b>` +
+      (l.stop.is_terminus ? ` <span class=hint>(terminus)</span>` : "") +
+      (l.next_stop ? `<br>Next stop: ${esc(l.next_stop.name)}` : `<br>Next stop: — (end of route)`)
+    : "<br>Current stop: —";
+  const ov = l.override ? `<br>Override: <b>${esc(l.override)}</b>` : "";
+  const vol = `<br>Volume: ${l.muted ? "<b>muted</b>" : esc(l.volume)}`;
+  return `${svc}${dest}${stop}${ov}${vol}${stale}`;
+}
+async function refreshLive() {
+  const box = $("rc-live");
+  if (!box) return;
+  const cid = $("rc-ctl") && $("rc-ctl").value;
+  if (!cid) { box.innerHTML = "Select a controller to see its current stop."; return; }
+  try {
+    const l = await api(`/api/controllers/${encodeURIComponent(cid)}/live`);
+    box.innerHTML = rcLiveHtml(l);
+  } catch (e) { box.innerHTML = `<span class=err>Live status unavailable: ${esc(String(e.message || e))}</span>`; }
+}
+// Live poll while the remote tab is on screen; the bus reports state on
+// heartbeat, so a sent command appears here once the bus picks it up.
+if (!window._rcLiveTimer) {
+  window._rcLiveTimer = setInterval(() => {
+    try {
+      if (S.token && $("tab-remote") && $("tab-remote").style.display !== "none" && $("rc-ctl") && $("rc-ctl").value)
+        refreshLive();
+    } catch (e) { /* keep polling */ }
+  }, 5000);
 }
 const rc = (id, fn) => $(id).addEventListener("click", () => fn().catch((e) => err(String(e.message || e))));
 rc("btn-next", () => rcSend({ command: "stop_next" }));
@@ -1061,7 +1098,9 @@ $("btn-rc-refresh").addEventListener("click", async () => {
   await loadControllers();
   const c = S.controllers.find((x) => x.id === $("rc-ctl").value);
   $("rc-state").textContent = c ? `${c.name}: ${c.online ? "ONLINE" : "OFFLINE"} — last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}, ${c.pending_commands || 0} command(s) waiting.` : "Select a controller.";
+  refreshLive();
 });
+$("rc-ctl").addEventListener("change", () => refreshLive());
 
 // ---------- boot ----------
 $("form-login").addEventListener("submit", (e) => { e.preventDefault(); doLogin(); });

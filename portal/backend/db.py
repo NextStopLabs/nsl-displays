@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS controllers (
   last_seen_at TEXT, app_version TEXT DEFAULT '', channel TEXT DEFAULT 'stable',
   supported_formats TEXT DEFAULT '1', pairing_code TEXT, pairing_expires_at TEXT,
   config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, sync_state TEXT DEFAULT NULL,
-  pending_token TEXT DEFAULT NULL);
+  pending_token TEXT DEFAULT NULL, live_state TEXT DEFAULT NULL);
 CREATE TABLE IF NOT EXISTS controller_programs (
   controller_id TEXT NOT NULL, program_id TEXT NOT NULL,
   desired_version INTEGER, installed_version INTEGER, active_version INTEGER,
@@ -134,7 +134,8 @@ def connect(url: str | None = None) -> sqlite3.Connection:
         except Exception:
             pass
         for _ddl in ("ALTER TABLE controllers ADD COLUMN sync_state TEXT DEFAULT NULL",
-                       "ALTER TABLE controllers ADD COLUMN pending_token TEXT DEFAULT NULL"):
+                       "ALTER TABLE controllers ADD COLUMN pending_token TEXT DEFAULT NULL",
+                       "ALTER TABLE controllers ADD COLUMN live_state TEXT DEFAULT NULL"):
             try:
                 con.execute(_ddl)
                 con.commit()

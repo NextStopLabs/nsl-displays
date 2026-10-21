@@ -225,6 +225,10 @@ def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
             c["sync_state"] = json.loads(c.get("sync_state") or "null")
         except Exception:
             c["sync_state"] = None
+        try:
+            c["live_state"] = json.loads(c.get("live_state") or "null")
+        except Exception:
+            c["live_state"] = None
         c["programs"] = [dict(x) for x in con.execute(
             "SELECT cp.program_id, p.name, cp.desired_version, cp.installed_version, cp.active_version, cp.status "
             "FROM controller_programs cp LEFT JOIN programs p ON p.id=cp.program_id "
@@ -1377,6 +1381,11 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
         con.execute("UPDATE controller_programs SET active_version=NULL WHERE controller_id=?", (c["id"],))
         con.execute("UPDATE controller_programs SET active_version=? WHERE controller_id=? AND program_id=?",
                     (st8.get("program_version"), c["id"], st8.get("program_id")))
+    if "state" in body and isinstance(body["state"], dict):
+        keep = {k: body["state"].get(k) for k in
+                ("program_id", "program_version", "service_id", "destination_id",
+                 "stop_id", "override_text", "volume", "muted")}
+        con.execute("UPDATE controllers SET live_state=? WHERE id=?", (json.dumps(keep), c["id"]))
     for ev in body.get("events", []):
         con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
                     (c["id"], None, "device", json.dumps(ev)[:500], _utcnow()))
@@ -1403,6 +1412,81 @@ def device_release(authorization: str | None = Header(default=None)):
 # remote command fan-out: portal persists, Pi picks up on next heartbeat (<=60 s).
 # Offline buses are refused up front — a command that can't reach a bus is an
 # error here, not a silent "queued".
+@app.get("/api/controllers/{cid}/live")
+def controller_live(cid: str, u: dict = Depends(current_user)):
+    """What the bus is doing right now: program, service, destination,
+    current stop (n/N), next stop, override and volume — resolved to names
+    from the published bundle the bus reports running.
+
+    Shows last-known state when the bus is offline (`stale: true`); the
+    keypad and local controller keep working on the vehicle meanwhile.
+    """
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
+    try:
+        live = json.loads(c["live_state"] or "null") or {}
+    except Exception:
+        live = {}
+    online = _controller_online(c)
+    out: dict = {"controller_id": cid, "online": online, "last_seen_at": c["last_seen_at"],
+                 "stale": not online,
+                 "program": None, "service": None, "destination": None,
+                 "stop": None, "next_stop": None,
+                 "override": live.get("override_text"),
+                 "volume": live.get("volume", 80), "muted": bool(live.get("muted", 0))}
+    pid, ver = live.get("program_id"), live.get("program_version")
+    if not pid:
+        return out
+    prog = con.execute("SELECT name FROM programs WHERE id=?", (pid,)).fetchone()
+    out["program"] = {"id": pid, "name": prog["name"] if prog else pid, "version": ver}
+    bundle = os.path.join(STORAGE_DIR, "programs", pid, f"{ver}.nslprog") if ver is not None else None
+    if not bundle or not os.path.exists(bundle):
+        out["program"]["unresolved"] = True
+        return out
+    import sqlite3 as _s
+    try:
+        bc = _s.connect(f"file:{bundle}?mode=ro", uri=True)
+    except Exception:
+        out["program"]["unresolved"] = True
+        return out
+    try:
+        bc.row_factory = _s.Row
+        if live.get("service_id"):
+            svc = bc.execute("SELECT id, number, name FROM services WHERE id=?",
+                             (live["service_id"],)).fetchone()
+            if svc:
+                out["service"] = {"id": svc["id"], "number": svc["number"], "name": svc["name"]}
+        if live.get("destination_id"):
+            dest = bc.execute("SELECT id, code, name, via, dest FROM destinations WHERE id=?",
+                              (live["destination_id"],)).fetchone()
+            if dest:
+                out["destination"] = {"id": dest["id"], "code": dest["code"], "name": dest["name"],
+                                      "via": dest["via"], "dest": dest["dest"]}
+                stops = [dict(r) for r in bc.execute(
+                    "SELECT id, position, name, board_text, board_override, is_terminus FROM stops "
+                    "WHERE destination_id=? ORDER BY position", (dest["id"],))]
+                if stops:
+                    ids = [s["id"] for s in stops]
+                    try:
+                        idx = ids.index(live.get("stop_id"))
+                    except ValueError:
+                        idx = 0
+                    cur = stops[idx]
+                    out["stop"] = {"id": cur["id"], "position": cur["position"], "count": len(stops),
+                                   "name": cur["name"], "board_text": cur["board_text"] or cur["name"],
+                                   "is_terminus": bool(cur["is_terminus"])}
+                    if idx + 1 < len(stops):
+                        nxt = stops[idx + 1]
+                        out["next_stop"] = {"id": nxt["id"], "position": nxt["position"],
+                                            "name": nxt["board_text"] or nxt["name"]}
+    finally:
+        bc.close()
+    return out
+
+
 @app.post("/api/controllers/{cid}/command")
 def remote_command(cid: str, body: dict, u: dict = Depends(current_user)):
     con = db()
