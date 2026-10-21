@@ -971,11 +971,56 @@ $("audiorows").addEventListener("click", async (e) => {
       alert(`Renamed to ${r.name}.`);
     }
     if (b.dataset.delclip) {
-      if (!confirm(`Delete clip "${clipLabel(clip)}"?`)) return;
-      await api(`/api/audio/${encodeURIComponent(sha)}?organisation_id=${encodeURIComponent(S.org)}`, { method: "DELETE" });
-      loadAudio();
+      const delSha = b.dataset.delclip;
+      const delClip = S.clips.find((a) => a.sha256 === delSha);
+      try {
+        const uses = await api(`/api/audio/${encodeURIComponent(delSha)}/usages?organisation_id=${encodeURIComponent(S.org)}`);
+        if (!uses.stop_count && !(uses.services || []).length) {
+          if (!confirm(`Delete clip "${clipLabel(delClip)}"?`)) return;
+          await api(`/api/audio/${encodeURIComponent(delSha)}?organisation_id=${encodeURIComponent(S.org)}`, { method: "DELETE" });
+          loadAudio();
+          return;
+        }
+        const stopLines = (uses.stops || []).map((s) =>
+          `${s.stop_name} (${s.service_number} · ${s.dest_code} · ${s.program_name})`);
+        if (uses.stop_count > stopLines.length) stopLines.push(`…and ${uses.stop_count - stopLines.length} more`);
+        const svcLines = (uses.services || []).map((s) =>
+          `${s.field} on service ${s.service_number || "?"}${s.service_name ? " — " + s.service_name : ""} (${s.program_name})`);
+        $("cdd-title").textContent = `Delete clip "${clipLabel(delClip)}"?`;
+        $("cdd-uses").innerHTML =
+          (stopLines.length ? `<div><b>Stops (${uses.stop_count}):</b><br>${stopLines.map(esc).join("<br>")}</div>` : "") +
+          (svcLines.length ? `<div><b>Announcements:</b><br>${svcLines.map(esc).join("<br>")}</div>` : "");
+        $("cdd-replace").innerHTML = `<option value="">Silent (no audio)</option>` +
+          (S.clips || []).filter((a) => a.sha256 !== delSha).map((a) =>
+            `<option value="${esc(a.sha256)}">${esc(clipLabel(a))}</option>`).join("");
+        $("cdd-err").textContent = "";
+        pendingDelSha = delSha;
+        const dlg = $("clip-del-dialog");
+        if (dlg && dlg.showModal) dlg.showModal();
+      } catch (ex) { err(String(ex.message || ex)); }
     }
   } catch (ex) { err(String(ex.message || ex)); }
+});
+let pendingDelSha = "";
+$("cdd-cancel").addEventListener("click", () => { const d = $("clip-del-dialog"); if (d) d.close(); });
+$("cdd-confirm").addEventListener("click", async () => {
+  const sha = pendingDelSha;
+  if (!sha) return;
+  try {
+    $("cdd-err").textContent = "";
+    const rep = $("cdd-replace").value;
+    const r = await api(`/api/audio/${encodeURIComponent(sha)}?organisation_id=${encodeURIComponent(S.org)}&replacement=${encodeURIComponent(rep)}`, { method: "DELETE" });
+    const dlg = $("clip-del-dialog");
+    if (dlg) dlg.close();
+    pendingDelSha = "";
+    err("");
+    await loadAudio();
+    if (S.curProg) openProgram(S.curProg.id);
+    const bits = [];
+    if (r.replaced_stops) bits.push(`${r.replaced_stops} stop(s)`);
+    if (r.replaced_services) bits.push(`${r.replaced_services} announcement slot(s)`);
+    alert(bits.length ? `Deleted. ${bits.join(" and ")} now use ${rep ? "the replacement clip" : "silence"}.` : "Deleted.");
+  } catch (ex) { $("cdd-err").textContent = String(ex.message || ex); }
 });
 $("au-file").addEventListener("change", () => {
   if ($("au-name").value.trim()) return;

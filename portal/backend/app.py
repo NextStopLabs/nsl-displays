@@ -1829,25 +1829,79 @@ def rename_audio(sha: str, body: dict, u: dict = Depends(current_user)):
     return {"sha256": sha, "name": friendly, "filename": friendly}
 
 
+@app.get("/api/audio/{sha}/usages")
+def audio_usages(sha: str, organisation_id: str, u: dict = Depends(current_user)):
+    """Where a clip is used: stops + service announcement slots.
+
+    Powers the delete-and-replace dialog so users pick a substitute
+    instead of hitting a dead-end error.
+    """
+    require_role(u["id"], organisation_id, "owner", "editor")
+    con = db()
+    if not con.execute("SELECT 1 FROM audio_files WHERE sha256=? AND organisation_id=?",
+                       (sha, organisation_id)).fetchone():
+        raise HTTPException(404, "no clip")
+    stops = [dict(r) for r in con.execute(
+        """SELECT s.name AS stop_name, d.code AS dest_code, d.name AS dest_name,
+                  sv.number AS service_number, p.name AS program_name
+           FROM p_stops s
+           JOIN p_destinations d ON d.id=s.destination_id
+           JOIN p_services sv ON sv.id=d.service_id
+           JOIN programs p ON p.id=s.program_id
+           WHERE s.audio=? AND s.organisation_id=? ORDER BY p.name, sv.number, d.code LIMIT 21""",
+        (sha, organisation_id))]
+    stop_count = con.execute("SELECT COUNT(*) FROM p_stops WHERE audio=? AND organisation_id=?",
+                             (sha, organisation_id)).fetchone()[0]
+    services = []
+    for col, label in (("next_stop_audio", "Next-stop announcement"),
+                       ("approaching_audio", "Approaching announcement"),
+                       ("last_stop_audio", "Terminus suffix")):
+        for r in con.execute(
+                f"""SELECT sv.number AS service_number, sv.name AS service_name,
+                            p.name AS program_name FROM p_services sv
+                     JOIN programs p ON p.id=sv.program_id
+                     WHERE sv.{col}=? AND sv.organisation_id=?
+                     ORDER BY p.name, sv.number LIMIT 21""",
+                (sha, organisation_id)):
+            d = dict(r)
+            d["field"] = label
+            services.append(d)
+    return {"sha256": sha, "stop_count": stop_count, "stops": stops, "services": services}
+
+
 @app.delete("/api/audio/{sha}")
-def delete_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)):
+def delete_audio(sha: str, organisation_id: str, replacement: str | None = None,
+                 u: dict = Depends(current_user)):
     row = db().execute("SELECT * FROM audio_files WHERE sha256=? AND organisation_id=?",
                        (sha, organisation_id)).fetchone()
     if not row:
         raise HTTPException(404, "no clip")
     require_role(u["id"], organisation_id, "owner", "editor")
     con = db()
-    used = []
-    if con.execute("SELECT 1 FROM p_stops WHERE audio=? AND organisation_id=? LIMIT 1",
-                   (sha, organisation_id)).fetchone():
-        used.append("stops")
-    for col in ("next_stop_audio", "approaching_audio", "last_stop_audio"):
-        if con.execute(f"SELECT 1 FROM p_services WHERE {col}=? AND organisation_id=? LIMIT 1",
-                       (sha, organisation_id)).fetchone():
-            used.append(col)
-            break
-    if used:
-        raise HTTPException(400, f"clip is used by {', '.join(used)} — change those first")
+    stop_n = con.execute("SELECT COUNT(*) FROM p_stops WHERE audio=? AND organisation_id=?",
+                         (sha, organisation_id)).fetchone()[0]
+    svc_cols = [col for col in ("next_stop_audio", "approaching_audio", "last_stop_audio")
+                if con.execute(f"SELECT 1 FROM p_services WHERE {col}=? AND organisation_id=? LIMIT 1",
+                               (sha, organisation_id)).fetchone()]
+    if (stop_n or svc_cols) and replacement is None:
+        used = (["stops"] if stop_n else []) + svc_cols
+        raise HTTPException(400, f"clip is used by {', '.join(used)} — pick a replacement")
+    replaced_stops, replaced_services = 0, 0
+    if replacement is not None:
+        if replacement == sha:
+            raise HTTPException(400, "replacement must be a different clip")
+        new = None
+        if replacement:
+            if not con.execute("SELECT 1 FROM audio_files WHERE sha256=? AND organisation_id=?",
+                               (replacement, organisation_id)).fetchone():
+                raise HTTPException(400, "replacement clip not found in this organisation")
+            new = replacement
+        replaced_stops = con.execute("UPDATE p_stops SET audio=? WHERE audio=? AND organisation_id=?",
+                                     (new, sha, organisation_id)).rowcount
+        for col in ("next_stop_audio", "approaching_audio", "last_stop_audio"):
+            replaced_services += con.execute(
+                f"UPDATE p_services SET {col}=? WHERE {col}=? AND organisation_id=?",
+                (new, sha, organisation_id)).rowcount
     con.execute("DELETE FROM audio_files WHERE sha256=? AND organisation_id=?", (sha, organisation_id))
     con.commit()
     # remove the stored file only when no org references it any more
@@ -1860,7 +1914,7 @@ def delete_audio(sha: str, organisation_id: str, u: dict = Depends(current_user)
                     os.remove(cand)
                 except OSError:
                     pass
-    return {"ok": True}
+    return {"ok": True, "replaced_stops": replaced_stops, "replaced_services": replaced_services}
 
 
 @app.put("/api/services/{sid}")

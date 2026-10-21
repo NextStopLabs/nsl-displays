@@ -95,6 +95,14 @@
 <div style="align-self:end"><button id=btn-upload>Upload</button></div>
 </div>
 </div>
+<dialog id=clip-del-dialog>
+<div class=grouptitle id=cdd-title>Delete clip</div>
+<div id=cdd-uses class=hint></div>
+<div><label for=cdd-replace>Replace all uses with</label><select id=cdd-replace></select>
+<div class=hint>Pick another clip, or Silent to leave those stops and announcements with no audio.</div></div>
+<div class=err id=cdd-err></div>
+<div class=row style="justify-content:flex-end"><button id=cdd-cancel>Cancel</button><button id=cdd-confirm class=primary>Replace &amp; delete</button></div>
+</dialog>
 <div class=group><div class=grouptitle>Generate with Piper</div>
 <p class=hint>Without an uploaded voice this saves an audible preview tone (not silence) so you can test playback. Upload a voice below for real speech.</p>
 <div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
