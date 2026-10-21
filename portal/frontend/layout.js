@@ -95,10 +95,35 @@ const LayoutEditor = (() => {
   }
 
   // One pages system: the destination's board pages rotate every
-  // page_seconds (slot k shows board page k % n). All layout elements
-  // always draw; element `page` values are legacy and ignored.
+  // page_seconds. Each board page can have its own layout: an element
+  // draws only on the pages in its `pages` array (missing/empty = all).
   function slotFor(lay, t) {
     return Math.floor(t / (parseFloat(lay.page_seconds) || 3));
+  }
+  function orderedBoardPages() {
+    return [...(ed.pages || [])].sort((a, b) => (a.position || 0) - (b.position || 0));
+  }
+  function boardPosForSlot(slot) {
+    const ordered = orderedBoardPages();
+    if (!ordered.length) return 0;
+    const pg = ordered[slot % ordered.length];
+    return (pg && pg.position) || ((slot % ordered.length) + 1);
+  }
+  function elShowsOn(el, boardPos) {
+    if (!el || !el.pages || !el.pages.length || boardPos <= 0) return true;
+    return el.pages.indexOf(boardPos) >= 0;
+  }
+  function renderBoardTabs() {
+    const box = document.getElementById("lay-boardtabs");
+    if (!box || !ed) return;
+    const ordered = orderedBoardPages();
+    if (ordered.length <= 1) { box.innerHTML = `<span class=hint>Single board page.</span>`; return; }
+    box.innerHTML = ordered.map((pg) =>
+      `<button class="${ed.tab === pg.position ? "on" : ""}" data-btab="${pg.position}" title="Arrange board page ${pg.position}">P${pg.position}</button>`).join("");
+    box.querySelectorAll("[data-btab]").forEach((b) => b.onclick = () => {
+      ed.tab = parseInt(b.dataset.btab, 10);
+      renderBoardTabs(); drawEditor(); renderProps(); updateStatus();
+    });
   }
   function syncPageSeconds() {
     const box = document.getElementById("lay-seconds");
@@ -151,10 +176,11 @@ const LayoutEditor = (() => {
     for (let y = 0; y <= lay.height; y += 8) { g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cv.width, y * scale + .5); g.stroke(); }
     (lay.elements || []).forEach((el, i) => {
       const sel = i === ed.sel;
+      const onTab = elShowsOn(el, ed.tab || 0);
       const inv = el.invert;
-      g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : "rgba(255,176,0,.12)");
+      g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : (onTab ? "rgba(255,176,0,.12)" : "rgba(255,176,0,.04)"));
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
-      g.strokeStyle = sel ? "#ff4444" : AMBER; g.lineWidth = sel ? 2 : 1;
+      g.strokeStyle = sel ? "#ff4444" : (onTab ? AMBER : "#5a5348"); g.lineWidth = sel ? 2 : 1;
       g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.fillStyle = inv ? "#000" : (sel ? "#fff" : AMBER);
       g.font = `${Math.max(9, 3 * scale)}px monospace`;
@@ -180,15 +206,17 @@ const LayoutEditor = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     // One pages system: the destination's board pages rotate every
-    // page_seconds, exactly like the bus. All elements always draw.
+    // page_seconds, exactly like the bus. Each board page shows its own
+    // elements (see element "Show on") with its own via/dest.
     const slot = slotFor(lay, t);
     let fields = ed.fields;
     let boardLabel = "";
     if (ed.pages && ed.pages.length) {
-      const pg = ed.pages[slot % ed.pages.length];
+      const ordered = orderedBoardPages();
+      const pg = ordered[slot % ordered.length];
       fields = Object.assign({}, ed.fields, { via: pg.via || "", dest: pg.dest || "" });
-      boardLabel = ed.pages.length > 1
-        ? `Board P${(slot % ed.pages.length) + 1} of ${ed.pages.length}` : "";
+      boardLabel = ordered.length > 1
+        ? `Board P${pg.position} of ${ordered.length}` : "";
     }
     if (ov.mode === "full" && ovActive) {
       const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
@@ -202,7 +230,9 @@ const LayoutEditor = (() => {
       }
     } else {
       const hide = hideSet(lay, ovActive);
+      const boardPos = boardPosForSlot(slot);
       for (const el of (lay.elements || [])) {
+        if (!elShowsOn(el, boardPos)) continue;
         if (el.field && hide.has(el.field)) continue;
         if (!visible(el, fields, ovActive)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
@@ -335,13 +365,23 @@ const LayoutEditor = (() => {
     if (FONTS.includes(size)) return [size];
     return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
   }
+  function showOnCheckboxes(el) {
+    const ordered = orderedBoardPages();
+    const all = !el.pages || !el.pages.length;
+    if (ordered.length <= 1) return `<span class=hint>Only one board page - shows everywhere.</span>`;
+    return `<label style="display:inline-block;margin-right:10px"><input type=checkbox data-showon="all"${all ? " checked" : ""}> All</label>` +
+      ordered.map((pg) =>
+        `<label style="display:inline-block;margin-right:10px"><input type=checkbox data-showon="${pg.position}"${!all && el.pages.indexOf(pg.position) >= 0 ? " checked" : ""}> P${pg.position}</label>`).join("");
+  }
   function renderProps() {
     const box = document.getElementById("lay-props");
     const list = document.getElementById("lay-ellist");
     if (!box) return;
     const els = ed.lay.elements || [];
-    list.innerHTML = els.map((e, i) =>
-      `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}</option>`).join("");
+    list.innerHTML = els.map((e, i) => {
+      const scope = (!e.pages || !e.pages.length) ? "" : ` · P${[...e.pages].sort((a, b) => a - b).join("+")}`;
+      return `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}${scope}</option>`;
+    }).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
     const num = (k, label, opts = "") => `<div><label>${label}</label><input data-p=${k} type=number ${opts} value="${el[k] ?? 0}"></div>`;
@@ -378,6 +418,8 @@ const LayoutEditor = (() => {
           <div class=col><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
           <div style="flex:0 0 70px;display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=invert${el.invert ? " checked" : ""}> Invert</label></div>
         </div>
+        <div class=row><div class=col><label>Show on board pages</label><div data-showon-group>${showOnCheckboxes(el)}</div>
+        <div class=hint>Each board page can have its own layout - untick pages to hide this element there.</div></div></div>
       </div>
       <div class="row actions" style="margin-top:14px"><button id=lay-del class=danger>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
@@ -400,6 +442,19 @@ const LayoutEditor = (() => {
       }
       updateStatus(); drawEditor(); renderProps();
     }));
+    box.querySelectorAll("[data-showon]").forEach((inp) => inp.addEventListener("change", () => {
+      const boxes = [...box.querySelectorAll("[data-showon]")];
+      const allBox = boxes.find((b) => b.dataset.showon === "all");
+      if (inp.dataset.showon === "all" && inp.checked) {
+        el.pages = [];
+      } else {
+        if (allBox) allBox.checked = false;
+        const picked = boxes.filter((b) => b.dataset.showon !== "all" && b.checked)
+          .map((b) => parseInt(b.dataset.showon, 10)).sort((a, b) => a - b);
+        el.pages = picked; // empty = show everywhere
+      }
+      updateStatus(); drawEditor(); renderProps();
+    }));
     const del = document.getElementById("lay-del");
     if (del) del.onclick = () => { els.splice(ed.sel, 1); ed.sel = Math.max(0, els.length - 1); updateStatus(); drawEditor(); renderProps(); };
   }
@@ -407,8 +462,11 @@ const LayoutEditor = (() => {
   function updateStatus() {
     const s = document.getElementById("lay-status");
     if (s) {
-      s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height} · source: ${ed.src}`;
+      const n = orderedBoardPages().length;
+      const tab = n > 1 ? ` · arranging board P${ed.tab} of ${n}` : "";
+      s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height}${tab} · source: ${ed.src}`;
     }
+    renderBoardTabs();
   }
 
   function renderOverride() {
@@ -440,6 +498,7 @@ const LayoutEditor = (() => {
     const els = ed.lay.elements || [];
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
+      if (!elShowsOn(e, ed.tab || 0)) continue;
       if (p.x >= e.x && p.x < e.x + e.w && p.y >= e.y && p.y < e.y + e.h) return i;
     }
     return -1;
@@ -490,9 +549,12 @@ const LayoutEditor = (() => {
 
   function addElement(type) {
     const lay = ed.lay;
+    const multi = (ed.pages || []).length > 1;
     const base = { type, x: 0, y: 0, w: Math.floor(lay.width / 2), h: lay.height,
       font: "pixel-medium", colour: AMBER, align: "left", valign: "middle",
       scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always", invert: false };
+    // New elements land on the board page being arranged (all pages when one).
+    if (multi) base.pages = [ed.tab || 1];
     if (type === "field") base.field = "dest";
     else base.text = "MESSAGE";
     lay.elements.push(base);
@@ -506,7 +568,7 @@ const LayoutEditor = (() => {
     const { did, dest, serviceNumber, displays, apiFn, errFn } = ctx;
     let extraKeys = [];
     try { extraKeys = Object.keys(JSON.parse(dest.extra_fields || "{}")); } catch (e) { /* ignore */ }
-    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, hanIds: [],
+    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, tab: 1, hanIds: [],
            fields: { num: dest.num || serviceNumber || "", via: dest.via || "", dest: dest.dest || "" },
            pages: (ctx.pages && ctx.pages.length ? ctx.pages :
              [{ via: dest.via || "", dest: dest.dest || "" }]),
@@ -536,7 +598,8 @@ const LayoutEditor = (() => {
             <div class=hint>Click an element to select it.</div>
           </div>
           <div class=group><div class=grouptitle>Board rotation</div>
-            <div class=hint>The destination's board pages (via/dest per page, set in the Destinations tab) rotate on the boards every few seconds. There is only one pages system - the board pages.</div>
+            <div class=hint>The destination's board pages (via/dest per page, set in the Destinations tab) rotate on the boards every few seconds. Pick a board tab to arrange that page's layout - each page can look different. New elements land on the selected tab.</div>
+            <div id=lay-boardtabs class=page-list></div>
             <div class=row>
               <div style="flex:0 0 80px"><label>Seconds</label><input id=lay-seconds class=page-seconds type=number min=1 step=1 value=3></div>
             </div>
@@ -610,6 +673,7 @@ const LayoutEditor = (() => {
         if (r.layout) { ed.lay = r.layout; ed.src = r.source; }
         else { ed.lay = blank(d.width_px, d.height_px); ed.src = "none yet (blank canvas)"; }
         ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+        ed.tab = 1;
         document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
         loadFields(); readFields();
         updateStatus(); drawEditor(); renderProps(); renderOverride();
@@ -621,6 +685,7 @@ const LayoutEditor = (() => {
     document.getElementById("lay-autofit").onclick = () => {
       const d = disp(); fitScales();
       ed.lay = autofit(d.width_px, d.height_px); ed.src = "auto-fit starter (unsaved)"; ed.sel = 0;
+      ed.tab = 1;
       updateStatus(); drawEditor(); renderProps(); renderOverride();
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
@@ -639,6 +704,7 @@ const LayoutEditor = (() => {
       try {
         const lj = JSON.parse(document.getElementById("lay-json").value);
         ed.lay = lj; ed.src = "from JSON (unsaved)"; ed.sel = (lj.elements || []).length ? 0 : -1;
+        ed.tab = 1;
         document.getElementById("lay-err").textContent = "";
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = "Invalid JSON: " + e.message; }
@@ -685,6 +751,7 @@ const LayoutEditor = (() => {
     ed.lay = JSON.parse(JSON.stringify(layout));
     ed.src = source || "template";
     ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+    ed.tab = 1;
     document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
     updateStatus(); drawEditor(); renderProps(); renderOverride();
     return true;

@@ -216,6 +216,9 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
             res.warnings.append(Issue("svc_no_last", f"service {s['number']} missing last-stop clip", "services", s["id"]))
 
     # --- layouts ---
+    page_counts: dict[str, int] = {}
+    for _pg in dest_pages:
+        page_counts[_pg["destination_id"]] = page_counts.get(_pg["destination_id"], 0) + 1
     for lay in layouts + [{"id": t["id"], "display_id": t["display_id"], "layout": t["layout"],
                            "destination_id": f"template:{t['name']}", "_template": True} for t in templates]:
         disp = next((d for d in displays if d["id"] == lay["display_id"]), None)
@@ -226,7 +229,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
             res.errors.append(Issue("layout_json", f"layout {lay['id']} invalid JSON: {e}", "layouts", ref))
             continue
         ref = lay.get("destination_id", lay["id"])
-        _check_layout_json(lj, disp, res, ref)
+        npc = None if lay.get("_template") else page_counts.get(lay.get("destination_id"), 1)
+        _check_layout_json(lj, disp, res, ref, page_count=npc)
 
     # unknown display names warning (program displays no output uses - informational;
     # portal knows outputs, Pi always accepts; emit only if a layout references nothing - skip here)
@@ -242,7 +246,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     return res
 
 
-def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: str):
+def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: str,
+                       page_count: int | None = None):
     if not isinstance(lj, dict):
         res.errors.append(Issue("layout_json", "layout must be object", "layouts", ref))
         return
@@ -275,6 +280,12 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
                 res.errors.append(Issue("layout_text", "text element needs 'text'", "layouts", tag))
         else:
             res.errors.append(Issue("layout_type", f"bad element type {et!r}", "layouts", tag))
+        if "pages" in el and el.get("pages") not in (None, []):
+            want = el.get("pages")
+            if not isinstance(want, list) or not want or any(not isinstance(v, int) for v in want):
+                res.errors.append(Issue("layout_pages", "'pages' must be a non-empty list of board-page numbers", "layouts", tag))
+            elif page_count is not None and any(v < 1 or v > page_count for v in want):
+                res.errors.append(Issue("layout_pages", f"element shows on board page(s) {want} but destination has {page_count} page(s) - fix the layout or the board pages", "layouts", tag))
         try:
             x, y, ww, hh = int(el.get("x", 0)), int(el.get("y", 0)), int(el.get("w", 0)), int(el.get("h", 0))
         except (TypeError, ValueError):

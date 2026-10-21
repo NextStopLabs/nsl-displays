@@ -40,8 +40,14 @@ class Receiver:
         return True
 
     def render(self, snapshot: dict):
-        from .renderer import autofit_layout, render_frame
-        fields = snapshot.get("fields", {})
+        from .renderer import autofit_layout, board_position_for_slot, fields_for_slot, render_frame, slot_for_layout
+        import time as _t
+        now = _t.time()
+        base = snapshot.get("fields", {})
+        pages = snapshot.get("pages") or []
+        destination = snapshot.get("destination") or {}
+        service = snapshot.get("service") or {}
+        svc_number = service.get("number", "") if isinstance(service, dict) else ""
         override = snapshot.get("override") or ""
         layouts = snapshot.get("layouts", {})
         layout = None
@@ -51,7 +57,16 @@ class Receiver:
                 layout = json.loads(layout)
         if layout is None:
             layout = autofit_layout(self.width, self.height)
-        frame = render_frame(layout, fields, override)
+        if pages and destination:
+            slot = slot_for_layout(layout, now)
+            fields = fields_for_slot(destination, svc_number, layout, now, pages)
+            for k, v in base.items():
+                if k.startswith("__"):
+                    fields[k] = v
+            frame = render_frame(layout, fields, override, now=now, pages=pages,
+                                 board_position=board_position_for_slot(pages, slot))
+        else:
+            frame = render_frame(layout, base, override)
         if self.virtual_dir:
             import os
             os.makedirs(self.virtual_dir, exist_ok=True)

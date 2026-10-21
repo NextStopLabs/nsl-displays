@@ -48,32 +48,68 @@ def resolve_fields(destination: dict, service_number: str = "") -> dict:
     return fields
 
 
-def fields_for_slot(destination: dict, service_number: str = "",
-                      layout: dict | None = None, now: float | None = None,
-                      pages: list[dict] | None = None) -> dict:
-    """Board text for the time slot active at `now`.
-
-    The destination's board pages (each with its own via/dest) rotate every
-    ``page_seconds``: slot ``k = floor(now / page_seconds)`` shows
-    destination page ``k % n_pages``. Without board pages the base
-    via/dest is used. Service number (num) is constant across pages.
-    Layout-element ``page`` values are legacy and ignored: all elements
-    always draw; there is only one pages system (the board pages).
-    """
-    fields = resolve_fields(destination, service_number)
+def _ordered_pages(pages: list[dict] | None) -> list[dict]:
     if not pages:
-        return fields
+        return []
+    return sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+
+
+def board_position_for_slot(pages: list[dict] | None, slot: int) -> int:
+    """1-based board-page position active in time slot `slot` (0 when none)."""
+    ordered = _ordered_pages(pages)
+    if not ordered:
+        return 0
+    pg = ordered[slot % len(ordered)]
+    try:
+        return int(pg.get("position", 0) or 0)
+    except (TypeError, ValueError):
+        return (slot % len(ordered)) + 1
+
+
+def slot_for_layout(layout: dict | None, now: float | None) -> int:
+    """Time slot index for board rotation (`page_seconds` per board page)."""
+    import time as _t
     secs = 3.0
     if layout:
         try:
             secs = float(layout.get("page_seconds", 3) or 3)
         except (TypeError, ValueError):
             secs = 3.0
-    t = time.time() if now is None else now
-    slot = int(t // secs) if secs > 0 else 0
-    ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+    t = _t.time() if now is None else now
+    return int(t // secs) if secs > 0 else 0
+
+
+def element_shows_on(el: dict, board_position: int) -> bool:
+    """Whether a layout element draws on the given 1-based board page.
+
+    `pages` lists the board-page positions the element belongs to;
+    missing/empty means every page. Unknown positions never match.
+    Element `page` (singular) is legacy and ignored.
+    """
+    want = el.get("pages")
+    if not want:
+        return True
+    if not isinstance(want, (list, tuple)):
+        return True
+    if board_position <= 0:
+        return True
+    return board_position in want
+
+
+def fields_for_slot(destination: dict, service_number: str = "",
+                      layout: dict | None = None, now: float | None = None,
+                      pages: list[dict] | None = None) -> dict:
+    """Board text for the time slot active at `now`.
+
+    The destination's board pages (each with its own via/dest) rotate every
+    ``page_seconds``. Without board pages the base via/dest is used.
+    Service number (num) is constant across pages.
+    """
+    fields = resolve_fields(destination, service_number)
+    ordered = _ordered_pages(pages)
     if not ordered:
         return fields
+    slot = slot_for_layout(layout, now)
     pg = ordered[slot % len(ordered)]
     fields["via"] = pg.get("via") or ""
     fields["dest"] = pg.get("dest") or ""
@@ -156,13 +192,23 @@ def _element_text(el: dict, fields: dict, override_text: str, layout: dict) -> s
 
 
 def render_frame(layout: dict, fields: dict, override_text: str = "",
-                 now: float | None = None, scroll_px: int | None = None) -> Image.Image:
-    """Render one frame. now controls board-page slot/flash; scroll_px offsets scrolling text."""
+                 now: float | None = None, scroll_px: int | None = None,
+                 pages: list[dict] | None = None,
+                 board_position: int | None = None) -> Image.Image:
+    """Render one frame. now controls flash; scroll_px offsets scrolling text.
+
+    Each board page can have its own layout: elements draw only on the
+    board pages listed in their ``pages`` array (missing/empty = every
+    page). Pass ``pages`` (or the resolved ``board_position``) so the
+    frame matches the rotation slot; without them everything draws.
+    """
     w, h = int(layout["width"]), int(layout["height"])
     bg = layout.get("background", "#000000")
     img = Image.new("RGB", (w, h), bg)
     dr = ImageDraw.Draw(img)
     now = time.time() if now is None else now
+    if board_position is None and pages:
+        board_position = board_position_for_slot(pages, slot_for_layout(layout, now))
     override_active = bool(override_text)
     ov = layout.get("override", {})
     mode = ov.get("mode", "replace")
@@ -184,9 +230,9 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
                 break
 
     for el in layout.get("elements", []):
-        # No layout paging: every element always draws. Board rotation comes
-        # from the destination's board pages (fields_for_slot picks via/dest
-        # per time slot). Element `page` values are legacy and ignored.
+        # Per-page layouts: an element draws only on its board pages.
+        if not element_shows_on(el, board_position or 0):
+            continue
         if el.get("field") in hide:
             continue
         if not _visible(el, fields, override_active):

@@ -39,13 +39,25 @@ def test_override_replace_and_full():
     assert img.size == (80, 40)
 
 
-def test_legacy_element_pages_ignored():
-    """Old layouts with element `page` values still render: all elements draw."""
-    layout = dict(FRONT)
-    layout["elements"] = [dict(e, page=1) for e in layout["elements"]] + [
-        {"type": "text", "text": "PAGE2", "x": 0, "y": 0, "w": 240, "h": 40,
-         "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "top",
-         "scroll": "none", "page": 2, "show_if": "always"}]
-    a = render_frame(layout, {"num": "1", "via": "", "dest": "D"}, "", now=0.0)
-    b = render_frame(layout, {"num": "1", "via": "", "dest": "D"}, "", now=99.0)
-    assert a.size == b.size == (240, 40)
+def test_per_page_layouts():
+    """Each board page can have its own layout: elements filter per slot."""
+    from pi.nsl_pi.renderer import board_position_for_slot, element_shows_on, slot_for_layout
+    el_all, el_p2 = {"field": "dest"}, {"field": "via", "pages": [2]}
+    assert element_shows_on(el_all, 1) and element_shows_on(el_all, 2)
+    assert not element_shows_on(el_p2, 1) and element_shows_on(el_p2, 2)
+    assert element_shows_on(el_p2, 0)
+    pages = [{"position": 1, "via": "A", "dest": "D"}, {"position": 2, "via": "B", "dest": "D"}]
+    lay = {"page_seconds": 3}
+    assert board_position_for_slot(pages, slot_for_layout(lay, 0.0)) == 1
+    assert board_position_for_slot(pages, slot_for_layout(lay, 3.5)) == 2
+    dest = {"num": "1", "via": "A", "dest": "D", "extra_fields": "{}"}
+    grid = dict(autofit_layout(240, 40))
+    grid["elements"] = [dict(e, pages=[1]) for e in grid["elements"][:1]] + \
+        [dict(e, pages=[2]) for e in grid["elements"][1:2]] + grid["elements"][2:]
+    f1 = fields_for_slot(dest, "1", grid, 0.0, pages)
+    f2 = fields_for_slot(dest, "1", grid, 3.5, pages)
+    img1 = render_frame(grid, f1, "", now=0.0, pages=pages)
+    img2 = render_frame(grid, f2, "", now=3.5, pages=pages)
+    assert (f1["via"], f2["via"]) == ("A", "B")
+    assert img1.size == img2.size == (240, 40)
+    assert list(img1.getdata()) != list(img2.getdata())

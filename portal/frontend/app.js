@@ -67,14 +67,26 @@ const Preview = (() => {
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1 } ] };
   }
   // One pages system: the destination's board pages (each with its own
-  // via/dest) rotate every page_seconds. All layout elements always draw;
-  // element `page` values are legacy and ignored.
+  // via/dest) rotate every page_seconds. Each board page can have its own
+  // layout: an element draws only on the pages in its `pages` array
+  // (missing/empty = every page).
   function slotFor(lay, t) {
     return Math.floor(t / (parseFloat(lay.page_seconds) || 3));
   }
+  function boardPosFor(destPages, slot) {
+    if (!destPages || !destPages.length) return 0;
+    const ordered = [...destPages].sort((a, b) => (a.position || 0) - (b.position || 0));
+    const pg = ordered[slot % ordered.length];
+    return (pg && pg.position) || ((slot % ordered.length) + 1);
+  }
+  function elShowsOn(el, boardPos) {
+    if (!el.pages || !el.pages.length || boardPos <= 0) return true;
+    return el.pages.indexOf(boardPos) >= 0;
+  }
   function fieldsForSlot(baseFields, destPages, slot) {
     if (!destPages || !destPages.length) return baseFields;
-    const pg = destPages[slot % destPages.length];
+    const ordered = [...destPages].sort((a, b) => (a.position || 0) - (b.position || 0));
+    const pg = ordered[slot % ordered.length];
     return Object.assign({}, baseFields, { via: pg.via || "", dest: pg.dest || "" });
   }
   function drawOne(cv, lay, baseFields, ovText, t, destPages) {
@@ -87,7 +99,9 @@ const Preview = (() => {
     g.fillRect(0, 0, off.width, off.height);
     const ovActive = !!ovText;
     const ov = lay.override || {};
-    const fields = fieldsForSlot(baseFields, destPages, slotFor(lay, t));
+    const slot = slotFor(lay, t);
+    const boardPos = boardPosFor(destPages, slot);
+    const fields = fieldsForSlot(baseFields, destPages, slot);
     const hide = new Set();
     if (ovActive) {
       if (ov.mode === "hide_others") {
@@ -105,6 +119,7 @@ const Preview = (() => {
     };
     if (!(ov.mode === "full" && ovActive)) {
       for (const el of (lay.elements || [])) {
+        if (!elShowsOn(el, boardPos)) continue;
         if (el.field && hide.has(el.field)) continue;
         if (!show(el)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
