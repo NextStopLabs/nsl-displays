@@ -45,6 +45,16 @@ class Agent:
                          headers={"Content-Type": "application/json"})
         return json.loads(raw.decode())
 
+    def claim(self, controller_id: str) -> dict:
+        """Poll after showing the pairing code; returns paired + device_token once."""
+        body = json.dumps({"controller_id": controller_id}).encode()
+        _, raw, _ = _req(self._api("/api/device/claim"), data=body,
+                          headers={"Content-Type": "application/json"})
+        doc = json.loads(raw.decode())
+        if doc.get("paired") and doc.get("device_token"):
+            self.token = doc["device_token"]
+        return doc
+
     def fetch_manifest(self, program_id: str | None = None) -> dict:
         status, raw, _ = _req(self._api("/api/device/manifest"), token=self.token)
         return json.loads(raw.decode())
@@ -65,10 +75,20 @@ class Agent:
                 for ch in iter(lambda: f.read(65536), b""):
                     h.update(ch)
         mode = "ab" if start else "wb"
-        with urllib.request.urlopen(req, timeout=60) as r, open(dest, mode) as f:
-            for chunk in iter(lambda: r.read(65536), b""):
-                h.update(chunk)
-                f.write(chunk)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            # Server without Range support answers 200 with the full body.
+            # Appending that to a partial file corrupts it forever, so restart.
+            try:
+                status = getattr(r, "status", 200)
+            except Exception:
+                status = 200
+            if start and status != 206:
+                h = hashlib.sha256()
+                mode = "wb"
+            with open(dest, mode) as f:
+                for chunk in iter(lambda: r.read(65536), b""):
+                    h.update(chunk)
+                    f.write(chunk)
         if h.hexdigest() != sha256.lower():
             raise ValueError(f"hash mismatch for {dest}")
         return dest

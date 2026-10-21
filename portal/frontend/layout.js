@@ -304,7 +304,7 @@ const LayoutEditor = (() => {
       <div style="flex:1"><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
       <div style="flex:1"><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${el.type === "field"
         ? `<select data-p=field>${["num", "via", "dest", ...ed.extraKeys].map((f) => `<option${f === el.field ? " selected" : ""}>${f}</option>`).join("")}</select>`
-        : `<input data-p=text value="${(el.text || "").replace(/"/g, "&quot;")}">`}</div>
+        : `<input data-p=text value="${esc(el.text || "")}">`}</div>
       </div>
       <div class=row>
       <div style="flex:1"><label>Font</label><select data-p=font>${[...FONTS, ...(ed.hanIds || [])].map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
@@ -440,9 +440,9 @@ const LayoutEditor = (() => {
     apiFn("/api/fonts").then((r) => { if (ed) { ed.hanIds = (r.fonts || []).map((f) => f.id); renderProps(); } })
       .catch(() => { if (ed) ed.hanIds = []; });
     for (const k of extraKeys) { try { ed.fields[k] = JSON.parse(dest.extra_fields)[k]; } catch (e) { /* ignore */ } }
-    mount.innerHTML = `<h3>Board layout — ${dest.name} (${dest.code})</h3>
+    mount.innerHTML = `<h3>Board layout — ${esc(dest.name)} (${esc(dest.code)})</h3>
       <div class=row>
-      <div style="flex:1;min-width:140px"><label for=lay-disp>Display</label><select id=lay-disp>${displays.map((d) => `<option value="${d.id}">${d.name} ${d.width_px}×${d.height_px}</option>`).join("")}</select></div>
+      <div style="flex:1;min-width:140px"><label for=lay-disp>Display</label><select id=lay-disp>${displays.map((d) => `<option value="${esc(d.id)}">${esc(d.name)} ${esc(d.width_px)}×${esc(d.height_px)}</option>`).join("")}</select></div>
       <div style="align-self:end" class=row><button id=lay-load>Load</button><button id=lay-autofit>Auto-fit starter</button><button id=lay-save class=primary>Save layout</button></div>
       </div>
       <div class=hint id=lay-status></div>

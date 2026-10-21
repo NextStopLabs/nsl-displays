@@ -152,7 +152,13 @@ def api_import_pack(file: UploadFile = File(...)):
         for fn in files:
             src = os.path.join(root, fn)
             h = os.path.splitext(fn)[0]
-            dst = os.path.join(base, "audio", h[:2], h + ".flac")
+            try:
+                with open(src, "rb") as _f:
+                    _magic = _f.read(4)
+            except OSError:
+                _magic = b""
+            _ext = ".wav" if _magic == b"RIFF" else ".flac"
+            dst = os.path.join(base, "audio", h[:2], h + _ext)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy(src, dst)
     con = sqlite3.connect(c.controller_db)

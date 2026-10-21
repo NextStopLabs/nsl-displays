@@ -732,7 +732,7 @@ $("ctlrows").addEventListener("click", async (e) => {
 });
 function showTokenDialog(name, token) {
   $("token-value").value = token || "";
-  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. This token is shown <b>once</b> — the Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.`;
+  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. This token is shown <b>once</b> — the Pi picks it up automatically (claim), or paste it via the command below. Lose it and use “Rotate token” on the controller row for a new one.`;
   const base = location.origin + PREFIX;
   $("token-pi").textContent =
     `sudo systemctl edit nsl-agent   # add under [Service]:\nEnvironment="PORTAL_URL=${base}"\nEnvironment="NSL_TOKEN=${token}"\n` +

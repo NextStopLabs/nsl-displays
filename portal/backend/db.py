@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS controllers (
   name TEXT NOT NULL, device_token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending',
   last_seen_at TEXT, app_version TEXT DEFAULT '', channel TEXT DEFAULT 'stable',
   supported_formats TEXT DEFAULT '1', pairing_code TEXT, pairing_expires_at TEXT,
-  config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, sync_state TEXT DEFAULT NULL);
+  config_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, sync_state TEXT DEFAULT NULL,
+  pending_token TEXT DEFAULT NULL);
 CREATE TABLE IF NOT EXISTS controller_programs (
   controller_id TEXT NOT NULL, program_id TEXT NOT NULL,
   desired_version INTEGER, installed_version INTEGER, active_version INTEGER,
@@ -132,9 +133,21 @@ def connect(url: str | None = None) -> sqlite3.Connection:
             con.commit()
         except Exception:
             pass
+        for _ddl in ("ALTER TABLE controllers ADD COLUMN sync_state TEXT DEFAULT NULL",
+                       "ALTER TABLE controllers ADD COLUMN pending_token TEXT DEFAULT NULL"):
+            try:
+                con.execute(_ddl)
+                con.commit()
+            except Exception:
+                pass
         try:
-            con.execute("ALTER TABLE controllers ADD COLUMN sync_state TEXT DEFAULT NULL")
+            con.execute("CREATE INDEX IF NOT EXISTS ix_controllers_token ON controllers(device_token_hash)")
+            con.execute("CREATE INDEX IF NOT EXISTS ix_controllers_code ON controllers(pairing_code)")
             con.commit()
+        except Exception:
+            pass
+        try:
+            con.execute("PRAGMA busy_timeout = 30000")
         except Exception:
             pass
         return con

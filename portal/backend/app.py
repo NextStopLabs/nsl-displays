@@ -46,12 +46,65 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+import threading as _threading
+_tls = _threading.local()
+
+def _current_db_url() -> str:
+    return os.environ.get("DATABASE_URL", "sqlite:./dev.db")
+
+
 def db() -> sqlite3.Connection:
-    con = getattr(app.state, "_db", None)
-    if con is None:
-        con = connect()
+    url = _current_db_url()
+    con = getattr(_tls, "con", None)
+    # Honour test reset (tests set app.state._db = None to get a fresh DB).
+    if getattr(app.state, "_db", "unset") is None:
+        try:
+            if con is not None:
+                con.close()
+        except Exception:
+            pass
+        con, _tls.url = None, None
+        # mark consumed so we don't reconnect-loop; tests set it to None again for next reset
+        app.state._db = False
+    if con is None or getattr(_tls, "url", None) != url:
+        try:
+            if con is not None:
+                con.close()
+        except Exception:
+            pass
+        con = connect(url)
+        try:
+            con.execute("PRAGMA busy_timeout = 30000")
+        except Exception:
+            pass
+        _tls.con, _tls.url = con, url
         app.state._db = con
     return con
+
+
+@app.middleware("http")
+async def _rollback_orphan_txn(request, call_next):
+    try:
+        resp = await call_next(request)
+    except Exception:
+        try:
+            c = getattr(_tls, "con", None)
+            if c is not None and getattr(c, "in_transaction", False):
+                c.rollback()
+        except Exception:
+            pass
+        raise
+    # A handler that raised HTTPException after execute() but before commit()
+    # would otherwise leave the txn open on the shared thread-local connection,
+    # leaking half-written rows into the next request. Roll back leftovers on errors.
+    try:
+        if resp.status_code >= 400:
+            c = getattr(_tls, "con", None)
+            if c is not None and getattr(c, "in_transaction", False):
+                c.rollback()
+    except Exception:
+        pass
+    return resp
 
 
 # ---------- auth (session token = signed user id, demo-grade) ----------
@@ -194,8 +247,9 @@ def pair_controller(organisation_id: str = Form(...), code: str = Form(...), nam
         raise HTTPException(400, "bad or expired code")
     token = secrets.token_urlsafe(32)
     th = hashlib.sha256(token.encode()).hexdigest()
-    con.execute("UPDATE controllers SET organisation_id=?, name=?, device_token_hash=?, status='paired' WHERE id=?",
-                (organisation_id, name, th, row["id"]))
+    con.execute("UPDATE controllers SET organisation_id=?, name=?, device_token_hash=?, status='paired', "
+                "pairing_code=NULL, pairing_expires_at=NULL, pending_token=? WHERE id=?",
+                (organisation_id, name, th, token, row["id"]))
     con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
                 (organisation_id, u["id"], "controller.pair", row["id"], _utcnow()))
     con.commit()
@@ -408,6 +462,9 @@ def put_stops(did: str, body: dict, u: dict = Depends(current_user)):
         raise HTTPException(404, "no destination")
     require_role(u["id"], d["organisation_id"], "owner", "editor")
     stops = body.get("stops", [])
+    for _s in stops:
+        if not (_s.get("name") or "").strip():
+            raise HTTPException(400, "every stop needs a name")
     # validate positions: must be 1..N after reorder
     terms = [s for s in stops if s.get("is_terminus")]
     if len(terms) > 1:
@@ -569,10 +626,25 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
         nd = b.add_display(d["name"], d["width_px"], d["height_px"], d["position"], id=d["id"])
         disp_map[d["id"]] = nd
     default_disp = p["default_display"] or next(iter(disp_map), None)
-    # audio referenced
+    # audio referenced by this program only (services + stops). Bundling the
+    # whole org library bloated every publish and slowed bus downloads.
+    ref_hashes: set[str] = set()
+    for s in con.execute("SELECT next_stop_audio, approaching_audio, last_stop_audio FROM p_services WHERE program_id=?", (pid,)):
+        for v in (s["next_stop_audio"], s["approaching_audio"], s["last_stop_audio"]):
+            if v:
+                ref_hashes.add(v)
+    for (h,) in con.execute("SELECT DISTINCT audio FROM p_stops WHERE program_id=? AND audio IS NOT NULL", (pid,)):
+        if h:
+            ref_hashes.add(h)
     audio_needed: dict[str, dict] = {}
-    for a in con.execute("SELECT * FROM audio_files WHERE organisation_id=?", (p["organisation_id"],)):
-        audio_needed[a["sha256"]] = dict(a)
+    if ref_hashes:
+        for a in con.execute(
+                f"SELECT * FROM audio_files WHERE organisation_id=? AND sha256 IN ({','.join('?'*len(ref_hashes))})",
+                (p["organisation_id"], *ref_hashes)):
+            audio_needed[a["sha256"]] = dict(a)
+    missing = ref_hashes - set(audio_needed)
+    if missing:
+        raise ValueError(f"{len(missing)} referenced clip(s) missing from the audio library — re-upload them")
     for a in audio_needed.values():
         fp = _resolve_clip_path(a) or os.path.join(STORAGE_DIR, str(a.get("storage_key") or ""))
         try:
@@ -1089,6 +1161,12 @@ def device_controller(token: str | None) -> dict:
 def device_register(body: dict, authorization: str | None = Header(default=None)):
     """Fresh Pi: no token -> pairing code (6 chars) + pending record (15 min)."""
     con = db()
+    try:
+        con.execute("DELETE FROM controllers WHERE organisation_id IS NULL AND pairing_expires_at IS NOT NULL "
+                    "AND pairing_expires_at < ?", (_utcnow(),))
+        con.commit()
+    except Exception:
+        pass
     code = "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(6))
     cid = str(uuid.uuid4())
     exp = datetime.now(timezone.utc).timestamp() + 15 * 60
@@ -1100,6 +1178,24 @@ def device_register(body: dict, authorization: str | None = Header(default=None)
                  code, exp_s, 1, _utcnow()))
     con.commit()
     return {"controller_id": cid, "pairing_code": code, "expires_at": exp_s}
+
+
+@app.post("/api/device/claim")
+def device_claim(body: dict):
+    """Pi polls with its controller_id after showing the pairing code.
+
+    Returns paired=False until the portal pairs it, then the one-time
+    device_token (cleared on read so it can't be fetched twice)."""
+    cid = (body or {}).get("controller_id", "")
+    row = db().execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "unknown controller")
+    tok = row["pending_token"] if "pending_token" in row.keys() else None
+    if row["organisation_id"] and row["device_token_hash"] and tok:
+        db().execute("UPDATE controllers SET pending_token=NULL WHERE id=?", (cid,))
+        db().commit()
+        return {"paired": True, "device_token": tok, "controller_id": cid}
+    return {"paired": False, "controller_id": cid}
 
 
 @app.get("/api/device/manifest")
@@ -1136,7 +1232,14 @@ def device_manifest(authorization: str | None = Header(default=None)):
 
 @app.get("/api/device/programs/{pid}/versions/{v}/bundle")
 def device_bundle(pid: str, v: int, authorization: str | None = Header(default=None)):
-    device_controller(authorization)
+    c = device_controller(authorization)
+    con = db()
+    prog = con.execute("SELECT organisation_id FROM programs WHERE id=?", (pid,)).fetchone()
+    if not prog or prog[0] != c["organisation_id"]:
+        raise HTTPException(404, "no bundle")
+    if not con.execute("SELECT 1 FROM controller_programs WHERE controller_id=? AND program_id=?",
+                       (c["id"], pid)).fetchone():
+        raise HTTPException(404, "no bundle")
     path = os.path.join(STORAGE_DIR, "programs", pid, f"{v}.nslprog")
     if not os.path.exists(path):
         raise HTTPException(404, "no bundle")
@@ -1145,7 +1248,10 @@ def device_bundle(pid: str, v: int, authorization: str | None = Header(default=N
 
 @app.get("/api/device/audio/{h}")
 def device_audio(h: str, authorization: str | None = Header(default=None)):
-    device_controller(authorization)
+    c = device_controller(authorization)
+    if not db().execute("SELECT 1 FROM audio_files WHERE sha256=? AND organisation_id=?",
+                        (h, c["organisation_id"])).fetchone():
+        raise HTTPException(404, "no clip")
     # canonical store is .wav (legacy .flac accepted); serve whichever exists.
     base = os.path.join(STORAGE_DIR, "audio", h[:2], h)
     for ext, media in ((".wav", "audio/wav"), (".flac", "audio/x-flac")):
@@ -1330,7 +1436,7 @@ def unpair(cid: str, u: dict = Depends(current_user)):
     if not c:
         raise HTTPException(404, "no controller")
     require_role(u["id"], c["organisation_id"], "owner", "editor")
-    con.execute("UPDATE controllers SET device_token_hash=NULL, status='unpaired' WHERE id=?", (cid,))
+    con.execute("UPDATE controllers SET device_token_hash=NULL, pending_token=NULL, pairing_code=NULL, pairing_expires_at=NULL, status='unpaired' WHERE id=?", (cid,))
     con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
                 (c["organisation_id"], u["id"], "controller.unpair", cid, _utcnow()))
     con.commit()
@@ -1350,7 +1456,7 @@ def rotate_device_token(cid: str, u: dict = Depends(current_user)):
     require_role(u["id"], c["organisation_id"], "owner", "editor")
     token = secrets.token_urlsafe(32)
     th = hashlib.sha256(token.encode()).hexdigest()
-    con.execute("UPDATE controllers SET device_token_hash=?, status='paired' WHERE id=?", (th, cid))
+    con.execute("UPDATE controllers SET device_token_hash=?, pending_token=NULL, status='paired' WHERE id=?", (th, cid))
     con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
                 (c["organisation_id"], u["id"], "controller.token.rotate", cid, _utcnow()))
     con.commit()
@@ -1410,9 +1516,18 @@ def delete_program(pid: str, u: dict = Depends(current_user)):
     require_role(u["id"], org, "owner")
     con = db()
     for t in ("p_stops", "p_layouts", "p_templates", "p_presets", "p_destinations", "p_services",
-              "program_displays", "program_versions", "programs"):
-        con.execute(f"DELETE FROM {t} WHERE {'id' if t=='programs' else 'program_id'}=?", (pid,))
+              "program_displays", "program_versions", "controller_programs", "programs"):
+        col = "id" if t == "programs" else "program_id"
+        try:
+            con.execute(f"DELETE FROM {t} WHERE {col}=?", (pid,))
+        except Exception:
+            pass
     con.commit()
+    import shutil as _shutil
+    try:
+        _shutil.rmtree(os.path.join(STORAGE_DIR, "programs", pid), ignore_errors=True)
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -1580,6 +1695,10 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
     zp = os.path.join(tmp, "up.nslpack")
     open(zp, "wb").write(file.file.read())
     with _z.ZipFile(zp) as z:
+        for _m in z.namelist():
+            _dest = os.path.realpath(os.path.join(tmp, _m))
+            if not _dest.startswith(os.path.realpath(tmp) + os.sep) and _dest != os.path.realpath(tmp):
+                raise HTTPException(400, "bad archive: path escapes package")
         z.extractall(tmp)
     res = _cf(os.path.join(tmp, "program.nslprog"))
     if not res.ok:
