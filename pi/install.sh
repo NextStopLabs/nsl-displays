@@ -50,8 +50,12 @@ sudo python3 -c "import sys; sys.path.insert(0, '$REPO'); sys.path.insert(0, '$R
 case "$ROLE" in
   front) IP=10.9.0.1/24;; side) IP=10.9.0.2/24;; rear) IP=10.9.0.3/24;;
 esac
-sudo nmcli con add type ethernet ifname eth0 con-name bus-lan ip4 "$IP" ipv4.never-default yes || true
-sudo cp deploy/nsl-*.service /etc/systemd/system/
+if sudo nmcli -t -f NAME con show | grep -qx "bus-lan"; then
+  echo "bus-lan connection already exists, leaving it"
+else
+  sudo nmcli con add type ethernet ifname eth0 con-name bus-lan ip4 "$IP" ipv4.never-default yes || true
+fi
+sudo cp "$REPO"/deploy/nsl-*.service /etc/systemd/system/
 # Code location + role: units run `python3 -m nsl_pi.*`, so both the repo root
 # (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep
 # this working wherever the repo was cloned from (REPO computed at top).
