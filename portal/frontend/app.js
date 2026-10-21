@@ -423,53 +423,69 @@ function renderProgram() {
   h += `<section id=pdtab-displays style="display:none">`;
   h += `<div class=group><div class=grouptitle>Displays (${(p.displays || []).length})</div>`;
   h += `<p class=hint>Define the boards this program drives, e.g. front 240×40, side 160×40, rear 80×40. Layouts are saved per display.</p>`;
-  h += `<div id=pd-displays-list>`;
-  h += (p.displays || []).map((d) =>
-    `<div class=row data-disp-id="${esc(d.id)}" style="align-items:center">
-      <div style="flex:1"><label>Name</label><input data-disp-name value="${esc(d.name)}"></div>
-      <div style="flex:0 0 100px"><label>Width (px)</label><input data-disp-w type=number value="${esc(d.width_px)}"></div>
-      <div style="flex:0 0 100px"><label>Height (px)</label><input data-disp-h type=number value="${esc(d.height_px)}"></div>
-      <div style="align-self:end" class=row>
-        <button data-disp-save class=primary>Save</button>
-        <button data-disp-del class=danger>Delete</button>
-      </div>
-    </div>`).join("");
-  h += `</div>`;
+  if ((p.displays || []).length) {
+    h += `<div class="tablewrap" id=pd-displays-list><table class=dataTable>
+      <thead><tr><th style="min-width:160px">Name</th><th style="width:110px">Width (px)</th><th style="width:110px">Height (px)</th><th></th></tr></thead><tbody>`;
+    h += (p.displays || []).map((d) =>
+      `<tr data-disp-id="${esc(d.id)}">
+        <td><input data-disp-name value="${esc(d.name)}"></td>
+        <td><input data-disp-w type=number value="${esc(d.width_px)}"></td>
+        <td><input data-disp-h type=number value="${esc(d.height_px)}"></td>
+        <td class=row><button data-disp-save=1 class=primary>Save</button><button data-disp-del=1 class=danger>Delete</button></td>
+      </tr>`).join("");
+    h += `</tbody></table></div>`;
+  } else {
+    h += `<p class=hint>No displays yet.</p><div id=pd-displays-list></div>`;
+  }
   h += `<div class=group style="margin-top:14px"><div class=grouptitle>Add display</div><div class=row>
     <div style="flex:1"><label for=pd-disp-name>Display name <span class=req>(required)</span></label><input id=pd-disp-name placeholder="e.g. side"></div>
     <div style="flex:0 0 110px"><label for=pd-disp-w>Width</label><input id=pd-disp-w type=number value=160></div>
     <div style="flex:0 0 110px"><label for=pd-disp-h>Height</label><input id=pd-disp-h type=number value=40></div>
     <div style="align-self:end"><button id=pd-disp-add class=primary>Add display</button></div>
   </div><div class=err id=pd-disp-err></div></div>`;
-  h += `</div></section>`;
+  h += `</section>`;
 
   // ---- Services tab ----
   h += `<section id=pdtab-services style="display:none">`;
   h += `<div class=group><div class=grouptitle>Add service</div><div class=row>
-    <div style="flex:0 0 120px"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num></div>
-    <div class=col><label for=ns-name>Service name</label><input id=ns-name></div>
+    <div style="flex:0 0 140px"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num placeholder="e.g. 100"></div>
+    <div class=col><label for=ns-name>Service name</label><input id=ns-name placeholder="e.g. Lichfield - Burton"></div>
     <div style="align-self:end"><button id=ns-add class=primary>Add service</button></div></div></div>`;
-  h += `<div class=group><div class=grouptitle>Services (${svcCount})</div><div id=pd-services>`;
-  for (const s of (p.services || [])) {
-    h += `<div class=group><div class=grouptitle>Service ${esc(s.number)} ${esc(s.name || "")}</div>`;
-    h += `<div class=row>
-      <div style="flex:0 0 120px"><label>Number</label><input data-svc-num="${s.id}" value="${esc(s.number)}"></div>
-      <div class=col><label>Name</label><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></div></div>`;
-    h += `<div class=row>
-      <div class=col><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default - the next stop is…" })}</select></div>
-      <div class=col><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default - approaching…" })}</select></div></div>`;
-    h += `<div class=row>
-      <div class=col><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default - …where this service terminates" })}</select></div>
-      <div style="flex:0 0 200px"><label>Terminus suffix plays on</label><select data-svc-mode="${s.id}">
-        <option value="both"${(s.terminus_clip_mode || "both") === "both" ? " selected" : ""}>Next stop + approaching</option>
-        <option value="next"${s.terminus_clip_mode === "next" ? " selected" : ""}>Next stop only</option>
-        <option value="approaching"${s.terminus_clip_mode === "approaching" ? " selected" : ""}>Approaching only</option>
-      </select></div></div>`;
-    h += `<div class=row><button data-svc-save="${s.id}" class=primary>Save service</button><button data-svc-del="${s.id}" class=danger>Delete service</button></div>`;
-    h += `<div class=err data-svc-err="${s.id}"></div></div>`;
+  h += `<div class=group><div class=grouptitle>Services (${svcCount})</div>`;
+  if (svcCount) {
+    h += `<div class="tablewrap" id=pd-services><table class=dataTable>
+      <thead><tr>
+        <th style="width:110px">Number</th>
+        <th>Name</th>
+        <th style="width:70px">Dests</th>
+        <th style="min-width:180px">Next-stop audio</th>
+        <th style="min-width:180px">Approaching audio</th>
+        <th style="min-width:180px">Terminus suffix</th>
+        <th style="width:150px">Terminus plays on</th>
+        <th></th>
+      </tr></thead><tbody>`;
+    for (const s of (p.services || [])) {
+      const destCount = (s.destinations || []).length;
+      h += `<tr data-svc-row="${s.id}">
+        <td><input data-svc-num="${s.id}" value="${esc(s.number)}"></td>
+        <td><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></td>
+        <td style="text-align:center">${destCount}</td>
+        <td><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default" })}</select></td>
+        <td><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default" })}</select></td>
+        <td><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default" })}</select></td>
+        <td><select data-svc-mode="${s.id}">
+          <option value="both"${(s.terminus_clip_mode || "both") === "both" ? " selected" : ""}>Next + approaching</option>
+          <option value="next"${s.terminus_clip_mode === "next" ? " selected" : ""}>Next stop only</option>
+          <option value="approaching"${s.terminus_clip_mode === "approaching" ? " selected" : ""}>Approaching only</option>
+        </select></td>
+        <td class=row><button data-svc-save="${s.id}" class=primary title="Save changes">Save</button><button data-svc-del="${s.id}" class=danger title="Delete service">Delete</button><div class=err data-svc-err="${s.id}" style="min-width:120px"></div></td>
+      </tr>`;
+    }
+    h += `</tbody></table></div>`;
+  } else {
+    h += `<p class=hint>No services yet. Add one above, or import from bustimes.org.</p>`;
   }
-  h += `</div></div>`;
-  h += `</section>`;
+  h += `</div></section>`;
 
   // ---- Preview tab ----
   h += `<section id=pdtab-preview style="display:none">`;

@@ -143,6 +143,8 @@ button.icn{min-width:32px;padding:5px 8px}
 [data-theme="dark"] button.danger{background:linear-gradient(#8a2a2a,#5c1a1a);color:#fff;border-color:var(--danger)}
 
 /* ---------- tables ---------- */
+.tablewrap{width:100%;overflow-x:auto}
+.dataTable{width:100%;border-collapse:separate;border-spacing:0;background:var(--field);border:var(--bevel);margin-top:0;font-size:13px}
 table{width:100%;border-collapse:separate;border-spacing:0;background:var(--field);border:var(--bevel);margin-top:10px;font-size:13px}
 th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--chrome-dd);border-right:1px solid var(--chrome-dd)}
 th{background:var(--chrome-d);font-size:12px;font-weight:700;color:var(--ink);border-bottom:1px solid var(--shadow)}
