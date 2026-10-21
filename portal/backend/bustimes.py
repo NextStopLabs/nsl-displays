@@ -200,6 +200,9 @@ def spoken_stop_name(full_name: str) -> str:
             if not s:
                 s = head or tail
     s = _strip_trailing_qualifier_paren(s.strip())
+    # "PH" (public house) would be read out letter by letter — say "pub".
+    # Whole word only, so "Phoenix" is untouched.
+    s = re.sub(r"\bPH\b", "pub", s)
     if s and s[-1] not in ".!?":
         s += "."
     return s

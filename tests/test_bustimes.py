@@ -95,6 +95,10 @@ def test_spoken_stop_name():
     assert s("X, By Station Road") == "By Station Road."
     # bare qualifier with nothing after: fall back to the head
     assert s("Foo, opp") == "Foo."
+    # "PH" (public house) is spoken as "pub", never spelled out
+    assert s("Freeford, adj Horse and Jockey PH") == "Horse and Jockey pub."
+    assert s("Station (PH)") == "Station (pub)."
+    assert s("Phoenix Road") == "Phoenix Road."
 
 
 def test_parse_timetable_two_directions():
