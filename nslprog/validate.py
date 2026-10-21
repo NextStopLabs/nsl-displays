@@ -246,23 +246,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     return res
 
 
-def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: str,
-                       page_count: int | None = None):
-    if not isinstance(lj, dict):
-        res.errors.append(Issue("layout_json", "layout must be object", "layouts", ref))
-        return
-    if lj.get("schema", 1) != 1:
-        # higher schema rejected by older readers per spec; treat unknown as error here
-        if isinstance(lj.get("schema"), int) and lj["schema"] > 1:
-            res.warnings.append(Issue("layout_schema", f"layout schema {lj['schema']} newer than reader", "layouts", ref))
-    w, h = lj.get("width"), lj.get("height")
-    if disp is not None and (w != disp["width_px"] or h != disp["height_px"]):
-        res.errors.append(Issue("layout_size", f"layout {w}x{h} != display {disp['width_px']}x{disp['height_px']}",
-                                "layouts", ref))
-    ov = lj.get("override", {})
-    if isinstance(ov, dict) and ov.get("mode", "replace") not in OVERRIDE_MODES:
-        res.errors.append(Issue("layout_override", f"bad override mode {ov.get('mode')!r}", "layouts", ref))
-    els = lj.get("elements", [])
+def _check_elements(els: list, ref: str, res: ValidationResult, disp: dict | None,
+                    page_count: int | None = None):
     if not isinstance(els, list):
         res.errors.append(Issue("layout_elements", "elements must be a list", "layouts", ref))
         return
@@ -323,6 +308,38 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
         if txt and el.get("scroll", "none") == "none" and len(txt) * 6 > ww:
             res.warnings.append(Issue("unscrollable_overflow", f"text may not fit ({len(txt)} chars in {ww}px)",
                                       "layouts", tag))
+
+
+def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: str,
+                       page_count: int | None = None):
+    if not isinstance(lj, dict):
+        res.errors.append(Issue("layout_json", "layout must be object", "layouts", ref))
+        return
+    if lj.get("schema", 1) != 1:
+        # higher schema rejected by older readers per spec; treat unknown as error here
+        if isinstance(lj.get("schema"), int) and lj["schema"] > 1:
+            res.warnings.append(Issue("layout_schema", f"layout schema {lj['schema']} newer than reader", "layouts", ref))
+    w, h = lj.get("width"), lj.get("height")
+    if disp is not None and (w != disp["width_px"] or h != disp["height_px"]):
+        res.errors.append(Issue("layout_size", f"layout {w}x{h} != display {disp['width_px']}x{disp['height_px']}",
+                                "layouts", ref))
+    ov = lj.get("override", {})
+    if isinstance(ov, dict) and ov.get("mode", "replace") not in OVERRIDE_MODES:
+        res.errors.append(Issue("layout_override", f"bad override mode {ov.get('mode')!r}", "layouts", ref))
+    _check_elements(lj.get("elements", []), ref, res, disp, page_count)
+    page_elements = lj.get("page_elements")
+    if page_elements is not None:
+        if not isinstance(page_elements, dict):
+            res.errors.append(Issue("layout_page_elements", "page_elements must be an object", "layouts", ref))
+        else:
+            for pos, els in page_elements.items():
+                try:
+                    ipos = int(pos)
+                except (TypeError, ValueError):
+                    ipos = None
+                if page_count is not None and (ipos is None or ipos < 1 or ipos > page_count):
+                    res.warnings.append(Issue("layout_page_elements_key", f"page_elements key {pos!r} does not match a board page", "layouts", ref))
+                _check_elements(els, f"{ref} page {pos}", res, disp, page_count)
 
 
 def validate_file(path: str, check_hash: bool = True) -> ValidationResult:

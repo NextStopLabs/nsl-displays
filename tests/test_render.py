@@ -61,3 +61,26 @@ def test_per_page_layouts():
     assert (f1["via"], f2["via"]) == ("A", "B")
     assert img1.size == img2.size == (240, 40)
     assert list(img1.getdata()) != list(img2.getdata())
+
+
+def test_page_elements_layouts():
+    """page_elements gives each board page its own independent element list."""
+    pages = [{"position": 1, "via": "A", "dest": "D"}, {"position": 2, "via": "B", "dest": "D"}]
+    lay = {
+        "width": 240, "height": 40, "background": "#000000", "page_seconds": 3,
+        "elements": [{"type": "field", "field": "dest", "x": 0, "y": 0, "w": 240, "h": 40,
+                      "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "middle",
+                      "scroll": "none", "show_if": "always"}],
+        "page_elements": {
+            "1": [{"type": "field", "field": "dest", "x": 0, "y": 0, "w": 240, "h": 40,
+                   "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "middle",
+                   "scroll": "none", "show_if": "always"}],
+            "2": [{"type": "field", "field": "via", "x": 0, "y": 0, "w": 240, "h": 40,
+                   "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "middle",
+                   "scroll": "none", "show_if": "always"}]
+        }
+    }
+    img1 = render_frame(lay, {"num": "1", "via": "A", "dest": "D"}, "", now=0.0, pages=pages)
+    img2 = render_frame(lay, {"num": "1", "via": "B", "dest": "D"}, "", now=3.5, pages=pages)
+    assert img1.size == img2.size == (240, 40)
+    assert list(img1.getdata()) != list(img2.getdata())

@@ -95,8 +95,8 @@ const LayoutEditor = (() => {
   }
 
   // One pages system: the destination's board pages rotate every
-  // page_seconds. Each board page can have its own layout: an element
-  // draws only on the pages in its `pages` array (missing/empty = all).
+  // page_seconds. Each board page can have its own full layout stored in
+  // `layout.page_elements[position]`; missing key falls back to `elements`.
   function slotFor(lay, t) {
     return Math.floor(t / (parseFloat(lay.page_seconds) || 3));
   }
@@ -109,9 +109,43 @@ const LayoutEditor = (() => {
     const pg = ordered[slot % ordered.length];
     return (pg && pg.position) || ((slot % ordered.length) + 1);
   }
-  function elShowsOn(el, boardPos) {
-    if (!el || !el.pages || !el.pages.length || boardPos <= 0) return true;
-    return el.pages.indexOf(boardPos) >= 0;
+  function activePageElements(lay, pos) {
+    const pe = lay.page_elements || {};
+    return pe[pos] || pe[String(pos)] || lay.elements || [];
+  }
+  function switchBoardTab(newPos) {
+    if (!ed || !ed.lay) return;
+    const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+    // stash current tab's elements back into its page slot
+    pe[ed.tab] = ed.lay.elements;
+    ed.tab = newPos;
+    // load the new tab, seeding from the previous tab if it has no layout yet
+    if (!pe[newPos]) pe[newPos] = JSON.parse(JSON.stringify(ed.lay.elements || []));
+    ed.lay.elements = pe[newPos];
+    ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+    updateStatus(); drawEditor(); renderProps(); renderOverride();
+  }
+  function ensurePageLayouts() {
+    // Seed each board page with its own copy of the default layout.
+    // If an old layout used per-element `pages` arrays, migrate those
+    // into separate page layouts now.
+    if (!ed.lay) return;
+    const ordered = orderedBoardPages();
+    if (ordered.length <= 1) return;
+    const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+    const legacy = (ed.lay.elements || []).some((e) => e.pages && e.pages.length);
+    for (const pg of ordered) {
+      const pos = pg.position;
+      if (pe[pos]) continue;
+      if (legacy) {
+        pe[pos] = (ed.lay.elements || []).filter((e) =>
+          !e.pages || !e.pages.length || e.pages.indexOf(pos) >= 0
+        ).map((e) => { const c = JSON.parse(JSON.stringify(e)); delete c.pages; return c; });
+      } else {
+        pe[pos] = JSON.parse(JSON.stringify(ed.lay.elements || []));
+      }
+    }
+    ed.lay.elements = pe[ed.tab] || pe[ordered[0].position] || ed.lay.elements;
   }
   function renderBoardTabs() {
     const box = document.getElementById("lay-boardtabs");
@@ -121,8 +155,7 @@ const LayoutEditor = (() => {
     box.innerHTML = ordered.map((pg) =>
       `<button class="${ed.tab === pg.position ? "on" : ""}" data-btab="${pg.position}" title="Arrange board page ${pg.position}">P${pg.position}</button>`).join("");
     box.querySelectorAll("[data-btab]").forEach((b) => b.onclick = () => {
-      ed.tab = parseInt(b.dataset.btab, 10);
-      renderBoardTabs(); drawEditor(); renderProps(); updateStatus();
+      switchBoardTab(parseInt(b.dataset.btab, 10));
     });
   }
   function syncPageSeconds() {
@@ -175,7 +208,6 @@ const LayoutEditor = (() => {
     for (let x = 0; x <= lay.width; x += 8) { g.beginPath(); g.moveTo(x * scale + .5, 0); g.lineTo(x * scale + .5, cv.height); g.stroke(); }
     for (let y = 0; y <= lay.height; y += 8) { g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cv.width, y * scale + .5); g.stroke(); }
     (lay.elements || []).forEach((el, i) => {
-      if (!elShowsOn(el, ed.tab || 0)) return; // only show the board page being edited
       const sel = i === ed.sel;
       const inv = el.invert;
       g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : "rgba(255,176,0,.12)");
@@ -235,7 +267,6 @@ const LayoutEditor = (() => {
     } else {
       const hide = hideSet(lay, ovActive);
       for (const el of (lay.elements || [])) {
-        if (!elShowsOn(el, boardPos)) continue;
         if (el.field && hide.has(el.field)) continue;
         if (!visible(el, fields, ovActive)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
@@ -368,23 +399,13 @@ const LayoutEditor = (() => {
     if (FONTS.includes(size)) return [size];
     return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
   }
-  function showOnCheckboxes(el) {
-    const ordered = orderedBoardPages();
-    const all = !el.pages || !el.pages.length;
-    if (ordered.length <= 1) return `<span class=hint>Only one board page - shows everywhere.</span>`;
-    return `<label style="display:inline-block;margin-right:10px"><input type=checkbox data-showon="all"${all ? " checked" : ""}> All</label>` +
-      ordered.map((pg) =>
-        `<label style="display:inline-block;margin-right:10px"><input type=checkbox data-showon="${pg.position}"${!all && el.pages.indexOf(pg.position) >= 0 ? " checked" : ""}> P${pg.position}</label>`).join("");
-  }
   function renderProps() {
     const box = document.getElementById("lay-props");
     const list = document.getElementById("lay-ellist");
     if (!box) return;
     const els = ed.lay.elements || [];
-    list.innerHTML = els.map((e, i) => {
-      const scope = (!e.pages || !e.pages.length) ? "" : ` · P${[...e.pages].sort((a, b) => a - b).join("+")}`;
-      return `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}${scope}</option>`;
-    }).join("");
+    list.innerHTML = els.map((e, i) =>
+      `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}</option>`).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
     const num = (k, label, opts = "") => `<div><label>${label}</label><input data-p=${k} type=number ${opts} value="${el[k] ?? 0}"></div>`;
@@ -421,8 +442,6 @@ const LayoutEditor = (() => {
           <div class=col><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
           <div style="flex:0 0 70px;display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=invert${el.invert ? " checked" : ""}> Invert</label></div>
         </div>
-        <div class=row><div class=col><label>Show on board pages</label><div data-showon-group>${showOnCheckboxes(el)}</div>
-        <div class=hint>Each board page can have its own layout - untick pages to hide this element there.</div></div></div>
       </div>
       <div class="row actions" style="margin-top:14px"><button id=lay-del class=danger>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
@@ -442,19 +461,6 @@ const LayoutEditor = (() => {
         el.font = v;
       } else {
         el[k] = v;
-      }
-      updateStatus(); drawEditor(); renderProps();
-    }));
-    box.querySelectorAll("[data-showon]").forEach((inp) => inp.addEventListener("change", () => {
-      const boxes = [...box.querySelectorAll("[data-showon]")];
-      const allBox = boxes.find((b) => b.dataset.showon === "all");
-      if (inp.dataset.showon === "all" && inp.checked) {
-        el.pages = [];
-      } else {
-        if (allBox) allBox.checked = false;
-        const picked = boxes.filter((b) => b.dataset.showon !== "all" && b.checked)
-          .map((b) => parseInt(b.dataset.showon, 10)).sort((a, b) => a - b);
-        el.pages = picked; // empty = show everywhere
       }
       updateStatus(); drawEditor(); renderProps();
     }));
@@ -501,7 +507,6 @@ const LayoutEditor = (() => {
     const els = ed.lay.elements || [];
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
-      if (!elShowsOn(e, ed.tab || 0)) continue;
       if (p.x >= e.x && p.x < e.x + e.w && p.y >= e.y && p.y < e.y + e.h) return i;
     }
     return -1;
@@ -552,12 +557,9 @@ const LayoutEditor = (() => {
 
   function addElement(type) {
     const lay = ed.lay;
-    const multi = (ed.pages || []).length > 1;
     const base = { type, x: 0, y: 0, w: Math.floor(lay.width / 2), h: lay.height,
       font: "pixel-medium", colour: AMBER, align: "left", valign: "middle",
       scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always", invert: false };
-    // New elements land on the board page being arranged (all pages when one).
-    if (multi) base.pages = [ed.tab || 1];
     if (type === "field") base.field = "dest";
     else base.text = "MESSAGE";
     lay.elements.push(base);
@@ -675,8 +677,9 @@ const LayoutEditor = (() => {
         fitScales();
         if (r.layout) { ed.lay = r.layout; ed.src = r.source; }
         else { ed.lay = blank(d.width_px, d.height_px); ed.src = "none yet (blank canvas)"; }
-        ed.sel = (ed.lay.elements || []).length ? 0 : -1;
         ed.tab = 1;
+        ensurePageLayouts();
+        ed.sel = (ed.lay.elements || []).length ? 0 : -1;
         document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
         loadFields(); readFields();
         updateStatus(); drawEditor(); renderProps(); renderOverride();
@@ -687,8 +690,10 @@ const LayoutEditor = (() => {
     document.getElementById("lay-close").onclick = () => { stop(); mount.innerHTML = ""; };
     document.getElementById("lay-autofit").onclick = () => {
       const d = disp(); fitScales();
-      ed.lay = autofit(d.width_px, d.height_px); ed.src = "auto-fit starter (unsaved)"; ed.sel = 0;
+      ed.lay = autofit(d.width_px, d.height_px); ed.src = "auto-fit starter (unsaved)";
       ed.tab = 1;
+      ensurePageLayouts();
+      ed.sel = (ed.lay.elements || []).length ? 0 : -1;
       updateStatus(); drawEditor(); renderProps(); renderOverride();
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
@@ -706,8 +711,10 @@ const LayoutEditor = (() => {
     document.getElementById("lay-jsonapply").onclick = () => {
       try {
         const lj = JSON.parse(document.getElementById("lay-json").value);
-        ed.lay = lj; ed.src = "from JSON (unsaved)"; ed.sel = (lj.elements || []).length ? 0 : -1;
+        ed.lay = lj; ed.src = "from JSON (unsaved)";
         ed.tab = 1;
+        ensurePageLayouts();
+        ed.sel = (ed.lay.elements || []).length ? 0 : -1;
         document.getElementById("lay-err").textContent = "";
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = "Invalid JSON: " + e.message; }
@@ -719,9 +726,25 @@ const LayoutEditor = (() => {
         if (!ed.lay) throw new Error("Load a display first.");
         if (ed.lay.width !== d.width_px || ed.lay.height !== d.height_px)
           throw new Error(`Layout is ${ed.lay.width}×${ed.lay.height} but display ${d.name} is ${d.width_px}×${d.height_px}.`);
-        for (const [i, e] of (ed.lay.elements || []).entries()) {
-          if (e.x < 0 || e.y < 0 || e.w <= 0 || e.h <= 0 || e.x + e.w > d.width_px || e.y + e.h > d.height_px)
-            throw new Error(`Element #${i + 1} lies outside the display - move or resize it.`);
+        // freeze current tab into its page slot before saving
+        const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+        const currentTabEls = ed.lay.elements;
+        pe[ed.tab] = currentTabEls;
+        // use the first board page as the fallback/default elements list
+        const ordered = orderedBoardPages();
+        if (ordered.length > 1) {
+          ed.lay.elements = JSON.parse(JSON.stringify(pe[ordered[0].position] || currentTabEls));
+        }
+        // keep the editor on the active tab's layout
+        ed.lay.elements = currentTabEls;
+        const allLayouts = ordered.length > 1
+          ? ordered.map((pg) => ({ name: `page ${pg.position}`, els: pe[pg.position] || [] }))
+          : [{ name: "default", els: ed.lay.elements || [] }];
+        for (const { name, els } of allLayouts) {
+          for (const [i, e] of els.entries()) {
+            if (e.x < 0 || e.y < 0 || e.w <= 0 || e.h <= 0 || e.x + e.w > d.width_px || e.y + e.h > d.height_px)
+              throw new Error(`Layout ${name}, element #${i + 1} lies outside the display - move or resize it.`);
+          }
         }
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
         box.textContent = ""; ed.src = "destination (saved)";
@@ -753,8 +776,9 @@ const LayoutEditor = (() => {
     }
     ed.lay = JSON.parse(JSON.stringify(layout));
     ed.src = source || "template";
-    ed.sel = (ed.lay.elements || []).length ? 0 : -1;
     ed.tab = 1;
+    ensurePageLayouts();
+    ed.sel = (ed.lay.elements || []).length ? 0 : -1;
     document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
     updateStatus(); drawEditor(); renderProps(); renderOverride();
     return true;

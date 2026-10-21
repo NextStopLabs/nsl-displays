@@ -68,8 +68,8 @@ const Preview = (() => {
   }
   // One pages system: the destination's board pages (each with its own
   // via/dest) rotate every page_seconds. Each board page can have its own
-  // layout: an element draws only on the pages in its `pages` array
-  // (missing/empty = every page).
+  // layout via `page_elements` keyed by board-page position; missing key
+  // falls back to the shared `elements` list.
   function slotFor(lay, t) {
     return Math.floor(t / (parseFloat(lay.page_seconds) || 3));
   }
@@ -79,15 +79,15 @@ const Preview = (() => {
     const pg = ordered[slot % ordered.length];
     return (pg && pg.position) || ((slot % ordered.length) + 1);
   }
-  function elShowsOn(el, boardPos) {
-    if (!el.pages || !el.pages.length || boardPos <= 0) return true;
-    return el.pages.indexOf(boardPos) >= 0;
-  }
   function fieldsForSlot(baseFields, destPages, slot) {
     if (!destPages || !destPages.length) return baseFields;
     const ordered = [...destPages].sort((a, b) => (a.position || 0) - (b.position || 0));
     const pg = ordered[slot % ordered.length];
     return Object.assign({}, baseFields, { via: pg.via || "", dest: pg.dest || "" });
+  }
+  function activeElements(lay, boardPos) {
+    const pe = lay.page_elements || {};
+    return pe[boardPos] || pe[String(boardPos)] || lay.elements || [];
   }
   function drawOne(cv, lay, baseFields, ovText, t, destPages) {
     const H = (typeof LayoutEditor !== "undefined" && LayoutEditor.hanover) || null;
@@ -102,11 +102,12 @@ const Preview = (() => {
     const slot = slotFor(lay, t);
     const boardPos = boardPosFor(destPages, slot);
     const fields = fieldsForSlot(baseFields, destPages, slot);
+    const elements = activeElements(lay, boardPos);
     const hide = new Set();
     if (ovActive) {
       if (ov.mode === "hide_others") {
         const keep = ov.replaces || "dest";
-        for (const e of (lay.elements || [])) if (e.field !== keep) hide.add(e.field);
+        for (const e of elements) if (e.field !== keep) hide.add(e.field);
       } else hide.add(...(ov.hide || []));
     }
     const show = (el) => {
@@ -118,8 +119,7 @@ const Preview = (() => {
       return true;
     };
     if (!(ov.mode === "full" && ovActive)) {
-      for (const el of (lay.elements || [])) {
-        if (!elShowsOn(el, boardPos)) continue;
+      for (const el of elements) {
         if (el.field && hide.has(el.field)) continue;
         if (!show(el)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
@@ -208,7 +208,7 @@ const Preview = (() => {
         g.restore();
       }
     } else {
-      const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
+      const ovEl = elements.find((e) => e.field === (ov.replaces || "dest"));
       const ovHan = (H && ovEl && H.isHan(ovEl.font)) ? H.get(ovEl.font) : null;
       if (ovHan) {
         H.draw(g, ovHan, ovText, 2, Math.floor(lay.height / 2 - ovHan.height / 2), AMBER);

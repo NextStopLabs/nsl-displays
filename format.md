@@ -249,8 +249,9 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `align` / `valign` | `left` `centre` `right` / `top` `middle` `bottom` |
 | `scroll` | `none`, `always`, `if_too_long` |
 | `flash_ms` | 0 = steady, otherwise on/off period in milliseconds |
-| `page` | Legacy, ignored. (Per-page layouts use `pages` now) |
-| `pages` | Optional array of board-page positions this element shows on, e.g. `[1, 3]`. Missing/empty = every page. This is how each board page gets its own layout |
+| `page` | Legacy, ignored |
+| `pages` | Legacy: used to control which board pages an element showed on. New files store independent layouts per page in `page_elements` |
+| `page_elements` | Optional object mapping board-page position (`"1"`, `"2"`, ...) to a complete element list for that page. Missing key falls back to `elements` |
 | `show_if` | `always`, `has_text`, `override_active`, `override_inactive` |
 
 **Layout resolution for a destination on a display:**
@@ -258,7 +259,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 2. the `is_default` template for that display, else
 3. a built-in **auto-fit** layout (route number on the left, destination text filling the rest).
 
-**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination's board page for the active time slot: `k = floor(now / page_seconds)` shows board page `k % n_pages` (a destination with no `destination_pages` rows behaves as a single board page using its `via`/`dest`). There is only one pages system — the board pages. Each board page can have its own layout: a layout element draws only on the board pages listed in its `pages` array (missing/empty = every page). Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
+**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination's board page for the active time slot: `k = floor(now / page_seconds)` shows board page `k % n_pages` (a destination with no `destination_pages` rows behaves as a single board page using its `via`/`dest`). There is only one pages system — the board pages. Each board page can have its own layout via `page_elements`: the renderer uses the element list for the active board-page position, falling back to `elements` if no entry exists. Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
 
 ---
 

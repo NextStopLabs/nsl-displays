@@ -197,10 +197,11 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
                  board_position: int | None = None) -> Image.Image:
     """Render one frame. now controls flash; scroll_px offsets scrolling text.
 
-    Each board page can have its own layout: elements draw only on the
-    board pages listed in their ``pages`` array (missing/empty = every
-    page). Pass ``pages`` (or the resolved ``board_position``) so the
-    frame matches the rotation slot; without them everything draws.
+    Each board page can have its own layout. ``page_elements`` maps a
+    board-page position to an element list; if the active page has no
+    entry the fallback ``elements`` list is used. Pass ``pages`` (or the
+    resolved ``board_position``) so the frame matches the rotation slot;
+    without them everything draws.
     """
     w, h = int(layout["width"]), int(layout["height"])
     bg = layout.get("background", "#000000")
@@ -212,6 +213,15 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
     override_active = bool(override_text)
     ov = layout.get("override", {})
     mode = ov.get("mode", "replace")
+    page_elements = layout.get("page_elements", {})
+    if board_position and page_elements:
+        active_elements = page_elements.get(str(board_position))
+        if active_elements is None:
+            active_elements = layout.get("elements", [])
+        legacy_page_filter = False
+    else:
+        active_elements = layout.get("elements", [])
+        legacy_page_filter = bool(board_position)
 
     if mode == "full" and override_active:
         # override fills display
@@ -224,14 +234,13 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
     if mode == "hide_others" and override_active:
         # only the replaced element shows (with override text)
         replaces = ov.get("replaces", "dest")
-        for el in layout.get("elements", []):
+        for el in active_elements:
             if el.get("field") == replaces:
-                hide = {e.get("field") for e in layout.get("elements", []) if e.get("field") != replaces}
+                hide = {e.get("field") for e in active_elements if e.get("field") != replaces}
                 break
 
-    for el in layout.get("elements", []):
-        # Per-page layouts: an element draws only on its board pages.
-        if not element_shows_on(el, board_position or 0):
+    for el in active_elements:
+        if legacy_page_filter and not element_shows_on(el, board_position):
             continue
         if el.get("field") in hide:
             continue
