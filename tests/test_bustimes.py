@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +16,35 @@ def _client(tmp_path, monkeypatch):
     import portal.backend.app as appmod
     appmod.app.state._db = None
     return TestClient(appmod.app), appmod
+
+
+def _fake_wav(appmod):
+    import struct
+    return appmod._wav_bytes_from_pcm(struct.pack("<2205h", *([1000] * 2205)))
+
+
+def _mock_bustimes(btmod):
+    btmod.cache_clear()
+    btmod.fetch_service_detail = lambda sid: {
+        "id": 84914, "line_name": "SFA", "slug": "s",
+        "description": "Tamworth - Lichfield - St. Francis of Assisi"}
+    btmod.fetch_timetable = lambda sid: [
+        {"stops": ["Perry Crofts", "Mid Point", "St Francis College"], "trips": 1},
+        {"stops": ["St Francis College", "Mid Point", "Perry Crofts"], "trips": 1}]
+    btmod.fetch_services = lambda **kw: {"count": 1, "next": None, "previous": None, "results": [
+        {"id": 84914, "line_name": "SFA", "slug": "s",
+         "description": "Tamworth - Lichfield - St. Francis of Assisi"}]}
+
+
+def _wait_job(c, jid, H, timeout=30):
+    end = time.time() + timeout
+    while time.time() < end:
+        job = c.get(f"/api/bustimes/jobs/{jid}", headers=H).json()
+        assert job["state"] in ("working", "done", "error"), job
+        if job["state"] in ("done", "error"):
+            return job
+        time.sleep(0.2)
+    raise AssertionError(f"job {jid} never finished")
 
 
 def test_split_description_cases():
@@ -36,43 +66,40 @@ def test_parse_timetable_two_directions():
     assert [d["stops"] for d in dirs] == [["A", "B"], ["B", "A"]]
 
 
-def test_bustimes_import_service(tmp_path, monkeypatch):
+def test_bustimes_import_service_with_background_audio(tmp_path, monkeypatch):
+    """Import returns immediately (working + job_id); audio fills in behind,
+    with progress visible on the job endpoint and a confirmation payload."""
     c, appmod = _client(tmp_path, monkeypatch)
     import portal.backend.bustimes as btmod
+    _mock_bustimes(btmod)
+
+    def fake_synth(texts, voice_id, org):
+        wav = _fake_wav(appmod)
+        return {t: ((wav, 100), "") for t in texts}
+    monkeypatch.setattr(appmod, "_synth_many_piper", fake_synth)
+
     r = c.post("/api/auth/signup", data={"email": "b@x.com", "password": "secret123"}).json()
     H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
     pid = c.post("/api/programs", json={"organisation_id": org, "name": "P"}, headers=H).json()["program_id"]
-
-    btmod.fetch_service_detail = lambda sid: {
-        "id": 84914, "line_name": "SFA", "slug": "s",
-        "description": "Tamworth - Lichfield - St. Francis of Assisi"}
-    btmod.fetch_timetable = lambda sid: [
-        {"stops": ["Perry Crofts", "Mid Point", "St Francis College"], "trips": 1},
-        {"stops": ["St Francis College", "Mid Point", "Perry Crofts"], "trips": 1}]
-    btmod.fetch_services = lambda **kw: {"count": 1, "next": None, "previous": None, "results": [
-        {"id": 84914, "line_name": "SFA", "slug": "s",
-         "description": "Tamworth - Lichfield - St. Francis of Assisi"}]}
-
-    def fake_piper(text, voice_id, org2):
-        import struct
-        wav = appmod._wav_bytes_from_pcm(struct.pack("<2205h", *([1000] * 2205)))
-        return (wav, 100), ""
-    appmod._try_piper_wav = fake_piper
 
     rs = c.get("/api/bustimes/services", params={"operator": "BULI"}, headers=H).json()
     assert rs["results"][0]["destinations"] == ["Tamworth", "Lichfield", "St. Francis of Assisi"]
     rd = c.get("/api/bustimes/services/84914", headers=H).json()
     assert len(rd["directions"]) == 2 and rd["directions"][0]["count"] == 3
 
+    # progress is observable while the job runs
     ri = c.post("/api/bustimes/import", json={
         "program_id": pid, "bustimes_id": 84914, "voice_id": "v1",
         "destinations": [{"name": "Tamworth", "direction": 1},
                          {"name": "St. Francis of Assisi", "direction": 0}]}, headers=H)
     assert ri.status_code == 200, ri.text
     j = ri.json()
-    assert len(j["destinations"]) == 2
-    assert j["destinations"][0]["code"] != j["destinations"][1]["code"]
-    assert j["audio"]["with_audio"] == 3  # Perry Crofts, Mid Point, St Francis College
+    assert j["state"] == "working" and j["job_id"], j
+    assert j["audio"]["pending"] == 3  # Perry Crofts, Mid Point, St Francis College
+    job = _wait_job(c, j["job_id"], H)
+    assert job["state"] == "done", job
+    assert job["done"] == job["total"] == 3, job
+    assert job["result"]["generated"] == 3, job["result"]
 
     prog = c.get(f"/api/programs/{pid}", headers=H).json()
     assert prog["services"][0]["number"] == "SFA"
@@ -80,6 +107,45 @@ def test_bustimes_import_service(tmp_path, monkeypatch):
     assert [s["name"] for s in d0["stops"]] == ["St Francis College", "Mid Point", "Perry Crofts"]
     assert d0["stops"][-1]["is_terminus"] == 1
     assert all(s["audio"] for s in d0["stops"])
+    # re-import reuses the clips: no new job, nothing pending
+    ri2 = c.post("/api/bustimes/import", json={
+        "program_id": pid, "bustimes_id": 84914, "voice_id": "v1",
+        "destinations": [{"name": "Tamworth-again", "direction": 1}]}, headers=H).json()
+    assert ri2["state"] == "done" and ri2["job_id"] is None, ri2
     # publish validates with the imported rows
     pub = c.post(f"/api/programs/{pid}/publish", json={"notes": "v1"}, headers=H)
     assert pub.status_code == 200, pub.text
+
+
+def test_bustimes_import_no_audio_is_synchronous(tmp_path, monkeypatch):
+    c, appmod = _client(tmp_path, monkeypatch)
+    import portal.backend.bustimes as btmod
+    _mock_bustimes(btmod)
+    r = c.post("/api/auth/signup", data={"email": "n@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "P"}, headers=H).json()["program_id"]
+    ri = c.post("/api/bustimes/import", json={
+        "program_id": pid, "bustimes_id": 84914, "generate_audio": False,
+        "destinations": [{"name": "Tamworth", "direction": 1}]}, headers=H).json()
+    assert ri["state"] == "done" and ri["job_id"] is None, ri
+    assert ri["audio"]["silent"] == ["St Francis College", "Mid Point", "Perry Crofts"] or \
+        sorted(ri["audio"]["silent"]) == sorted(["Perry Crofts", "Mid Point", "St Francis College"])
+
+
+def test_synth_many_falls_back_to_cli_without_piper_package(tmp_path, monkeypatch):
+    """No `piper` Python package in this env -> parallel CLI fallback, one
+    call per text (no per-stop model-load serialisation in our code)."""
+    c, appmod = _client(tmp_path, monkeypatch)
+    calls = []
+
+    def fake_cli(text, model, config):
+        calls.append(text)
+        return ((_fake_wav(appmod), 100), "")
+
+    monkeypatch.setattr(appmod, "_piper_cli_wav", fake_cli)
+    monkeypatch.setattr(appmod, "_resolve_piper_voice",
+                        lambda vid, org: ("m.onnx", "m.onnx.json", ""))
+    out = appmod._synth_many_piper(["Alpha Stop", "Beta Stop"], "v1", "org")
+    assert set(out) == {"Alpha Stop", "Beta Stop"}
+    assert all(v[0] is not None for v in out.values()), out
+    assert sorted(calls) == ["Alpha Stop", "Beta Stop"]

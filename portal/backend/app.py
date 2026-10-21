@@ -953,24 +953,20 @@ def _placeholder_tts_wav(text: str) -> tuple[bytes, int]:
     return _wav_bytes_from_pcm(pcm), int(secs * 1000)
 
 
-def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tuple[tuple[bytes, int] | None, str]:
-    """Run the `piper` binary with the uploaded ONNX voice.
+def _resolve_piper_voice(voice_id: str | None,
+                         organisation_id: str) -> tuple[str | None, str | None, str]:
+    """Look up an uploaded voice once and return (model_path, config_path, error).
 
-    Returns (result, reason). result is None when falling back to the
-    preview tone; reason explains why (surfaced to the UI).
+    Also heals the piper1-gpl layout issue (config must exist at
+    ``model.onnx.json``). Empty error means usable.
     """
-    import shutil as _sh
-    import subprocess as _sp
-    import tempfile as _tf
     if not voice_id:
-        return None, "no voice selected — pick a voice in the Voice dropdown"
-    if not _sh.which("piper"):
-        return None, "piper binary not found on server PATH — install piper-tts (pip install piper-tts) + espeak-ng"
+        return None, None, "no voice selected — pick a voice in the Voice dropdown"
     con = db()
     v = con.execute("SELECT * FROM voices WHERE id=? AND (organisation_id=? OR organisation_id IS NULL)",
                     (voice_id, organisation_id)).fetchone()
     if not v:
-        return None, "selected voice not found for this organisation — re-select it"
+        return None, None, "selected voice not found for this organisation — re-select it"
     model = os.path.join(STORAGE_DIR, str(v["model_key"]))
     config = os.path.join(STORAGE_DIR, str(v["config_key"]))
     # piper1-gpl __main__.py ignores --config and always loads
@@ -986,7 +982,17 @@ def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tup
     except OSError:
         pass
     if not (os.path.exists(model) and os.path.exists(config)):
-        return None, "voice files missing on server disk (STORAGE_DIR mismatch?) — re-upload the voice"
+        return None, None, "voice files missing on server disk (STORAGE_DIR mismatch?) — re-upload the voice"
+    return model, config, ""
+
+
+def _piper_cli_wav(text: str, model: str, config: str) -> tuple[tuple[bytes, int] | None, str]:
+    """Synthesise one text with the `piper` binary (no DB access; thread-safe)."""
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    if not _sh.which("piper"):
+        return None, "piper binary not found on server PATH — install piper-tts (pip install piper-tts) + espeak-ng"
     with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
         tmp = t.name
     try:
@@ -1007,6 +1013,90 @@ def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tup
             os.remove(tmp)
         except OSError:
             pass
+
+
+def _synth_many_piper(texts: list[str], voice_id: str | None,
+                      organisation_id: str) -> dict[str, tuple[tuple[bytes, int] | None, str]]:
+    """Synthesise many short texts with a single voice model load.
+
+    The old per-stop path spawned one `piper` process per stop, reloading the
+    ONNX model every time — minutes of silence for a full service. This loads
+    the model once: in-process via the `piper` Python package when available,
+    else one CLI process per text run across a small thread pool.
+    Returns {text: ((wav, duration_ms) | None, error)}.
+    """
+    out: dict[str, tuple[tuple[bytes, int] | None, str]] = {}
+    want = [t for t in dict.fromkeys(texts) if (t or "").strip()]
+    if not want:
+        return out
+    model, config, err = _resolve_piper_voice(voice_id, organisation_id)
+    if err:
+        return {t: (None, err) for t in want}
+    # Fast path: in-process synthesis, model loaded exactly once.
+    try:
+        from piper import PiperVoice as _PiperVoice
+    except ImportError:
+        _PiperVoice = None
+    if _PiperVoice is not None:
+        try:
+            try:
+                _voice = _PiperVoice.load(model, config)
+            except TypeError:
+                _voice = _PiperVoice.load(model)
+            for t in want:
+                try:
+                    pcm_parts, rate = bytearray(), None
+                    for chunk in _voice.synthesize(t):
+                        pcm_parts += getattr(chunk, "audio_int16_bytes", b"")
+                        rate = rate or getattr(chunk, "sample_rate", None)
+                    if not pcm_parts:
+                        out[t] = (None, "piper returned no audio")
+                        continue
+                    wav = _wav_bytes_at_rate(bytes(pcm_parts), rate or _CANON_RATE)
+                    pcm, _ = _decode_to_mono22050(wav, "piper.wav")
+                    canon = _wav_bytes_from_pcm(pcm)
+                    out[t] = ((canon, int(len(pcm) / 2 / _CANON_RATE * 1000)), "")
+                except Exception as e:
+                    out[t] = (None, f"piper error: {e}")
+            return out
+        except Exception:
+            pass  # model wouldn't load in-process either; try the CLI below
+    # Fallback: one CLI process per text, but in parallel (model load ~4x overlapped).
+    import concurrent.futures as _fu
+    workers = max(1, min(4, len(want)))
+    with _fu.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_piper_cli_wav, t, model, config): t for t in want}
+        for fut in _fu.as_completed(futs):
+            try:
+                out[futs[fut]] = fut.result()
+            except Exception as e:
+                out[futs[fut]] = (None, f"piper error: {e}")
+    return out
+
+
+def _wav_bytes_at_rate(pcm: bytes, rate: int) -> bytes:
+    """Wrap raw mono s16 PCM in a WAV header at the given sample rate."""
+    import io as _io
+    import wave as _w
+    buf = _io.BytesIO()
+    with _w.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tuple[tuple[bytes, int] | None, str]:
+    """Run the `piper` binary with the uploaded ONNX voice (single text).
+
+    Returns (result, reason). result is None when falling back to the
+    preview tone; reason explains why (surfaced to the UI).
+    """
+    model, config, err = _resolve_piper_voice(voice_id, organisation_id)
+    if err:
+        return None, err
+    return _piper_cli_wav(text, model, config)
 
 
 def _resolve_clip_path(row) -> str | None:
@@ -1753,44 +1843,150 @@ def bustimes_service_detail(sid: int, u: dict = Depends(current_user)):
             "directions": dirs}
 
 
-def _bustimes_clip_for_stop(con, org: str, stop_name: str, voice_id: str | None,
-                            gen_errors: list) -> str | None:
-    """Find or synthesise the audio clip for one stop name.
+# ---------- bustimes.org import jobs ----------
+# A full service import synthesises dozens of stop clips — minutes of Piper
+# work. That must never block the request with no feedback, so the audio
+# phase runs in a background thread and the UI polls this registry for
+# live progress, then shows a confirmation summary when it finishes.
+_jobs_lock = _threading.Lock()
+_jobs: dict[str, dict] = {}
 
-    Reuses a clip whose tts_text matches the stop name (or whose friendly
-    filename matches its slug). Otherwise synthesises with Piper when a
-    voice is given. Returns the sha256 or None (silent stop).
-    """
-    name = (stop_name or "").strip()
-    if not name:
-        return None
-    slug = _slugify_clip(name)
+
+def _job_public(j: dict) -> dict:
+    return {k: j.get(k) for k in ("job_id", "organisation_id", "program_id", "service_id",
+                                 "service_number", "state", "stage", "done", "total",
+                                 "created_at", "updated_at", "result", "error")}
+
+
+def _job_create(org: str, program_id: str, service_id: str, service_number: str, total: int) -> dict:
+    import time as _time
+    jid = str(uuid.uuid4())
+    now = _utcnow()
+    job = {"job_id": jid, "organisation_id": org, "program_id": program_id,
+           "service_id": service_id, "service_number": service_number,
+           "state": "working", "stage": "starting", "done": 0, "total": total,
+           "created_at": now, "updated_at": now, "result": None, "error": None,
+           "_t": _time.monotonic()}
+    with _jobs_lock:
+        _jobs[jid] = job
+        # bounded registry: drop terminal jobs older than an hour, cap at 100
+        if len(_jobs) > 100:
+            old = [k for k, v in _jobs.items()
+                   if v.get("state") in ("done", "error") and now > v.get("updated_at", now)]
+            for k in old[: len(_jobs) - 100]:
+                del _jobs[k]
+    return job
+
+
+def _job_progress(jid: str, stage: str, done: int, total: int) -> None:
+    with _jobs_lock:
+        j = _jobs.get(jid)
+        if j:
+            j["stage"], j["done"], j["total"], j["updated_at"] = stage, done, total, _utcnow()
+
+
+def _job_finish(jid: str, state: str, result: dict | None = None, error: str | None = None) -> None:
+    with _jobs_lock:
+        j = _jobs.get(jid)
+        if j:
+            j["state"], j["result"], j["error"], j["updated_at"] = state, result, error, _utcnow()
+
+
+def _find_clip_for_stop(con, org: str, name: str) -> str | None:
+    """Reuse lookup for a stop name: library clip by spoken text or friendly
+    filename, else the audio of an already-imported stop with the same name.
+    (The last leg covers byte-identical clips shared under one hash.)"""
     row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND tts_text=?",
                       (org, name)).fetchone()
-    if not row and slug:
+    if not row and _slugify_clip(name):
         row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND filename=?",
-                          (org, slug)).fetchone()
-    if row:
-        return row[0]
-    if not voice_id:
+                          (org, _slugify_clip(name))).fetchone()
+    if not row:
+        row = con.execute("SELECT audio FROM p_stops WHERE organisation_id=? AND name=? "
+                          "AND audio IS NOT NULL AND audio<>'' LIMIT 1", (org, name)).fetchone()
+        if row:
+            return row[0]
         return None
-    real, tts_error = _try_piper_wav(name, voice_id, org)
-    if real is None:
-        gen_errors.append(f"{name}: {tts_error or 'voice generation failed'}")
-        return None
-    wav, duration_ms = real
+    return row[0]
+
+
+def _store_clip(con, org: str, name: str, voice_id: str, wav: bytes, duration_ms: int) -> str:
+    """Save synthesised WAV bytes to the audio library. Returns the sha256."""
     h = hashlib.sha256(wav).hexdigest()
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
     sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
     if not os.path.exists(sp):
         with open(sp, "wb") as f:
             f.write(wav)
-    friendly = _unique_clip_name(con, org, slug or h[:12], h)
+    friendly = _unique_clip_name(con, org, _slugify_clip(name) or h[:12], h)
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), org, h, friendly, f"audio/{h[:2]}/{h}.wav",
                  duration_ms, "tts", name, voice_id,
                  json.dumps({"speed": 1.0, "placeholder": False}), _utcnow()))
     return h
+
+
+def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, names: list[str]) -> None:
+    """Background thread: synthesise stop clips (one model load) and link them.
+
+    Progress is visible on GET /api/bustimes/jobs/<id> after every stop, so a
+    150-stop service shows movement instead of a hung page.
+    """
+    con = connect(_current_db_url())
+    try:
+        con.execute("PRAGMA busy_timeout = 30000")
+    except Exception:
+        pass
+    try:
+        total = len(names)
+        _job_progress(jid, "synthesising stop audio", 0, total)
+        # Single model load for the whole batch (was: one `piper` process
+        # per stop, each reloading the ONNX voice — minutes of hang).
+        synth = _synth_many_piper(names, voice_id, org)
+        generated, reused, errors, silent = 0, 0, [], []
+        for i, name in enumerate(names, 1):
+            try:
+                h = _find_clip_for_stop(con, org, name)
+                if h:
+                    reused += 1
+                else:
+                    real, tts_error = synth.get(name, (None, "voice generation failed"))
+                    if real is None:
+                        errors.append(f"{name}: {tts_error or 'voice generation failed'}")
+                        silent.append(name)
+                        _job_progress(jid, f"synthesising stop audio ({i}/{total})", i, total)
+                        continue
+                    wav, duration_ms = real
+                    h = _store_clip(con, org, name, voice_id, wav, duration_ms)
+                    generated += 1
+                con.execute("UPDATE p_stops SET audio=? WHERE program_id=? AND name=? "
+                            "AND (audio IS NULL OR audio='')", (h, program_id, name))
+                con.commit()
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+            _job_progress(jid, f"synthesising stop audio ({min(i, total)}/{total})",
+                          min(i, total), total)
+        _job_finish(jid, "done", result={"unique_stops": total, "generated": generated,
+                                         "reused": reused, "silent": silent, "errors": errors})
+    except Exception as e:
+        _job_finish(jid, "error", error=str(e))
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+@app.get("/api/bustimes/jobs/{jid}")
+def bustimes_job(jid: str, u: dict = Depends(current_user)):
+    """Poll a bustimes import job for live progress / final confirmation."""
+    with _jobs_lock:
+        job = _jobs.get(jid)
+        job = dict(job) if job else None
+    if not job:
+        raise HTTPException(404, "no such import job")
+    require_role(u["id"], job["organisation_id"], "owner", "editor", "viewer")
+    return _job_public(job)
 
 
 @app.post("/api/bustimes/import")
@@ -1850,9 +2046,9 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
         pos = con.execute("SELECT COUNT(*) FROM p_services WHERE program_id=?", (pid,)).fetchone()[0]
         con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (sid, org, pid, line_name, description, pos, None, None, None, "both"))
-    made, warnings, gen_errors = [], [], []
-    clip_cache: dict[str, str | None] = {}
+    made, warnings = [], []
     used_codes = {r[0] for r in con.execute("SELECT code FROM p_destinations WHERE program_id=?", (pid,))}
+    all_stops: list[str] = []
     for entry in req_dests:
         name = ((entry or {}).get("name") or "").strip()
         if not name:
@@ -1882,31 +2078,51 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
             sname = (sname or "").strip()
             if not sname:
                 continue
-            if sname not in clip_cache:
-                if gen_audio:
-                    clip_cache[sname] = _bustimes_clip_for_stop(con, org, sname, voice_id, gen_errors)
-                else:
-                    r = con.execute(
-                        "SELECT sha256 FROM audio_files WHERE organisation_id=? AND tts_text=?", (org, sname)).fetchone()
-                    clip_cache[sname] = r[0] if r else None
+            all_stops.append(sname)
             con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
-                        (str(uuid.uuid4()), org, pid, did, i, sname, clip_cache[sname],
+                        (str(uuid.uuid4()), org, pid, did, i, sname, None,
                          None, None, 1 if i == len(stops) else 0))
             n_stops += 1
         if not stops:
             warnings.append(f"destination {name} ({code}): no stops — pick a timetable direction")
         made.append({"destination_id": did, "code": code, "name": name, "stops": n_stops,
                      "direction": direction})
+    # Link any clips already in the library straight away (fast DB reads only),
+    # so the program is usable the moment this response returns.
+    unique_stops = list(dict.fromkeys(all_stops))
+    linked, pending = 0, []
+    for sname in unique_stops:
+        h = _find_clip_for_stop(con, org, sname)
+        if h:
+            con.execute("UPDATE p_stops SET audio=? WHERE program_id=? AND name=? "
+                        "AND (audio IS NULL OR audio='')", (h, pid, sname))
+            linked += 1
+        else:
+            pending.append(sname)
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
     con.commit()
-    reused = sum(1 for v in clip_cache.values() if v)
-    silent = sorted([k for k, v in clip_cache.items() if not v])
-    return {"ok": True, "service_id": sid, "service_number": line_name,
-            "destinations": made,
-            "audio": {"unique_stops": len(clip_cache), "with_audio": reused,
-                      "silent": silent, "voice_id": voice_id,
-                      "errors": gen_errors},
-            "warnings": warnings + gen_errors}
+    base = {"ok": True, "service_id": sid, "service_number": line_name,
+            "destinations": made, "warnings": warnings}
+    if gen_audio and voice_id and pending:
+        # Slow part (Piper synthesis) runs in the background with progress on
+        # GET /api/bustimes/jobs/<id> — the request returns immediately.
+        job = _job_create(org, pid, sid, line_name, len(pending))
+        _threading.Thread(target=_bustimes_audio_worker,
+                          args=(job["job_id"], org, pid, voice_id, pending),
+                          daemon=True).start()
+        base.update(state="working", job_id=job["job_id"],
+                    audio={"unique_stops": len(unique_stops), "with_audio": linked,
+                           "pending": len(pending), "voice_id": voice_id,
+                           "message": f"service imported; generating audio for {len(pending)} stop(s) in the background"})
+        return base
+    silent = pending
+    if gen_audio and not voice_id and pending:
+        warnings.append("no voice selected — stops stay silent until you pick a voice and re-run audio generation")
+    base.update(state="done", job_id=None,
+                audio={"unique_stops": len(unique_stops), "with_audio": linked,
+                       "silent": silent, "voice_id": voice_id, "errors": []},
+                warnings=warnings)
+    return base
 
 
 @app.post("/api/programs/import")

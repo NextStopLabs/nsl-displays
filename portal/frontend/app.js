@@ -700,7 +700,9 @@ function wireBustimesImport(p) {
   const box = $("bt-results"), det = $("bt-detail"), ebox = $("bt-err");
   if (!$("bt-find")) return;
   $("bt-find").onclick = async () => {
+    const btn = $("bt-find");
     try {
+      btn.disabled = true; btn.textContent = "Searching…";
       ebox.textContent = ""; box.innerHTML = `<span class=hint>Searching bustimes.org…</span>`; det.innerHTML = "";
       const r = await api("/api/bustimes/services?operator=" + encodeURIComponent($("bt-operator").value.trim()) +
         "&search=" + encodeURIComponent($("bt-search").value.trim()));
@@ -713,6 +715,7 @@ function wireBustimesImport(p) {
         : `<p class=hint>No services found for that operator/search.</p>`;
       box.querySelectorAll("[data-bt]").forEach((b) => b.onclick = () => showBustimesDetail(p, b.dataset.bt));
     } catch (e) { ebox.textContent = String(e.message || e); box.innerHTML = ""; }
+    finally { btn.disabled = false; btn.textContent = "Search bustimes.org"; }
   };
 }
 async function showBustimesDetail(p, bustimesId) {
@@ -740,9 +743,35 @@ async function showBustimesDetail(p, bustimesId) {
       <table><thead><tr><th>Destination name</th><th>Code</th><th>Via</th><th>Dest board</th><th>Timetable stops</th></tr></thead>
       <tbody>${destRows}</tbody></table>
       <div class=row><button id=bt-confirm class=primary>Import service</button></div>
+      <div id=bt-progress></div>
+      <div id=bt-result></div>
       <div class=err id=bt-import-err></div></div>`;
+    const btBar = (done, total, stage) => {
+      const pct = total ? Math.round(100 * done / total) : 0;
+      return `<p class=hint>${esc(stage || "working…")} — ${done}/${total}</p>` +
+        `<div style="border:1px solid #888;background:#fff;height:16px;width:100%">` +
+        `<div style="background:#1a5fb4;height:100%;width:${pct}%"></div></div>`;
+    };
     $("bt-confirm").onclick = async () => {
+      const btn = $("bt-confirm"), prog = $("bt-progress"), res = $("bt-result"), ierr = $("bt-import-err");
+      const t0 = Date.now();
+      const elapsed = () => `${Math.round((Date.now() - t0) / 1000)}s`;
+      let tick = 0;
+      const confirmHtml = (r, audio) => {
+        const destLines = (r.destinations || []).map((x) =>
+          `<li><span class=kbd>${esc(x.code)}</span> ${esc(x.name)} — ${x.stops} stop(s)</li>`).join("");
+        const warns = (r.warnings || []).filter(Boolean);
+        return `<div class=group><div class=grouptitle>Import complete</div>` +
+          `<p>Service <b>${esc(r.service_number)}</b>: ${r.destinations.length} destination(s) imported.</p>` +
+          `<ul>${destLines}</ul>` +
+          `<p>Stop audio: <b>${audio.generated != null ? audio.generated + " generated" : (audio.with_audio || 0) + " with audio"}</b>` +
+          `${audio.reused != null ? `, ${audio.reused} reused` : ""}` +
+          `${(audio.silent || []).length ? `, <span class=err>${audio.silent.length} silent: ${esc(audio.silent.slice(0, 8).join("; "))}${audio.silent.length > 8 ? "…" : ""}</span>` : ", none silent"}</p>` +
+          `${(audio.errors || []).length ? `<p class=err>${esc(audio.errors.slice(0, 5).join(" | "))}${audio.errors.length > 5 ? "…" : ""}</p>` : ""}` +
+          `${warns.length ? `<p class=hint>Warnings: ${esc(warns.slice(0, 3).join(" | "))}</p>` : ""}</div>`;
+      };
       try {
+        btn.disabled = true; ierr.textContent = ""; res.innerHTML = "";
         const rows = (d.suggested && d.suggested.length ? d.suggested : [{ name: d.description }]);
         const dests = rows.map((_, i) => {
           const dir = document.querySelector(`[data-btd-dir="${i}"]`).value;
@@ -752,6 +781,9 @@ async function showBustimesDetail(p, bustimesId) {
             dest: document.querySelector(`[data-btd-dest="${i}"]`).value.trim(),
             direction: dir === "" ? null : parseInt(dir, 10) };
         });
+        btn.textContent = "Importing service…";
+        prog.innerHTML = btBar(0, 1, "sending import request");
+        tick = setInterval(() => { btn.textContent = `Importing service… ${elapsed()}`; }, 1000);
         const r = await api("/api/bustimes/import", { method: "POST", body: {
           program_id: p.id, bustimes_id: d.id,
           service_number: $("bt-num").value.trim() || d.line_name,
@@ -759,13 +791,36 @@ async function showBustimesDetail(p, bustimesId) {
           voice_id: $("bt-voice").value || null,
           generate_audio: $("bt-gen").value !== "no",
           destinations: dests } });
-        const a = r.audio || {};
-        alert(`Imported service ${r.service_number}: ${r.destinations.length} destination(s). ` +
-          `Stops: ${a.unique_stops || 0} unique, ${a.with_audio || 0} with audio` +
-          `${(a.silent || []).length ? `, silent: ${a.silent.slice(0, 5).join("; ")}${a.silent.length > 5 ? "…" : ""}` : ""}.` +
-          `${(r.warnings || []).length ? " Warnings: " + r.warnings.slice(0, 3).join(" | ") : ""}`);
-        openProgram(p.id);
-      } catch (e) { $("bt-import-err").textContent = String(e.message || e); }
+        if (r.state === "done" || !r.job_id) {
+          prog.innerHTML = "";
+          res.innerHTML = confirmHtml(r, r.audio || {});
+          openProgram(p.id);
+          return;
+        }
+        // Audio generates in the background — poll for live progress.
+        let job = null;
+        for (;;) {
+          await new Promise((done) => setTimeout(done, 1000));
+          try {
+            job = await api(`/api/bustimes/jobs/${encodeURIComponent(r.job_id)}`);
+          } catch (e) { ierr.textContent = "Lost track of the import job: " + String(e.message || e); break; }
+          if (!document.contains(prog)) break; // user navigated away; job continues server-side
+          prog.innerHTML = btBar(job.done || 0, job.total || 1,
+            `${job.stage || "working"} · ${elapsed()} elapsed`);
+          if (job.state === "done" || job.state === "error") break;
+        }
+        prog.innerHTML = "";
+        if (job && job.state === "done") {
+          const a = Object.assign({}, r.audio, job.result, { with_audio: (job.result.generated || 0) + (r.audio.with_audio || 0) });
+          res.innerHTML = confirmHtml(r, a);
+          openProgram(p.id);
+        } else if (job) {
+          ierr.textContent = "Audio generation failed: " + (job.error || "unknown error") +
+            " — the service and stops were still imported; retry audio from the Audio tab.";
+          openProgram(p.id);
+        }
+      } catch (e) { ierr.textContent = String(e.message || e); }
+      finally { clearInterval(tick); btn.disabled = false; btn.textContent = "Import service"; }
     };
   } catch (e) { ebox.textContent = String(e.message || e); }
 }

@@ -22,6 +22,32 @@ import urllib.request
 BUSTIMES_BASE = "https://bustimes.org"
 _HTTP_TIMEOUT = 20
 
+# Short in-memory cache: the UI fetches detail+timetable for the preview and
+# the import refetches seconds later. bustimes.org can take 10s+ per file, so
+# without this every import pays the download twice with no feedback.
+_CACHE_TTL_S = 300
+_cache: dict[str, tuple[float, object]] = {}
+
+
+def _cached(key: str, fn):
+    import time as _time
+    now = _time.monotonic()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < _CACHE_TTL_S:
+        return hit[1]
+    val = fn()
+    _cache[key] = (now, val)
+    # bounded: drop the oldest entries past 200
+    if len(_cache) > 200:
+        for k in sorted(_cache, key=lambda k: _cache[k][0])[: len(_cache) - 200]:
+            del _cache[k]
+    return val
+
+
+def cache_clear() -> None:
+    """Forget cached bustimes responses (tests)."""
+    _cache.clear()
+
 
 def split_description(description: str) -> list[str]:
     """Split a bustimes description into typical destinations.
@@ -64,7 +90,7 @@ def fetch_services(operator: str = "", search: str = "", page: int = 1) -> dict:
 
 def fetch_service_detail(service_id: int | str) -> dict:
     url = BUSTIMES_BASE + f"/api/services/{service_id}/"
-    return _http_get_json(url)
+    return _cached(f"detail:{service_id}", lambda: _http_get_json(url))
 
 
 def parse_timetable_csv(text: str) -> list[dict]:
@@ -100,7 +126,7 @@ def parse_timetable_csv(text: str) -> list[dict]:
 
 def fetch_timetable(service_id: int | str) -> list[dict]:
     url = BUSTIMES_BASE + f"/services/{service_id}/timetable.csv?detailed=true"
-    return parse_timetable_csv(_http_get_text(url))
+    return _cached(f"timetable:{service_id}", lambda: parse_timetable_csv(_http_get_text(url)))
 
 
 def auto_direction_for_part(part: str, directions: list[dict]) -> int | None:
