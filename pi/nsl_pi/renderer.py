@@ -182,6 +182,7 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             continue
         x, y, ww, hh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
         colour = el.get("colour", AMBER)
+        invert = bool(el.get("invert"))
         font_id = el.get("font", DEFAULT_FONT)
         han = None
         if isinstance(font_id, str) and font_id.startswith("han-"):
@@ -221,6 +222,12 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             strip = _han_render(han, text, colour, spacing)
             if scale > 1:
                 strip = strip.resize((strip.width * scale, strip.height * scale), Image.NEAREST)
+            if invert:
+                # colour background, black glyphs
+                mask = strip.convert("L").point(lambda p: 255 if p > 0 else 0)
+                inv = Image.new("RGB", strip.size, colour)
+                inv.paste(bg, (0, 0), mask)
+                strip = inv
             tw, th = strip.size
             if align in ("centre", "center"):
                 tx = x + (ww - tw) // 2
@@ -232,25 +239,30 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             scroll = el.get("scroll", "none")
             if scroll == "always" or (scroll == "if_too_long" and tw > ww):
                 off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
-                tmp = Image.new("RGB", (tw + ww, hh), bg)
-                tmp.paste(strip, (0, ty - y), strip)
+                tmp = Image.new("RGB", (tw + ww, hh), colour if invert else bg)
+                if not invert:
+                    tmp.paste(strip, (0, ty - y), strip)
+                else:
+                    tmp.paste(strip, (0, ty - y))
                 window = tmp.crop((off, 0, min(off + ww, tmp.width), hh))
                 img.paste(window, (x, y))
             else:
-                img.paste(strip, (tx, ty), strip)
+                if invert:
+                    img.paste(strip, (tx, ty))
+                else:
+                    img.paste(strip, (tx, ty), strip)
             continue
         scroll = el.get("scroll", "none")
         needs_scroll = scroll == "always" or (scroll == "if_too_long" and tw > ww)
+        if invert:
+            dr.rectangle([x, y, x + ww, y + hh], fill=colour)
         if needs_scroll:
             off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
             tx = x + ww - off
-            # clip to element box
-            clip = img.crop((x, y, x + ww, y + hh))
-            tmp = Image.new("RGB", (tw + ww, hh), bg)
+            tmp = Image.new("RGB", (tw + ww, hh), colour if invert else bg)
             d2 = ImageDraw.Draw(tmp)
-            d2.text((0, hh // 2 if valign == "middle" else 0), text, fill=colour, font=fnt,
+            d2.text((0, hh // 2 if valign == "middle" else 0), text, fill=(bg if invert else colour), font=fnt,
                     anchor="lm" if valign == "middle" else "lt")
-            # scroll window
             sx = off
             window = tmp.crop((sx, 0, min(sx + ww, tmp.width), hh))
             img.paste(window, (x, y))
@@ -264,7 +276,7 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             else:
                 tx = x + 1
                 anchor_x = "l"
-            dr.text((tx, ty), text, fill=colour, font=fnt, anchor=f"{anchor_x}{anchor_y}")
+            dr.text((tx, ty), text, fill=(bg if invert else colour), font=fnt, anchor=f"{anchor_x}{anchor_y}")
     return img
 
 

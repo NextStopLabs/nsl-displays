@@ -87,11 +87,11 @@ const LayoutEditor = (() => {
       override: { mode: "replace", replaces: "dest", hide: [] },
       elements: [
         { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "han-1912B3E1", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always", scale: 2, spacing: 1 },
+          align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always", scale: 2, spacing: 1, invert: false },
         { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "han-2423B3E1", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always", scale: 1, spacing: 1 },
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always", scale: 1, spacing: 1, invert: false },
         { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "han-1610N2E1", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1 } ] };
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1, invert: false } ] };
   }
 
   function pagesUsed(lay) {
@@ -201,14 +201,15 @@ const LayoutEditor = (() => {
       const sel = i === ed.sel;
       const onPage = parseInt(el.page || 1, 10) === (ed.pageLock || 1);
       const other = !showAll && ed.pageLock && !onPage;
-      g.fillStyle = sel ? "rgba(255,176,0,.28)" : (other ? "rgba(255,176,0,.04)" : "rgba(255,176,0,.12)");
+      const inv = el.invert;
+      g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : (other ? "rgba(255,176,0,.04)" : "rgba(255,176,0,.12)"));
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.strokeStyle = sel ? "#ff4444" : (other ? "#5a5348" : AMBER); g.lineWidth = sel ? 2 : 1;
       g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
-      g.fillStyle = sel ? "#fff" : AMBER;
+      g.fillStyle = inv ? "#000" : (sel ? "#fff" : AMBER);
       g.font = `${Math.max(9, 3 * scale)}px monospace`;
       g.textBaseline = "top"; g.textAlign = "left";
-      const label = (el.type === "field" ? el.field : (el.text || "text").slice(0, 10)) + (el.page > 1 ? " p" + el.page : "");
+      const label = (el.type === "field" ? el.field : (el.text || "text").slice(0, 10)) + (el.page > 1 ? " p" + el.page : "") + (inv ? " inv" : "");
       g.fillText(label, el.x * scale + 2, el.y * scale + 2);
       if (sel) {
         g.fillStyle = "#ff4444";
@@ -252,7 +253,8 @@ const LayoutEditor = (() => {
         const han = hanover.isHan(el.font) ? hanGet(el.font) : null;
         const px = fontPx(el);
         g.font = `${px}px monospace`;
-        g.fillStyle = el.colour || AMBER;
+        const ink = el.colour || AMBER;
+        const paper = lay.background || "#000000";
         g.textBaseline = el.valign === "middle" ? "middle" : (el.valign === "bottom" ? "bottom" : "top");
         g.textAlign = cssAlign(el.align || "left");
         const bx = el.x, by = el.y, bw = el.w, bh = el.h;
@@ -261,6 +263,10 @@ const LayoutEditor = (() => {
         const hsp = han ? hanSpacing(el) : 0;
         const tw = han ? hanWidth(han, text, hsp) * sc : g.measureText(text).width;
         const needScroll = el.scroll === "always" || (el.scroll === "if_too_long" && tw > bw);
+        // Inverted boxes fill with the element colour and draw text in black.
+        if (el.invert && !needScroll) {
+          g.fillStyle = ink; g.fillRect(bx, by, bw, bh);
+        }
         // No clipping for static text: ink may legally overflow its box (wide
         // glyphs, tall fonts) and the bus shows it. Only scrolling crops.
         if (!needScroll) {
@@ -271,8 +277,9 @@ const LayoutEditor = (() => {
             let tx = bx + 1;
             if (el.align === "centre" || el.align === "center") tx = bx + Math.floor((bw - tw) / 2);
             if (el.align === "right") tx = bx + bw - tw;
-            g.drawImage(hanStrip(han, sc, text, el.colour || AMBER, hsp), tx, y0);
+            g.drawImage(hanStrip(han, sc, text, el.invert ? paper : ink, hsp), tx, y0);
           } else {
+            g.fillStyle = el.invert ? paper : ink;
             let tx = bx + 1;
             if (g.textAlign === "center") tx = bx + bw / 2;
             if (g.textAlign === "right") tx = bx + bw - 1;
@@ -282,17 +289,19 @@ const LayoutEditor = (() => {
         }
         g.save();
         g.beginPath(); g.rect(bx, by, bw, bh); g.clip();
+        if (el.invert) { g.fillStyle = ink; g.fillRect(bx, by, bw, bh); }
         if (han) {
           const sh = han.height * sc;
           const y0 = el.valign === "middle" ? by + Math.floor((bh - sh) / 2)
             : (el.valign === "bottom" ? by + bh - sh : by);
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
-          const strip = hanStrip(han, sc, text, el.colour || AMBER, hsp);
+          const strip = hanStrip(han, sc, text, el.invert ? paper : ink, hsp);
           const s2 = document.createElement("canvas");
           s2.width = Math.ceil(tw + bw); s2.height = bh;
           s2.getContext("2d").drawImage(strip, 0, Math.max(0, y0 - by));
           g.drawImage(s2, offx, 0, bw, bh, bx, by, bw, bh);
         } else {
+          g.fillStyle = el.invert ? paper : ink;
           const offx = Math.floor(t * 20) % Math.floor(tw + bw);
           let tx = bx + bw - offx;
           if (g.textAlign === "center") tx = bx + bw / 2 - offx + (tw + bw) / 2 - tw / 2;
@@ -411,12 +420,13 @@ const LayoutEditor = (() => {
           <div style="flex:0 0 100px"><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
           <div style="flex:0 0 80px"><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
           <div class=col><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+          <div style="flex:0 0 70px;display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=invert${el.invert ? " checked" : ""}> Invert</label></div>
         </div>
       </div>
       <div class="row actions" style="margin-top:14px"><button id=lay-del class=danger>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
       const k = inp.dataset.p;
-      let v = inp.value;
+      let v = inp.type === "checkbox" ? inp.checked : inp.value;
       if (["x", "y", "w", "h", "flash_ms", "page", "scale", "spacing"].includes(k))
         v = k === "scale" ? Math.min(8, Math.max(1, parseInt(v || "1", 10) || 1))
           : k === "spacing" ? Math.min(16, Math.max(-8, parseInt(v || "0", 10) || 0))
@@ -533,7 +543,7 @@ const LayoutEditor = (() => {
     const lay = ed.lay;
     const base = { type, x: 0, y: 0, w: Math.floor(lay.width / 2), h: lay.height,
       font: "pixel-medium", colour: AMBER, align: "left", valign: "middle",
-      scroll: "if_too_long", flash_ms: 0, page: ed.pageLock || 1, show_if: "always" };
+      scroll: "if_too_long", flash_ms: 0, page: ed.pageLock || 1, show_if: "always", invert: false };
     if (type === "field") base.field = "dest";
     else base.text = "MESSAGE";
     lay.elements.push(base);
