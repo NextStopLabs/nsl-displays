@@ -1,0 +1,18 @@
+[Unit]
+Description=NSL portal (public API + UI)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust these two paths to where the repo + venv live on the host.
+WorkingDirectory=/srv/nsl-displays
+ExecStart=/srv/nsl-displays/.venv/bin/uvicorn portal.backend.app:app --host 0.0.0.0 --port 8888
+# Secrets and data paths. Copy deploy/portal.env.example to /etc/nsl/portal.env
+# and fill it in. Never commit the real file.
+EnvironmentFile=/etc/nsl/portal.env
+ExecStartPre=/bin/mkdir -p /var/lib/nsl-portal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

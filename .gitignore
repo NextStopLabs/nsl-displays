@@ -45,6 +45,7 @@ backups/
 # Secrets / env
 .env
 .env.*
+deploy/portal.env
 *.key
 *.pem
 !deploy/config/*.example

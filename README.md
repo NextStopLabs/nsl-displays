@@ -436,6 +436,18 @@ uvicorn portal.backend.app:app --host 127.0.0.1 --port 8000
 # open http://127.0.0.1:8000/  (no /portal prefix locally; proxy strips it in prod)
 ```
 
+**Run it as a service** (bare metal, survives SSH drop + reboot):
+
+```bash
+sudo mkdir -p /etc/nsl
+sudo cp deploy/portal.env.example /etc/nsl/portal.env
+sudo nano /etc/nsl/portal.env   # set PORTAL_SECRET + data paths
+# adjust WorkingDirectory/ExecStart in deploy/nsl-portal.service to your checkout + venv, then:
+sudo cp deploy/nsl-portal.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now nsl-portal
+journalctl -u nsl-portal -f
+```
+
 **First use:** sign up (`POST /api/auth/signup` or the UI) → creates user + org. Then pair a controller (§15), publish a program, upload audio/voices (`.onnx` + `.onnx.json` pair per voice). Back up nightly via the `backup` profile. Never commit `PORTAL_SECRET`.
 
 ---
