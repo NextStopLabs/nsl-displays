@@ -388,6 +388,17 @@ function renderProgram() {
       <div style="align-self:end"><button id=nd-add class=primary>Add destination</button></div></div>
     <div class=err id=nd-err></div></div>`;
 
+  // ---- bustimes.org import ----
+  h += `<div class=group><div class=grouptitle>Import from bustimes.org</div>
+    <p class=hint>Live lookup at bustimes.org. Typical destinations come from the description split on " - "
+    (one part for circulars like "Lichfield City Circular", more for "Tamworth - Lichfield - St. Francis of Assisi").
+    Stops come from the service timetable; stop audio is generated with Piper when a voice is picked.</p>
+    <div class=row>
+    <div style="flex:1;min-width:120px"><label for=bt-operator>Operator code</label><input id=bt-operator value="BULI"></div>
+    <div style="flex:2;min-width:160px"><label for=bt-search>Search (number or place)</label><input id=bt-search></div>
+    <div style="align-self:end"><button id=bt-find>Search bustimes.org</button></div></div>
+    <div class=err id=bt-err></div><div id=bt-results></div><div id=bt-detail></div></div>`;
+
   // ---- services tucked away: rename / announcements / delete ----
   h += `<details id=svc-details><summary>Services (${(p.services || []).length}) — announcements &amp; rename</summary>`;
   h += `<div class=row>
@@ -538,6 +549,8 @@ async function refreshUploadStatus() {
       openProgram(p.id); loadPrograms();
     } catch (e) { err(String(e.message || e)); }
   };
+  // bustimes.org import
+  wireBustimesImport(p);
   // row actions: edit dialog / stops / display / delete
   const dlg = $("dest-dialog");
   const openEdit = (did) => {
@@ -677,6 +690,86 @@ async function editLayout(did) {
   });
 }
 
+// ---------- bustimes.org import ----------
+function bustimesVoiceOptions(selected) {
+  const vs = S.voices || [];
+  return `<option value="">No voice — stops stay silent</option>` + vs.map((x) =>
+    `<option value="${esc(x.id)}"${x.id === selected ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+}
+function wireBustimesImport(p) {
+  const box = $("bt-results"), det = $("bt-detail"), ebox = $("bt-err");
+  if (!$("bt-find")) return;
+  $("bt-find").onclick = async () => {
+    try {
+      ebox.textContent = ""; box.innerHTML = `<span class=hint>Searching bustimes.org…</span>`; det.innerHTML = "";
+      const r = await api("/api/bustimes/services?operator=" + encodeURIComponent($("bt-operator").value.trim()) +
+        "&search=" + encodeURIComponent($("bt-search").value.trim()));
+      const rows = r.results || [];
+      box.innerHTML = rows.length ? `<table><thead><tr><th>Service</th><th>Description</th><th>Typical destinations</th><th></th></tr></thead><tbody>` +
+        rows.map((s) => `<tr><td><b>${esc(s.line_name)}</b></td><td>${esc(s.description)}</td>` +
+          `<td>${(s.destinations || []).map(esc).join(" · ") || "—"}</td>` +
+          `<td><button data-bt="${s.id}">Import…</button></td></tr>`).join("") + `</tbody></table>
+        <p class=hint>${esc(r.count)} service(s). Typical destinations are the description split on " - ".</p>`
+        : `<p class=hint>No services found for that operator/search.</p>`;
+      box.querySelectorAll("[data-bt]").forEach((b) => b.onclick = () => showBustimesDetail(p, b.dataset.bt));
+    } catch (e) { ebox.textContent = String(e.message || e); box.innerHTML = ""; }
+  };
+}
+async function showBustimesDetail(p, bustimesId) {
+  const det = $("bt-detail"), ebox = $("bt-err");
+  try {
+    ebox.textContent = ""; det.innerHTML = `<span class=hint>Loading timetable…</span>`;
+    const d = await api(`/api/bustimes/services/${encodeURIComponent(bustimesId)}`);
+    const dirOpts = (sel) => (d.directions || []).map((g) =>
+      `<option value="${g.index}"${String(g.index) === String(sel) ? " selected" : ""}>` +
+      `${esc(g.from)} → ${esc(g.to)} (${g.count} stops)</option>`).join("");
+    const destRows = (d.suggested && d.suggested.length ? d.suggested : [{ name: d.description, direction: 0 }])
+      .map((s, i) => `<tr><td><input data-btd-name="${i}" value="${esc(s.name)}"></td>
+        <td><input data-btd-code="${i}" maxlength=8 inputmode=numeric placeholder="auto"></td>
+        <td><input data-btd-via="${i}" placeholder="via"></td>
+        <td><input data-btd-dest="${i}" value="${esc(s.name)}"></td>
+        <td><select data-btd-dir="${i}"><option value="">No stops</option>${dirOpts(s.direction)}</select></td></tr>`).join("");
+    det.innerHTML = `<div class=group><div class=grouptitle>Import ${esc(d.line_name)} — ${esc(d.description)}</div>
+      <div class=row>
+      <div style="flex:1"><label for=bt-num>Service number</label><input id=bt-num value="${esc(d.line_name)}"></div>
+      <div style="flex:2"><label for=bt-name>Service name</label><input id=bt-name value="${esc(d.description)}"></div></div>
+      <div class=row>
+      <div style="flex:1"><label for=bt-voice>Voice for stop audio</label><select id=bt-voice>${bustimesVoiceOptions(localStorage.getItem("nsl_voice") || "")}</select></div>
+      <div style="flex:1"><label for=bt-gen>Stop audio</label><select id=bt-gen><option value="yes">Generate missing stop audio</option><option value="no">Skip audio (silent stops)</option></select></div></div>
+      <p class=hint>${(d.directions || []).map((g) => `Direction ${g.index + 1}: ${esc(g.from)} → ${esc(g.to)} — ${g.count} stops`).join("<br>") || "No timetable directions."}</p>
+      <table><thead><tr><th>Destination name</th><th>Code</th><th>Via</th><th>Dest board</th><th>Timetable stops</th></tr></thead>
+      <tbody>${destRows}</tbody></table>
+      <div class=row><button id=bt-confirm class=primary>Import service</button></div>
+      <div class=err id=bt-import-err></div></div>`;
+    $("bt-confirm").onclick = async () => {
+      try {
+        const rows = (d.suggested && d.suggested.length ? d.suggested : [{ name: d.description }]);
+        const dests = rows.map((_, i) => {
+          const dir = document.querySelector(`[data-btd-dir="${i}"]`).value;
+          return { name: document.querySelector(`[data-btd-name="${i}"]`).value.trim(),
+            code: document.querySelector(`[data-btd-code="${i}"]`).value.trim(),
+            via: document.querySelector(`[data-btd-via="${i}"]`).value.trim(),
+            dest: document.querySelector(`[data-btd-dest="${i}"]`).value.trim(),
+            direction: dir === "" ? null : parseInt(dir, 10) };
+        });
+        const r = await api("/api/bustimes/import", { method: "POST", body: {
+          program_id: p.id, bustimes_id: d.id,
+          service_number: $("bt-num").value.trim() || d.line_name,
+          service_name: $("bt-name").value.trim() || d.description,
+          voice_id: $("bt-voice").value || null,
+          generate_audio: $("bt-gen").value !== "no",
+          destinations: dests } });
+        const a = r.audio || {};
+        alert(`Imported service ${r.service_number}: ${r.destinations.length} destination(s). ` +
+          `Stops: ${a.unique_stops || 0} unique, ${a.with_audio || 0} with audio` +
+          `${(a.silent || []).length ? `, silent: ${a.silent.slice(0, 5).join("; ")}${a.silent.length > 5 ? "…" : ""}` : ""}.` +
+          `${(r.warnings || []).length ? " Warnings: " + r.warnings.slice(0, 3).join(" | ") : ""}`);
+        openProgram(p.id);
+      } catch (e) { $("bt-import-err").textContent = String(e.message || e); }
+    };
+  } catch (e) { ebox.textContent = String(e.message || e); }
+}
+
 // ---------- codes ----------
 $("btn-codes").addEventListener("click", async () => {
   try {
@@ -789,6 +882,8 @@ async function loadAudio() {
     `<td class=row><button data-rename="${esc(a.sha256)}">Rename</button><button data-delclip="${esc(a.sha256)}">Delete</button></td></tr>`).join("") ||
     `<tr><td colspan=4 class=hint>No clips yet — upload one or generate it from text below.</td></tr>`;
   const v = await api("/api/voices?organisation_id=" + encodeURIComponent(S.org));
+  S.voices = v.voices || [];
+  S.piper_available = v.piper_available;
   $("voicerows").innerHTML = (v.voices || []).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.language || "")}</td><td>${esc(x.sample_rate || "")}</td></tr>`).join("") ||
     `<tr><td colspan=3 class=hint>No voices uploaded yet.</td></tr>`;
   if (v.piper_available === false) {

@@ -444,16 +444,24 @@ def check_code(pid: str, code: str, u: dict = Depends(current_user)):
             "suggestion": None if (ok_shape and taken is None) else suggest_code(pid)}
 
 
-def suggest_code(pid: str) -> str:
+def suggest_code(pid: str, _used_extra: set[str] | None = None) -> str:
     con = db()
     used = {r[0] for r in con.execute("SELECT code FROM p_destinations WHERE program_id=?", (pid,))}
+    if _used_extra:
+        used |= set(_used_extra)
     svc = con.execute("SELECT number FROM p_services WHERE program_id=? ORDER BY position LIMIT 1", (pid,)).fetchone()
-    prefix = (svc[0] if svc else "10")[:4].ljust(2, "0")
+    digits = "".join(ch for ch in (svc[0] if svc else "") if ch.isdigit())[:4]
+    prefix = (digits if len(digits) >= 2 else "10")[:4].ljust(2, "0")
     for i in range(1, 1000000):
         cand = (prefix + f"{i:06d}")[:8]
         if cand not in used and len(cand) == 8 and cand.isdigit():
+            used.add(cand)
             return cand
-    return "00000001"
+    for i in range(1, 100000000):
+        cand = f"{i:08d}"
+        if cand not in used:
+            return cand
+    raise HTTPException(400, "program is full — no free destination codes")
 
 
 @app.put("/api/destinations/{did}/stops")
@@ -1693,6 +1701,212 @@ def update_service(sid: str, body: dict, u: dict = Depends(current_user)):
                 (_utcnow(), u["id"], s["program_id"]))
     con.commit()
     return {"ok": True}
+
+
+# ---------- bustimes.org import (services -> destinations + stops + stop audio) ----------
+@app.get("/api/bustimes/services")
+def bustimes_services(operator: str = "", search: str = "", page: int = 1,
+                      u: dict = Depends(current_user)):
+    """Search bustimes.org services. Any signed-in user on any org may browse;
+    importing still needs editor on the target program's org."""
+    from . import bustimes as _bt
+    try:
+        data = _bt.fetch_services(operator=operator, search=search, page=page)
+    except Exception as e:
+        raise HTTPException(502, f"bustimes.org lookup failed: {e}")
+    out = []
+    for r in (data.get("results") or []):
+        desc = r.get("description") or ""
+        out.append({"id": r.get("id"), "slug": r.get("slug", ""),
+                    "line_name": r.get("line_name", ""), "description": desc,
+                    "destinations": _bt.split_description(desc)})
+    return {"count": data.get("count", len(out)), "next": data.get("next"),
+            "previous": data.get("previous"), "results": out}
+
+
+@app.get("/api/bustimes/services/{sid}")
+def bustimes_service_detail(sid: int, u: dict = Depends(current_user)):
+    """One bustimes service: typical destinations (description split on ' - ')
+    plus the stop list of every timetable direction."""
+    from . import bustimes as _bt
+    try:
+        detail = _bt.fetch_service_detail(sid)
+    except Exception as e:
+        raise HTTPException(502, f"bustimes.org lookup failed: {e}")
+    desc = detail.get("description") or ""
+    parts = _bt.split_description(desc)
+    try:
+        directions = _bt.fetch_timetable(sid)
+    except Exception as e:
+        raise HTTPException(502, f"timetable download failed: {e}")
+    dirs = []
+    for i, d in enumerate(directions):
+        stops = d.get("stops") or []
+        dirs.append({"index": i, "from": stops[0] if stops else "",
+                     "to": stops[-1] if stops else "", "count": len(stops),
+                     "trips": d.get("trips", 0), "stops": stops})
+    return {"id": detail.get("id", sid), "line_name": detail.get("line_name", ""),
+            "slug": detail.get("slug", ""), "description": desc,
+            "destinations": parts,
+            "suggested": [{"name": p, "direction": _bt.auto_direction_for_part(p, directions)}
+                          for p in parts],
+            "directions": dirs}
+
+
+def _bustimes_clip_for_stop(con, org: str, stop_name: str, voice_id: str | None,
+                            gen_errors: list) -> str | None:
+    """Find or synthesise the audio clip for one stop name.
+
+    Reuses a clip whose tts_text matches the stop name (or whose friendly
+    filename matches its slug). Otherwise synthesises with Piper when a
+    voice is given. Returns the sha256 or None (silent stop).
+    """
+    name = (stop_name or "").strip()
+    if not name:
+        return None
+    slug = _slugify_clip(name)
+    row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND tts_text=?",
+                      (org, name)).fetchone()
+    if not row and slug:
+        row = con.execute("SELECT sha256 FROM audio_files WHERE organisation_id=? AND filename=?",
+                          (org, slug)).fetchone()
+    if row:
+        return row[0]
+    if not voice_id:
+        return None
+    real, tts_error = _try_piper_wav(name, voice_id, org)
+    if real is None:
+        gen_errors.append(f"{name}: {tts_error or 'voice generation failed'}")
+        return None
+    wav, duration_ms = real
+    h = hashlib.sha256(wav).hexdigest()
+    os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
+    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
+    if not os.path.exists(sp):
+        with open(sp, "wb") as f:
+            f.write(wav)
+    friendly = _unique_clip_name(con, org, slug or h[:12], h)
+    con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), org, h, friendly, f"audio/{h[:2]}/{h}.wav",
+                 duration_ms, "tts", name, voice_id,
+                 json.dumps({"speed": 1.0, "placeholder": False}), _utcnow()))
+    return h
+
+
+@app.post("/api/bustimes/import")
+def bustimes_import(body: dict, u: dict = Depends(current_user)):
+    """Import a bustimes.org service into a program.
+
+    Body: {program_id, bustimes_id, service_number?, service_name?,
+           voice_id?, generate_audio=true,
+           destinations?: [{name, via?, dest?, code?, direction?}]}
+    Omits -> destinations default to the description parts, each mapped to
+    its auto-detected timetable direction. Stops come from that direction's
+    timetable block; stop audio is reused by name or generated with Piper.
+    """
+    from . import bustimes as _bt
+    pid = body.get("program_id", "")
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    try:
+        bustimes_id = int(body.get("bustimes_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "bustimes_id (service ID) is required")
+    try:
+        detail = _bt.fetch_service_detail(bustimes_id)
+    except Exception as e:
+        raise HTTPException(502, f"bustimes.org lookup failed: {e}")
+    line_name = (body.get("service_number") or detail.get("line_name") or "").strip()
+    if not line_name:
+        raise HTTPException(400, "service has no line name — pass service_number explicitly")
+    description = (body.get("service_name") or detail.get("description") or line_name).strip()
+    parts = _bt.split_description(detail.get("description") or description)
+    try:
+        directions = _bt.fetch_timetable(bustimes_id)
+    except Exception as e:
+        raise HTTPException(502, f"timetable download failed: {e}")
+    if not directions or not any(d.get("stops") for d in directions):
+        raise HTTPException(400, "no timetable stops found for that service")
+    req_dests = body.get("destinations")
+    if req_dests is None:
+        req_dests = [{"name": p, "via": "", "dest": p,
+                      "direction": _bt.auto_direction_for_part(p, directions)} for p in parts]
+        if not req_dests:
+            req_dests = [{"name": description, "via": "", "dest": description, "direction": 0}]
+    voice_id = body.get("voice_id")
+    gen_audio = body.get("generate_audio", True)
+    if gen_audio and not voice_id:
+        # No voice -> stops stay silent; surface loudly instead of failing.
+        pass
+    con = db()
+    row = con.execute("SELECT * FROM p_services WHERE program_id=? AND number=?",
+                      (pid, line_name)).fetchone()
+    if row:
+        sid = row["id"]
+        if description and not row["name"]:
+            con.execute("UPDATE p_services SET name=? WHERE id=?", (description, sid))
+    else:
+        sid = str(uuid.uuid4())
+        pos = con.execute("SELECT COUNT(*) FROM p_services WHERE program_id=?", (pid,)).fetchone()[0]
+        con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (sid, org, pid, line_name, description, pos, None, None, None, "both"))
+    made, warnings, gen_errors = [], [], []
+    clip_cache: dict[str, str | None] = {}
+    used_codes = {r[0] for r in con.execute("SELECT code FROM p_destinations WHERE program_id=?", (pid,))}
+    for entry in req_dests:
+        name = ((entry or {}).get("name") or "").strip()
+        if not name:
+            continue
+        direction = (entry or {}).get("direction")
+        stops: list[str] = []
+        if direction is not None:
+            try:
+                stops = list((directions[int(direction)] or {}).get("stops") or [])
+            except (ValueError, IndexError, TypeError):
+                warnings.append(f"destination {name}: bad direction {direction!r} — no stops added")
+                stops = []
+        code = ((entry or {}).get("code") or "").strip()
+        if len(code) != 8 or not code.isdigit() or code in used_codes or con.execute(
+                "SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (pid, code)).fetchone():
+            code = suggest_code(pid, used_codes)
+        used_codes.add(code)
+        via = ((entry or {}).get("via") or "")
+        dest_text = ((entry or {}).get("dest") or name)
+        did = str(uuid.uuid4())
+        dpos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=?", (sid,)).fetchone()[0]
+        con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (did, org, pid, sid, code, name, dpos, None, via, dest_text,
+                     json.dumps({}, separators=(",", ":"))))
+        n_stops = 0
+        for i, sname in enumerate(stops, 1):
+            sname = (sname or "").strip()
+            if not sname:
+                continue
+            if sname not in clip_cache:
+                if gen_audio:
+                    clip_cache[sname] = _bustimes_clip_for_stop(con, org, sname, voice_id, gen_errors)
+                else:
+                    r = con.execute(
+                        "SELECT sha256 FROM audio_files WHERE organisation_id=? AND tts_text=?", (org, sname)).fetchone()
+                    clip_cache[sname] = r[0] if r else None
+            con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), org, pid, did, i, sname, clip_cache[sname],
+                         None, None, 1 if i == len(stops) else 0))
+            n_stops += 1
+        if not stops:
+            warnings.append(f"destination {name} ({code}): no stops — pick a timetable direction")
+        made.append({"destination_id": did, "code": code, "name": name, "stops": n_stops,
+                     "direction": direction})
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    reused = sum(1 for v in clip_cache.values() if v)
+    silent = sorted([k for k, v in clip_cache.items() if not v])
+    return {"ok": True, "service_id": sid, "service_number": line_name,
+            "destinations": made,
+            "audio": {"unique_stops": len(clip_cache), "with_audio": reused,
+                      "silent": silent, "voice_id": voice_id,
+                      "errors": gen_errors},
+            "warnings": warnings + gen_errors}
 
 
 @app.post("/api/programs/import")
