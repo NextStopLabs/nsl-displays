@@ -55,6 +55,8 @@ if sudo nmcli -t -f NAME con show | grep -qx "bus-lan"; then
 else
   sudo nmcli con add type ethernet ifname eth0 con-name bus-lan ip4 "$IP" ipv4.never-default yes || true
 fi
+# static bus LAN wins over DHCP when both are visible (isolated switch = no DHCP)
+sudo nmcli con mod bus-lan connection.autoconnect-priority 10 2>/dev/null || true
 sudo cp "$REPO"/deploy/nsl-*.service /etc/systemd/system/
 # Code location + role: units run `python3 -m nsl_pi.*`, so both the repo root
 # (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep

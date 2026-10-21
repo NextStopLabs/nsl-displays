@@ -108,7 +108,10 @@ curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/i
 
 `--unit` must match on all three (AP becomes `NSL-<unit>`).
 Add `--audio jack` to the front command for 3.5mm onboard audio
-(default `--audio usb`). Add `--portal <url>` only for a non-production portal.
+(default `--audio usb`). Add `--portal <url>` only for a non-production portal —
+use the exact base your browser uses: if the UI loads at
+`https://nsldisplays.com` with no `/portal` path, pass
+`--portal https://nsldisplays.com`.
 
 What the scripts do (all idempotent — safe to re-run):
 
