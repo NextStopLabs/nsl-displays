@@ -320,6 +320,30 @@ const LayoutEditor = (() => {
   }
 
   // ---------- properties panel ----------
+  function fontOptions(selected) {
+    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith("han-"));
+    const groups = new Map();
+    const other = [];
+    for (const f of han) {
+      const m = f.match(/^han-(\d{2})(.+)$/);
+      if (m) {
+        const size = m[1] + " px";
+        if (!groups.has(size)) groups.set(size, []);
+        groups.get(size).push({ id: f, label: m[2] });
+      } else {
+        other.push(f);
+      }
+    }
+    const sortedSizes = [...groups.keys()].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    let html = `<optgroup label="Built-in fonts">${FONTS.map((f) => `<option${f === selected ? " selected" : ""}>${f}</option>`).join("")}</optgroup>`;
+    for (const size of sortedSizes) {
+      html += `<optgroup label="Hanover ${size}">${groups.get(size).map((f) => `<option value="${esc(f.id)}"${f.id === selected ? " selected" : ""}>${esc(f.label)}</option>`).join("")}</optgroup>`;
+    }
+    if (other.length) {
+      html += `<optgroup label="Hanover other">${other.map((f) => `<option${f === selected ? " selected" : ""}>${f}</option>`).join("")}</optgroup>`;
+    }
+    return html;
+  }
   function renderProps() {
     const box = document.getElementById("lay-props");
     const list = document.getElementById("lay-ellist");
@@ -329,30 +353,42 @@ const LayoutEditor = (() => {
       `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")} · p${e.page || 1}</option>`).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
-    const num = (k, label) => `<div><label>${label}</label><input data-p=${k} type=number value="${el[k] ?? 0}"></div>`;
+    const num = (k, label, opts = "") => `<div><label>${label}</label><input data-p=${k} type=number ${opts} value="${el[k] ?? 0}"></div>`;
     const fieldSelect = el.type === "field"
       ? `<select data-p=field>${["num", "via", "dest", ...ed.extraKeys].map((f) => `<option${f === el.field ? " selected" : ""}>${f}</option>`).join("")}</select>`
       : `<input data-p=text value="${esc(el.text || "")}">`;
-    box.innerHTML = `<div class=row>${num("x", "X")}${num("y", "Y")}${num("w", "Width")}${num("h", "Height")}</div>
-      <div class=row>
-        <div><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
-        <div><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${fieldSelect}</div>
+    box.innerHTML = `
+      <div class="props-section"><div class="props-title">Position &amp; size</div>
+        <div class=row>${num("x", "X")}${num("y", "Y")}${num("w", "Width")}${num("h", "Height")}</div>
       </div>
-      <div class=row>
-        <div><label>Font</label><select data-p=font>${[...FONTS, ...(ed.hanIds || [])].map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
-        <div><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
-        <div><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-        <div><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+      <div class="props-section"><div class="props-title">Content</div>
+        <div class=row>
+          <div style="flex:0 0 110px"><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
+          <div class=col><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${fieldSelect}</div>
+        </div>
       </div>
-      <div class=row>
-        <div><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-        <div><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
-        <div><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
-        <div><label>Scale</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
-        <div><label>Spacing</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
+      <div class="props-section"><div class="props-title">Appearance</div>
+        <div class=row>
+          <div class=col><label>Font</label><select data-p=font>${fontOptions(el.font)}</select></div>
+          <div style="flex:0 0 80px"><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
+          <div style="flex:0 0 110px"><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+          <div style="flex:0 0 110px"><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        </div>
+        <div class=row>
+          <div style="flex:0 0 90px"><label>Scale</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
+          <div style="flex:0 0 90px"><label>Spacing</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
+          <div class=col></div>
+        </div>
       </div>
-      <div class="row full"><div><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div></div>
-      <div class="row actions" style="margin-top:12px"><button id=lay-del class=danger>Delete element</button></div>`;
+      <div class="props-section"><div class="props-title">Behaviour</div>
+        <div class=row>
+          <div style="flex:0 0 130px"><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+          <div style="flex:0 0 100px"><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
+          <div style="flex:0 0 80px"><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
+          <div class=col><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        </div>
+      </div>
+      <div class="row actions" style="margin-top:14px"><button id=lay-del class=danger>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
       const k = inp.dataset.p;
       let v = inp.value;
