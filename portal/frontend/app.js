@@ -66,10 +66,12 @@ const Preview = (() => {
         { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "han-1610N2E1", colour: AMBER,
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1 } ] };
   }
-  // Board pages (each with its own via/dest) cycle on their own timer,
-  // independent of layout pages: slot k shows layout page k % n_layout
-  // with destination page k % n_dest. With a single layout page the board
-  // simply rotates through P1, P2, … every page_seconds.
+  // One pages system: the destination's board pages (each with its own
+  // via/dest) rotate every page_seconds. All layout elements always draw;
+  // element `page` values are legacy and ignored.
+  function slotFor(lay, t) {
+    return Math.floor(t / (parseFloat(lay.page_seconds) || 3));
+  }
   function fieldsForSlot(baseFields, destPages, slot) {
     if (!destPages || !destPages.length) return baseFields;
     const pg = destPages[slot % destPages.length];
@@ -85,10 +87,7 @@ const Preview = (() => {
     g.fillRect(0, 0, off.width, off.height);
     const ovActive = !!ovText;
     const ov = lay.override || {};
-    const pages = [...new Set((lay.elements || []).map((e) => parseInt(e.page || 1, 10)))].sort((a, b) => a - b);
-    const slot = Math.floor(t / (parseFloat(lay.page_seconds) || 3));
-    const page = pages.length ? pages[slot % pages.length] : 1;
-    const fields = fieldsForSlot(baseFields, destPages, slot);
+    const fields = fieldsForSlot(baseFields, destPages, slotFor(lay, t));
     const hide = new Set();
     if (ovActive) {
       if (ov.mode === "hide_others") {
@@ -106,7 +105,6 @@ const Preview = (() => {
     };
     if (!(ov.mode === "full" && ovActive)) {
       for (const el of (lay.elements || [])) {
-        if (parseInt(el.page || 1, 10) !== page) continue;
         if (el.field && hide.has(el.field)) continue;
         if (!show(el)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;

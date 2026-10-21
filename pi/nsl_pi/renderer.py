@@ -48,32 +48,36 @@ def resolve_fields(destination: dict, service_number: str = "") -> dict:
     return fields
 
 
-def fields_for_layout_page(destination: dict, service_number: str,
-                           layout: dict, now: float | None = None,
-                           pages: list[dict] | None = None) -> tuple[dict, int]:
-    """Pick the fields for the time slot active at `now`.
+def fields_for_slot(destination: dict, service_number: str = "",
+                      layout: dict | None = None, now: float | None = None,
+                      pages: list[dict] | None = None) -> dict:
+    """Board text for the time slot active at `now`.
 
-    Board pages (each with its own via/dest) cycle on their own timer,
-    independent of layout pages: slot k shows layout page
-    ``k % n_layout_pages`` with destination page ``k % n_dest_pages``.
-    With a single layout page (the common case) the board simply rotates
-    through P1, P2, … every ``page_seconds``. Without destination pages
-    this is identical to the old layout-page cycling.
-    Returns (fields, layout_page_number). Service number is constant.
+    The destination's board pages (each with its own via/dest) rotate every
+    ``page_seconds``: slot ``k = floor(now / page_seconds)`` shows
+    destination page ``k % n_pages``. Without board pages the base
+    via/dest is used. Service number (num) is constant across pages.
+    Layout-element ``page`` values are legacy and ignored: all elements
+    always draw; there is only one pages system (the board pages).
     """
-    ordered_layout_pages = _pages_used(layout)
-    secs = float(layout.get("page_seconds", 3) or 3)
+    fields = resolve_fields(destination, service_number)
+    if not pages:
+        return fields
+    secs = 3.0
+    if layout:
+        try:
+            secs = float(layout.get("page_seconds", 3) or 3)
+        except (TypeError, ValueError):
+            secs = 3.0
     t = time.time() if now is None else now
     slot = int(t // secs) if secs > 0 else 0
-    page = ordered_layout_pages[slot % len(ordered_layout_pages)]
-    fields = resolve_fields(destination, service_number)
-    if pages:
-        ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
-        if ordered:
-            pg = ordered[slot % len(ordered)]
-            fields["via"] = pg.get("via") or ""
-            fields["dest"] = pg.get("dest") or ""
-    return fields, page
+    ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+    if not ordered:
+        return fields
+    pg = ordered[slot % len(ordered)]
+    fields["via"] = pg.get("via") or ""
+    fields["dest"] = pg.get("dest") or ""
+    return fields
 
 
 def resolve_layout(con, destination_id: str, display_id: str) -> dict | None:
@@ -151,24 +155,9 @@ def _element_text(el: dict, fields: dict, override_text: str, layout: dict) -> s
     return fields.get(field, "")
 
 
-def _pages_used(layout: dict) -> list[int]:
-    pages = sorted({int(el.get("page", 1)) for el in layout.get("elements", [])})
-    return pages or [1]
-
-
-def current_page(layout: dict, now: float | None = None) -> int:
-    pages = _pages_used(layout)
-    if len(pages) == 1:
-        return pages[0]
-    secs = float(layout.get("page_seconds", 3) or 3)
-    now = time.time() if now is None else now
-    idx = int(now // secs) % len(pages)
-    return pages[idx]
-
-
 def render_frame(layout: dict, fields: dict, override_text: str = "",
                  now: float | None = None, scroll_px: int | None = None) -> Image.Image:
-    """Render one frame. now controls paging/flash; scroll_px offsets scrolling text."""
+    """Render one frame. now controls board-page slot/flash; scroll_px offsets scrolling text."""
     w, h = int(layout["width"]), int(layout["height"])
     bg = layout.get("background", "#000000")
     img = Image.new("RGB", (w, h), bg)
@@ -177,7 +166,6 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
     override_active = bool(override_text)
     ov = layout.get("override", {})
     mode = ov.get("mode", "replace")
-    page = current_page(layout, now)
 
     if mode == "full" and override_active:
         # override fills display
@@ -196,8 +184,9 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
                 break
 
     for el in layout.get("elements", []):
-        if int(el.get("page", 1)) != page:
-            continue
+        # No layout paging: every element always draws. Board rotation comes
+        # from the destination's board pages (fields_for_slot picks via/dest
+        # per time slot). Element `page` values are legacy and ignored.
         if el.get("field") in hide:
             continue
         if not _visible(el, fields, override_active):

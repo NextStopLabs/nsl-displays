@@ -75,7 +75,7 @@ class DisplayDriver:
         nsl-display renders them) - drawing them here would composite several
         frames at the same origin, i.e. garbled flickering text.
         """
-        from .renderer import autofit_layout, fields_for_layout_page, render_frame
+        from .renderer import autofit_layout, fields_for_slot, render_frame
         import json as _j
         import time as _t
         fields = snapshot.get("fields", {})
@@ -111,7 +111,7 @@ class DisplayDriver:
                 layout = autofit_layout(w, h)
             try:
                 if pages and destination:
-                    page_fields, _ = fields_for_layout_page(
+                    page_fields = fields_for_slot(
                         destination, svc_number, layout, _t.time(), pages)
                     # keep stop-derived fields (__board_text etc.) from snapshot
                     for k, v in fields.items():

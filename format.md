@@ -235,7 +235,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `schema` | `1`. Unknown higher values are rejected by older readers |
 | `width`, `height` | Must equal the target display's size |
 | `background` | Hex colour, default `#000000` |
-| `page_seconds` | How long each page shows when elements use more than one `page` |
+| `page_seconds` | How long each board page shows |
 | `override.mode` | `replace` (override text replaces one element), `hide_others` (override text only, other elements hidden), `full` (override text fills the display) |
 | `override.replaces` | The `field` whose text is replaced (default `dest`) |
 | `override.hide` | Fields hidden while an override is active |
@@ -249,7 +249,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `align` / `valign` | `left` `centre` `right` / `top` `middle` `bottom` |
 | `scroll` | `none`, `always`, `if_too_long` |
 | `flash_ms` | 0 = steady, otherwise on/off period in milliseconds |
-| `page` | Integer from 1. Pages alternate every `page_seconds` |
+| `page` | Legacy, ignored. All elements always draw; rotation comes from the destination's board pages |
 | `show_if` | `always`, `has_text`, `override_active`, `override_inactive` |
 
 **Layout resolution for a destination on a display:**
@@ -257,7 +257,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 2. the `is_default` template for that display, else
 3. a built-in **auto-fit** layout (route number on the left, destination text filling the rest).
 
-**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination's board page for the active time slot: slot `k = floor(now / page_seconds)` shows layout page `k % n_layout_pages` with destination page `k % n_destination_pages`. A destination with no `destination_pages` rows behaves as a single board page using its `via`/`dest`, so with one layout page and several board pages the board simply rotates P1 → P2 → … every `page_seconds`. Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
+**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination's board page for the active time slot: `k = floor(now / page_seconds)` shows destination page `k % n_pages` (a destination with no `destination_pages` rows behaves as a single board page using its `via`/`dest`). There is only one pages system — the board pages. Layout-element `page` values are legacy and ignored: every element always draws. Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
 
 ---
 

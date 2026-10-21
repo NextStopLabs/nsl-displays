@@ -303,7 +303,7 @@ Lets the user decide **exactly what each display shows for each destination**.
 
 - Choose a program display (front, side, rear, or any custom one) to edit. The canvas is that display's real pixel size, for example 240 x 40, 160 x 40, 80 x 40.
 - A layout is a set of **elements**. Each element is either a **field** (`num`, `via`, `dest`, or an extra field) or **fixed text**.
-- Per element: position and size, font, colour, alignment, scrolling (none / scroll / scroll only if too long), flashing, and **page** (elements on different pages alternate on a timer, for example showing `via` and `dest` alternately).
+- Per element: position and size, font, colour, alignment, scrolling (none / scroll / scroll only if too long), flashing. Board rotation comes from the destination's **board pages** (each with its own `via`/`dest`), which alternate every `page_seconds` — there is only one pages system.
 - Per element **visibility**: always, only if the field has text, only while an override is active, or only while it is not.
 - **Override behaviour** per layout: replace one element, hide others, or show the override as a full-display message.
 - Example setups (all user-defined, nothing fixed):
