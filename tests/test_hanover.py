@@ -67,6 +67,8 @@ def test_scaled_render_doubles_size():
     lay = dict(autofit_layout(240, 40))
     for el in lay["elements"]:
         el["font"] = "han-19ArialB"
+        el["scale"] = 1  # normalize: current defaults carry scale 2 on num
+        el["spacing"] = 0
     plain = render_frame(lay, {"num": "1", "via": "", "dest": "A"}, now=0.0)
     for el in lay["elements"]:
         el["scale"] = 2
@@ -137,3 +139,20 @@ def test_spacing_validation():
     b.add_layout(d, f, lay)
     with pytest.raises(ValueError):
         b.build("/tmp/han-badspacing.nslprog", 1, default_display_id=f)
+
+
+def test_autofit_hanover_defaults_render():
+    """Fleet defaults must render with the real shipped .Fnt files (no fallback)."""
+    import os
+    os.environ["NSL_FONTS_DIR"] = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "HANOVERFONTS")
+    from nsl_pi import hanover as _han
+    from nsl_pi.renderer import autofit_layout, render_frame
+    for fid in ("han-1912B3E1", "han-2423B3E1", "han-1610N2E1"):
+        f = _han.get_font(fid)  # raises if the file is missing/broken
+        assert f["height"] > 0
+    for w, h in ((240, 40), (160, 40), (80, 40)):
+        img = render_frame(autofit_layout(w, h),
+                           {"num": "100", "via": "Branston", "dest": "BURTON"}, now=0.0)
+        assert img.size == (w, h)
+        assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 50

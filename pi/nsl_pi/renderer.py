@@ -61,23 +61,39 @@ def resolve_layout(con, destination_id: str, display_id: str) -> dict | None:
     return None
 
 
+# Fleet auto-fit defaults (operator standard): Hanover bitmap fonts, tracked +1.
+HAN_NUM_FONT = "han-1912B3E1"
+HAN_DEST_FONT = "han-2423B3E1"
+HAN_VIA_FONT = "han-1610N2E1"
+HAN_SPACING = 1
+HAN_NUM_SCALE = 2
+
+
 def autofit_layout(width: int, height: int) -> dict:
-    """Default board: route number left, destination top-right, via bottom-right."""
-    num_w = max(16, width // 4)
+    """Default board: route number left, destination top-right, via bottom-right.
+
+    Geometry scales from the 240x40 front standard (num 70 wide, dest 25 tall,
+    via fills the rest); the same Hanover fonts/scale/spacing apply on every
+    board size. Mirrored in portal/frontend/app.js + layout.js — keep identical.
+    """
+    num_w = max(16, round(width * 70 / 240))
     dest_h = max(8, round(height * 25 / 40))
     return {
         "schema": 1, "width": width, "height": height, "background": "#000000",
         "page_seconds": 3, "override": {"mode": "replace", "replaces": "dest", "hide": []},
         "elements": [
             {"type": "field", "field": "num", "x": 0, "y": 0, "w": num_w, "h": height,
-             "font": "pixel-huge", "colour": AMBER, "align": "centre", "valign": "middle",
-             "scroll": "none", "flash_ms": 0, "page": 1, "show_if": "always"},
+             "font": HAN_NUM_FONT, "colour": AMBER, "align": "centre", "valign": "middle",
+             "scroll": "none", "flash_ms": 0, "page": 1, "show_if": "always",
+             "scale": HAN_NUM_SCALE, "spacing": HAN_SPACING},
             {"type": "field", "field": "dest", "x": num_w, "y": 0, "w": width - num_w, "h": dest_h,
-             "font": "pixel-large", "colour": AMBER, "align": "centre", "valign": "middle",
-             "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "always"},
+             "font": HAN_DEST_FONT, "colour": AMBER, "align": "centre", "valign": "middle",
+             "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "always",
+             "scale": 1, "spacing": HAN_SPACING},
             {"type": "field", "field": "via", "x": num_w, "y": dest_h, "w": width - num_w, "h": height - dest_h,
-             "font": "pixel-medium", "colour": AMBER, "align": "centre", "valign": "middle",
-             "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "has_text"},
+             "font": HAN_VIA_FONT, "colour": AMBER, "align": "centre", "valign": "middle",
+             "scroll": "if_too_long", "flash_ms": 0, "page": 1, "show_if": "has_text",
+             "scale": 1, "spacing": HAN_SPACING},
         ],
     }
 

@@ -155,8 +155,15 @@ def test_autofit_default_matches_spec(tmp_path):
     lay = autofit_layout(240, 40)
     els = {e["field"]: e for e in lay["elements"]}
     assert set(els) == {"num", "dest", "via"}
-    assert (els["num"]["x"], els["num"]["y"], els["num"]["w"], els["num"]["h"]) == (0, 0, 60, 40)
-    assert (els["dest"]["x"], els["dest"]["y"], els["dest"]["w"], els["dest"]["h"]) == (60, 0, 180, 25)
-    assert (els["via"]["x"], els["via"]["y"], els["via"]["w"], els["via"]["h"]) == (60, 25, 180, 15)
-    assert els["num"]["font"] == "pixel-huge" and els["dest"]["font"] == "pixel-large" and els["via"]["font"] == "pixel-medium"
+    assert (els["num"]["x"], els["num"]["y"], els["num"]["w"], els["num"]["h"]) == (0, 0, 70, 40)
+    assert (els["dest"]["x"], els["dest"]["y"], els["dest"]["w"], els["dest"]["h"]) == (70, 0, 170, 25)
+    assert (els["via"]["x"], els["via"]["y"], els["via"]["w"], els["via"]["h"]) == (70, 25, 170, 15)
+    assert els["num"]["font"] == "han-1912B3E1" and els["dest"]["font"] == "han-2423B3E1" and els["via"]["font"] == "han-1610N2E1"
+    assert all(e["spacing"] == 1 for e in els.values())
+    assert els["num"]["scale"] == 2 and els["dest"]["scale"] == 1 and els["via"]["scale"] == 1
     assert all(e["align"] == "centre" and e["valign"] == "middle" for e in els.values())
+    # geometry scales proportionally to other board sizes
+    lay160 = autofit_layout(160, 40)
+    els160 = {e["field"]: e for e in lay160["elements"]}
+    assert els160["num"]["w"] == round(160 * 70 / 240)
+    assert els160["num"]["font"] == "han-1912B3E1"

@@ -55,16 +55,16 @@ const Preview = (() => {
   const AMBER = "#FFB000";
   function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; snap = null; }
   function autofit(w, h) {
-    const nw = Math.max(16, Math.floor(w / 4)), dh = Math.max(8, Math.round(h * 25 / 40));
+    const nw = Math.max(16, Math.round(w * 70 / 240)), dh = Math.max(8, Math.round(h * 25 / 40));
     return { schema: 1, width: w, height: h, background: "#000000", page_seconds: 3,
       override: { mode: "replace", replaces: "dest", hide: [] },
       elements: [
-        { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "pixel-huge", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always" },
-        { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "pixel-large", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always" },
-        { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "pixel-medium", colour: AMBER,
-          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text" } ] };
+        { type: "field", field: "num", x: 0, y: 0, w: nw, h: h, font: "han-1912B3E1", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "none", flash_ms: 0, page: 1, show_if: "always", scale: 2, spacing: 1 },
+        { type: "field", field: "dest", x: nw, y: 0, w: w - nw, h: dh, font: "han-2423B3E1", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "always", scale: 1, spacing: 1 },
+        { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "han-1610N2E1", colour: AMBER,
+          align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1 } ] };
   }
   function drawOne(cv, lay, fields, ovText, t) {
     const H = (typeof LayoutEditor !== "undefined" && LayoutEditor.hanover) || null;
