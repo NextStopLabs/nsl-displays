@@ -138,6 +138,32 @@ _STOP_QUALIFIERS_LOWER = {"adj", "adjacent", "opp", "opposite", "o/s", "os", "ou
 _STOP_QUALIFIERS_ANY_CASE = {"adj", "opp", "nr", "o/s", "os", "cnr"}
 
 
+def _strip_trailing_qualifier_paren(s: str) -> str:
+    """Drop a trailing '(opp)' / '(adj)' style parenthetical.
+
+    "Shobnall Street (opp)" -> "Shobnall Street", but informative ones like
+    "Lichfield Bus Station (Stand 2)" are kept. Repeats for stacked parens.
+    """
+    while s.endswith(")"):
+        open_i = s.rfind("(")
+        if open_i <= 0:
+            break
+        inner = s[open_i + 1:-1].strip()
+        words = inner.split()
+        if not words:
+            break
+        first = words[0]
+        low = first.lower().rstrip(".")
+        if low in _STOP_QUALIFIERS_ANY_CASE or \
+                (first == first.lower() and low in _STOP_QUALIFIERS_LOWER):
+            s = s[:open_i].rstrip()
+            if not s:
+                break
+        else:
+            break
+    return s
+
+
 def spoken_stop_name(full_name: str) -> str:
     """Short spoken form of a timetable stop for audio clips.
 
@@ -160,7 +186,7 @@ def spoken_stop_name(full_name: str) -> str:
                 s = rest.strip()
             else:
                 s = tail
-    s = s.strip()
+    s = _strip_trailing_qualifier_paren(s.strip())
     if s and s[-1] not in ".!?":
         s += "."
     return s

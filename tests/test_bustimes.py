@@ -72,6 +72,12 @@ def test_spoken_stop_name():
     assert s("Foo.") == "Foo."
     assert s("Bar, opp Foo!") == "Foo!"
     assert s("") == ""
+    # trailing qualifier parentheticals stripped, informative ones kept
+    assert s("Shobnall Street (opp)") == "Shobnall Street."
+    assert s("Netherstowe Lane (opp)") == "Netherstowe Lane."
+    assert s("Glascote Primary Academy (adj)") == "Glascote Primary Academy."
+    assert s("Lichfield Bus Station (Stand 2)") == "Lichfield Bus Station (Stand 2)."
+    assert s("Foo (Stand 1) (opp)") == "Foo (Stand 1)."
 
 
 def test_parse_timetable_two_directions():
