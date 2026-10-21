@@ -695,6 +695,7 @@ async function loadControllers() {
   $("ctlrows").innerHTML = S.controllers.map((c) => {
     const last = c.last_seen_at || "never";
     const status = c.online ? `<b class=ok>ONLINE</b>` : `offline<br><span class=hint>last seen ${esc(last)}</span>`;
+    const handshake = c.awaiting_pi ? ` <span class=err>waiting for Pi — pair done, Pi hasn't collected its token yet</span>` : "";
     const progs = (c.programs || []).map((p) => {
       const bits = [`want v${p.desired_version}`, `bus v${p.installed_version == null ? "—" : p.installed_version}`];
       if (p.active_version != null) bits.push(`<b class=ok>active v${p.active_version}</b>`);
@@ -705,8 +706,8 @@ async function loadControllers() {
       return `${esc(p.name || p.program_id)}: ${bits.join(" / ")}${warn}`;
     }).join("<br>") || "—";
     const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
-    return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}">Unpair</button></td></tr>`;
+    return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}${handshake}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
+    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}" title="Remove this controller entirely — token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
 }
@@ -718,7 +719,7 @@ $("ctlrows").addEventListener("click", async (e) => {
       const name = prompt("Controller name:", c.name);
       if (name) { await api(`/api/controllers/${c.id}`, { method: "PATCH", body: { name } }); loadControllers(); }
     }
-    if (b.dataset.unpair && confirm("Unpair this controller? Its token is revoked.")) {
+    if (b.dataset.unpair && confirm("Remove this controller entirely? Its token is revoked and it disappears from the portal (history kept in the audit log).")) {
       await api(`/api/controllers/${b.dataset.unpair}`, { method: "DELETE" }); loadControllers();
     }
     if (b.dataset.retoken) {
@@ -732,7 +733,7 @@ $("ctlrows").addEventListener("click", async (e) => {
 });
 function showTokenDialog(name, token) {
   $("token-value").value = token || "";
-  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. This token is shown <b>once</b> — the Pi picks it up automatically (claim), or paste it via the command below. Lose it and use “Rotate token” on the controller row for a new one.`;
+  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. The Pi collects this token itself within ~10 s — watch the row flip from “waiting for Pi” to online. Only use the command below as a manual fallback. Lose it and use “Rotate token” for a new one.`;
   const base = location.origin + PREFIX;
   $("token-pi").textContent =
     `sudo systemctl edit nsl-agent   # add under [Service]:\nEnvironment="PORTAL_URL=${base}"\nEnvironment="NSL_TOKEN=${token}"\n` +

@@ -16,29 +16,61 @@ RENDER_HZ = 10.0
 STATE_REFRESH_S = 0.5
 
 
-def pairing_frame(out: dict, code: str, portal_host: str = ""):
-    """Unpaired boards show the pairing code big instead of blank.
+def pairing_layout(w: int, h: int, code: str, portal_host: str = "") -> list:
+    """Stacked (text, font, y_top, height) rows for the pairing frame.
 
-    One frame per local output so 240x40, 160x40 and 80x40 all stay legible:
-    line 1 "PAIR", line 2 the code, line 3 the portal host (if it fits).
-    Pure Pillow, no layout JSON needed.
+    Measured with textbbox and vertically centred with gaps — rows never
+    overlap and never leave the canvas, on 240x40 down to 80x40.
     """
     from PIL import Image, ImageDraw, ImageFont
+    try:
+        probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+        probe.textbbox((0, 0), "X", font=ImageFont.load_default(size=10))
+
+        def _font(sz: int):
+            return ImageFont.load_default(size=sz)
+    except TypeError:  # ancient Pillow without size=
+        probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+
+        def _font(sz: int):
+            return ImageFont.load_default()
+
+    def _meas(text: str, fnt) -> tuple[int, int]:
+        bb = probe.textbbox((0, 0), text, font=fnt)
+        return max(1, bb[2] - bb[0]), max(1, bb[3] - bb[1])
+
+    code = (code or "------").strip()
+    host = (portal_host or "").replace("https://", "").replace("http://", "")[:28]
+    _lw, lh = _meas("PAIR", _font(10))
+    size = max(12, min(28, h // 2))
+    while size > 12:
+        cw, ch = _meas(code, _font(size))
+        if cw <= w - 8 and ch <= h // 2:
+            break
+        size -= 1
+    rows = [("PAIR", _font(10), lh), (code, _font(size), _meas(code, _font(size))[1])]
+    if host and w >= 120:
+        hw, hh = _meas(host, _font(10))
+        if hw <= w - 8 and lh + ch + hh + 4 <= h:
+            rows.append((host, _font(10), hh))
+    gap = 2
+    total = sum(r[2] for r in rows) + gap * (len(rows) - 1)
+    y = max(0, (h - total) // 2)
+    out = []
+    for text, fnt, th in rows:
+        out.append((text, fnt, y, th))
+        y += th + gap
+    return out
+
+
+def pairing_frame(out: dict, code: str, portal_host: str = ""):
+    """Unpaired boards show the pairing code big instead of blank."""
+    from PIL import Image, ImageDraw
     w, h = int(out["width_px"]), int(out["height_px"])
     img = Image.new("RGB", (w, h), "#000000")
     dr = ImageDraw.Draw(img)
-    try:
-        f_big = ImageFont.load_default(size=min(h - 4, 28))
-        f_small = ImageFont.load_default(size=10)
-    except TypeError:
-        f_big = ImageFont.load_default()
-        f_small = f_big
-    code = (code or "------").strip()
-    dr.text((w // 2, h // 2 - 4), code, fill="#FFB000", font=f_big, anchor="mm")
-    dr.text((w // 2, 6), "PAIR", fill="#FFB000", font=f_small, anchor="mt")
-    if portal_host and w >= 120 and h >= 28:
-        host = portal_host.replace("https://", "").replace("http://", "")
-        dr.text((w // 2, h - 2), host[: 28], fill="#FFB000", font=f_small, anchor="mb")
+    for text, fnt, y, _th in pairing_layout(w, h, code, portal_host):
+        dr.text((w // 2, y), text, fill="#FFB000", font=fnt, anchor="ma")
     return img
 
 
@@ -97,6 +129,7 @@ def main():
     print(f"nsl-display rendering {len(outputs)} output(s) at {RENDER_HZ:g} Hz (role={ROLE})", flush=True)
     snap: dict = {}
     last_fetch = 0.0
+    last_pair_code: str | None = "__init__"
     last_summary = ""
     frames = 0
     fetch_fails = 0
@@ -117,21 +150,26 @@ def main():
             last_fetch = now
         code, portal = pairing_status()
         if code and ROLE == "front":
-            try:
-                from urllib.parse import urlparse as _up
-                host = _up(portal).netloc or portal
-                for out in drv.outputs:
-                    if not out.get("enabled", 1):
-                        continue
-                    if (out.get("transport") or "local") != "local":
-                        continue
-                    drv.last_frames[out["display_name"]] = pairing_frame(out, code, host)
-                    drv._draw(out, drv.last_frames[out["display_name"]])
-                drv.present()
-            except Exception as e:
-                print(f"display: pairing frame failed ({e})", flush=True)
+            if code != last_pair_code:
+                # static frame: render once per code, not every second
+                try:
+                    from urllib.parse import urlparse as _up
+                    host = _up(portal).netloc or portal
+                    for out in drv.outputs:
+                        if not out.get("enabled", 1):
+                            continue
+                        if (out.get("transport") or "local") != "local":
+                            continue
+                        drv.last_frames[out["display_name"]] = pairing_frame(out, code, host)
+                        drv._draw(out, drv.last_frames[out["display_name"]])
+                    drv.present()
+                    print(f"display: pairing code {code} on boards", flush=True)
+                    last_pair_code = code
+                except Exception as e:
+                    print(f"display: pairing frame failed ({e})", flush=True)
             time.sleep(1.0)
             continue
+        last_pair_code = None
         if snap:
             st = snap.get("state", {})
             if not st.get("program_id") and not st.get("override_text"):

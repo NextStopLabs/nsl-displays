@@ -87,9 +87,11 @@ def pairing_valid(doc: dict | None) -> bool:
     if not doc or not doc.get("controller_id") or not doc.get("pairing_code"):
         return False
     try:
-        # expires_at is "%Y-%m-%dT%H:%M:%SZ"; lexicographic compare works, but
-        # do a real parse so clock skew error messages stay sane.
-        exp = time.mktime(time.strptime(doc.get("expires_at", ""), "%Y-%m-%dT%H:%M:%SZ"))
+        # expires_at is "%Y-%m-%dT%H:%M:%SZ" — UTC, so calendar.timegm, NOT
+        # time.mktime (mktime reads it as local time; on UTC+ zones a fresh
+        # code looked expired and the Pi re-registered in a tight loop).
+        import calendar as _cal
+        exp = _cal.timegm(time.strptime(doc.get("expires_at", ""), "%Y-%m-%dT%H:%M:%SZ"))
         return exp > time.time() + 60
     except Exception:
         return False
@@ -116,14 +118,79 @@ def ensure_registered(portal_url: str | None = None, base: str | None = None) ->
     return doc
 
 
-def claim_once(portal_url: str, controller_id: str, timeout: float = 20.0) -> dict:
-    import urllib.request
+def _toggle_portal_base(portal_url: str) -> str | None:
+    """Root-hosted <-> /portal-hosted. Returns the alternate base or None."""
+    base = portal_url.rstrip("/")
+    if base.endswith("/portal"):
+        return base[: -len("/portal")]
+    return base + "/portal"
 
-    body = json.dumps({"controller_id": controller_id}).encode()
-    req = urllib.request.Request(portal_url.rstrip("/") + "/api/device/claim",
-                                 data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+
+def _post_json(portal_url: str, path: str, body: dict, timeout: float = 20.0) -> tuple[dict, str]:
+    """POST JSON, tolerating a root-vs-/portal base mismatch.
+
+    Returns (doc, working_base). A 404 whose body is not JSON means the path
+    missed the app entirely (proxy has no such prefix) — retry once with the
+    alternate base. A JSON 404 (e.g. unknown controller) is authoritative.
+    """
+    import urllib.error
+    import urllib.request
+    tried = []
+    for base in (portal_url.rstrip("/"), _toggle_portal_base(portal_url.rstrip("/"))):
+        if base is None or base in tried:
+            continue
+        tried.append(base)
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode()), base
+        except urllib.error.HTTPError as e:
+            try:
+                raw = e.read().decode()
+            except Exception:
+                raw = ""
+            try:
+                doc = json.loads(raw)
+            except Exception:
+                doc = None
+            if e.code == 404 and doc is None:
+                continue  # proxy miss (non-JSON 404) — try the alternate base
+            if doc is not None:
+                raise urllib.error.HTTPError(e.url, e.code, json.dumps(doc),
+                                             e.hdrs, e.fp)
+            raise
+    raise urllib.error.HTTPError(portal_url, 404, "portal not found at root or /portal base",
+                                 None, None)
+
+
+def claim_once(portal_url: str, controller_id: str, timeout: float = 20.0) -> dict:
+    doc, _ = _post_json(portal_url, "/api/device/claim",
+                        {"controller_id": controller_id}, timeout)
+    return doc
+
+
+def try_claim(portal_url: str, controller_id: str) -> tuple[str, str | None, str]:
+    """One claim poll. Returns (state, token, working_base) where state is
+    'paired' | 'waiting' | 'unknown' (server pruned us — re-register)."""
+    import urllib.error
+    try:
+        doc, base = _post_json(portal_url, "/api/device/claim",
+                               {"controller_id": controller_id})
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            try:
+                detail = json.loads(str(e.msg or "")) .get("detail", "")
+            except Exception:
+                detail = ""
+            if "unknown controller" in detail:
+                return "unknown", None, portal_url
+        return "error", None, portal_url
+    except Exception:
+        return "error", None, portal_url
+    if doc.get("paired") and doc.get("device_token"):
+        return "paired", doc["device_token"], base
+    return "waiting", None, base
 
 
 def wait_for_claim(portal_url: str, controller_id: str, poll_s: int = 10,

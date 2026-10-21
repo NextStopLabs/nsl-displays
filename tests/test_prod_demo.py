@@ -117,3 +117,43 @@ def test_stops_reject_empty_names(tmp_path, monkeypatch):
                  json={"code": "00000001", "name": "A"}, headers=H).json()["destination_id"]
     res = c.put(f"/api/destinations/{did}/stops", json={"stops": [{"name": "  "}]}, headers=H)
     assert res.status_code == 400
+
+
+def test_handshake_claim_and_remove(tmp_path, monkeypatch):
+    from tests.test_portal import _client
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "h@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    dev = c.post("/api/device/register", json={}).json()
+    pr = c.post("/api/controllers/pair",
+                data={"organisation_id": org, "code": dev["pairing_code"], "name": "test"},
+                headers=H).json()
+    # portal shows waiting-for-Pi until the Pi claims
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"]
+    assert ctl[0]["awaiting_pi"] is True
+    claim = c.post("/api/device/claim", json={"controller_id": dev["controller_id"]}).json()
+    assert claim["paired"] is True and claim["device_token"] == pr["device_token"]
+    ctl = c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"]
+    assert ctl[0]["awaiting_pi"] is False
+    # claimed token actually works (the reported failure mode was endless 401s)
+    DH = {"Authorization": f"Bearer {pr['device_token']}"}
+    assert c.post("/api/device/heartbeat", json={"installed": []}, headers=DH).json()["accepted"] is True
+    assert c.get("/api/device/manifest", headers=DH).status_code == 200
+    # remove deletes the row (and its programs mapping)
+    assert c.delete(f"/api/controllers/{dev['controller_id']}", headers=H).json() == {"ok": True}
+    assert c.get("/api/controllers", params={"organisation_id": org}, headers=H).json()["controllers"] == []
+    assert c.get("/api/device/manifest", headers=DH).status_code == 401
+
+
+def test_pairing_layout_never_overlaps():
+    from pi.nsl_pi.display_main import pairing_frame, pairing_layout
+    for w, h in ((240, 40), (160, 40), (80, 40)):
+        rows = pairing_layout(w, h, "KQ7Z2M", "nsldisplays.com")
+        assert len(rows) >= 2
+        spans = [(y, y + th) for _, _, y, th in rows]
+        for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+            assert a1 + 1 <= b0, f"overlap on {w}x{h}: {spans}"
+        assert spans[-1][1] <= h and spans[0][0] >= 0
+        img = pairing_frame({"width_px": w, "height_px": h}, "KQ7Z2M", "nsldisplays.com")
+        assert img.size == (w, h)
+        assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 50

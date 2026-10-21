@@ -218,6 +218,9 @@ def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
     for r in rows:
         c = dict(r)
         c["online"] = _controller_online(c)
+        # handshake state: portal paired it, but the Pi hasn't collected its
+        # one-time token yet (pending_token clears on first successful claim).
+        c["awaiting_pi"] = bool(c.get("device_token_hash") and c.get("pending_token"))
         try:
             c["sync_state"] = json.loads(c.get("sync_state") or "null")
         except Exception:
@@ -1436,9 +1439,16 @@ def unpair(cid: str, u: dict = Depends(current_user)):
     if not c:
         raise HTTPException(404, "no controller")
     require_role(u["id"], c["organisation_id"], "owner", "editor")
-    con.execute("UPDATE controllers SET device_token_hash=NULL, pending_token=NULL, pairing_code=NULL, pairing_expires_at=NULL, status='unpaired' WHERE id=?", (cid,))
+    for t, col in (("controller_programs", "controller_id"), ("pending_commands", "controller_id"),
+                   ("display_outputs", "controller_id"), ("keypad_config", "controller_id"),
+                   ("wifi_networks", "controller_id"), ("controller_config", "controller_id")):
+        try:
+            con.execute(f"DELETE FROM {t} WHERE {col}=?", (cid,))
+        except Exception:
+            pass
+    con.execute("DELETE FROM controllers WHERE id=?", (cid,))
     con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
-                (c["organisation_id"], u["id"], "controller.unpair", cid, _utcnow()))
+                (c["organisation_id"], u["id"], "controller.remove", cid, _utcnow()))
     con.commit()
     return {"ok": True}
 

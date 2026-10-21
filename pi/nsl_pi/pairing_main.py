@@ -40,6 +40,7 @@ def main() -> None:
 
     print("nsl-pairing starting", flush=True)
     announced = ""
+    announced_n = 0
     while True:
         try:
             if P.is_paired():
@@ -60,10 +61,28 @@ def main() -> None:
             if code != announced:
                 print(_banner(code, portal, doc.get("expires_at", "") or ""), flush=True)
                 announced = code
-            try:
-                tok = P.claim_once(portal, doc["controller_id"]).get("device_token")
-            except Exception as e:
-                print(f"nsl-pairing: claim poll failed ({e}) — retrying", flush=True)
+            else:
+                # steady heartbeat in the log so "nothing happens" is never
+                # the story: code, which controller, which portal base.
+                announced_n += 1
+                if announced_n % 6 == 0:
+                    print(f"nsl-pairing: still waiting — code {code} at {portal} "
+                          f"(controller {doc['controller_id'][:8]}…)", flush=True)
+            state, tok, portal = P.try_claim(portal, doc["controller_id"])
+            if state == "unknown":
+                # server pruned our record (expired): drop it, re-register now.
+                print("nsl-pairing: server dropped our code (expired) — re-registering",
+                      flush=True)
+                try:
+                    import os as _os
+                    _os.remove(P.pairing_path())
+                except OSError:
+                    pass
+                announced = ""
+                continue
+            if state == "error":
+                print("nsl-pairing: claim unreachable — check portal URL/internet, "
+                      f"retrying (tried {portal})", flush=True)
                 time.sleep(POLL_S)
                 continue
             if tok:
