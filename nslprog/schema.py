@@ -1,4 +1,4 @@
-"""NSL program file format (.nslprog) — version 1.
+"""NSL program file format (.nslprog) - version 1.
 
 Single definition used by portal + Pi. See format.md.
 A .nslprog file is a SQLite 3 database with application_id 0x4E534C50 ("NSLP")

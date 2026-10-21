@@ -21,7 +21,7 @@ def test_health_open_and_state_guarded():
     c = TestClient(app, raise_server_exceptions=False)
     assert c.get("/api/health").status_code == 200
     # TestClient presents a non-IP peer ("testserver"), which is allowed as a
-    # test hook — so state is reachable here but 403s for real remote subnets
+    # test hook - so state is reachable here but 403s for real remote subnets
     # (covered by test_allowlist_ranges at the unit level).
     r = c.get("/api/state")
     assert r.status_code in (200, 500)  # 500 only if no controller.db present

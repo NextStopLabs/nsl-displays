@@ -1,15 +1,15 @@
 #!/bin/bash
-# NSL autoinstall firstrun — ZERO-TOUCH flash for stock Raspberry Pi OS Lite.
+# NSL autoinstall firstrun - ZERO-TOUCH flash for stock Raspberry Pi OS Lite.
 #
 # 1. Flash stock Raspberry Pi OS Lite 64-bit to the SD (no Imager customization needed).
 # 2. Edit the CONFIG block below (ROLE per Pi, UNIT per bus).
 # 3. Copy THIS FILE onto the SD boot drive as:  firstrun.sh
-#    (the small FAT partition your computer shows after flashing — just the
+#    (the small FAT partition your computer shows after flashing - just the
 #    drive root, next to config.txt/cmdline.txt)
 # 4. Boot the Pi with wired net (needs internet). Walk away.
 # 5. ~15-25 min later (Pi 4; longer on 3B) it reboots by itself.
 #    Front Pi: pairing code appears on the boards. Boards: signs follow front.
-#    Progress any time: SSH in (user pi, password nsl-setup — change it) and
+#    Progress any time: SSH in (user pi, password nsl-setup - change it) and
 #    tail /var/log/nsl-autoinstall.log, or re-mount the SD and read nsl-status.txt.
 #
 # How it works: first boot runs this file as root. It creates the pi user,
@@ -18,7 +18,7 @@
 # copy-paste). The service deletes itself when done. Safe to re-image: every
 # SD installs fresh (unique SSH keys, fresh pairing registration).
 #
-# ===== CONFIG — edit these 5 lines per Pi, then copy the file =====
+# ===== CONFIG - edit these 5 lines per Pi, then copy the file =====
 NSL_ROLE="front"    # front | side | rear  (one front + one side + one rear per bus)
 NSL_UNIT="bus-1"    # must MATCH on all 3 Pis of one bus (AP becomes NSL-<unit>)
 NSL_AUDIO="jack"    # jack (3.5mm onboard, default) | usb (adapter)
@@ -133,5 +133,5 @@ EOF
   echo "nsl-firstrun: done, autoinstall service handed off"
 }
 
-main || echo "nsl-firstrun FAILED — SSH in and check this log"
+main || echo "nsl-firstrun FAILED - SSH in and check this log"
 exit 0

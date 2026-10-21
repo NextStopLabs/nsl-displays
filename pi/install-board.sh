@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-board — one-command setup for a SIDE or REAR receiver Pi (Pi 3B).
+# install-board - one-command setup for a SIDE or REAR receiver Pi (Pi 3B).
 #
 # Single copy-paste on a flashed Raspberry Pi OS Lite 64-bit:
 #
@@ -85,17 +85,17 @@ systemctl enable --now nsl-core nsl-display watchdog
 
 echo "==> verifying link to front ($FRONT)"
 if ping -c2 -W2 "$FRONT" >/dev/null 2>&1; then echo "    ping $FRONT OK"; else
-  echo "    WARNING: ping $FRONT failed — check Ethernet + switch power"; fi
+  echo "    WARNING: ping $FRONT failed - check Ethernet + switch power"; fi
 if curl -fs -m 5 "http://$FRONT:8090/state" >/dev/null 2>&1; then
   echo "    front state OK (board follows the controller now)"
 else
-  echo "    WARNING: no state from http://$FRONT:8090/state yet — pair + power the front first, this board holds its last frame meanwhile"
+  echo "    WARNING: no state from http://$FRONT:8090/state yet - pair + power the front first, this board holds its last frame meanwhile"
 fi
 
 WANT="160x40 (chain=2)"; [ "$ROLE" = "rear" ] && WANT="80x40 (chain=1)"
 echo
 echo "================================================================"
-echo "  $ROLE BOARD READY — unit $UNIT, $WANT"
+echo "  $ROLE BOARD READY - unit $UNIT, $WANT"
 echo "  No portal step for boards. Once the FRONT controller is paired"
 echo "  and a destination is selected, this sign follows automatically."
 echo "  Logs: journalctl -u nsl-display -u nsl-core -f"

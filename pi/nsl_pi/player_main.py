@@ -1,7 +1,7 @@
 """Player service: audible announcements on the bus PA (front Pi only).
 
 Watches Core state: when the current stop changes, plays the next-stop chain
-for the new stop through the configured ALSA device (USB audio — onboard
+for the new stop through the configured ALSA device (USB audio - onboard
 audio is off because HUB75 uses the same PWM hardware). Manual triggers
 (keypad/portal/local UI) play at their call site; this loop covers the
 automatic stop-advance announcements.

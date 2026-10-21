@@ -1,4 +1,4 @@
-"""Controller core — single source of truth (plan.md 6.1).
+"""Controller core - single source of truth (plan.md 6.1).
 
 Holds program/service/destination/stop/override/volume in controller.db `state`.
 Override lifetime rule: override stays until stop changes or new
@@ -388,7 +388,7 @@ class Core:
             return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
         pc = self._open_prog(st["program_id"], st["program_version"])
         if pc is None:
-            # installed row without its bundle (deleted mid-sync?) — empty, not a crash
+            # installed row without its bundle (deleted mid-sync?) - empty, not a crash
             return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
         try:
             dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()

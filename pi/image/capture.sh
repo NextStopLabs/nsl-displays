@@ -1,5 +1,5 @@
 #!/bin/bash
-# capture — SD → compressed golden image. Run on a Linux/Mac workstation
+# capture - SD → compressed golden image. Run on a Linux/Mac workstation
 # with the GOLDEN Pi powered off and its SD inserted (via reader).
 # Usage: sudo bash capture.sh /dev/sdX nsl-front   (Linux)
 #        sudo bash capture.sh /dev/rdisk4 nsl-front (macOS)

@@ -1,4 +1,4 @@
-# Installer guide — bus install (README 14/15)
+# Installer guide - bus install (README 14/15)
 
 - [ ] Front Pi 4B at front sign, ribbon <50 cm, buffered HAT seated, panels daisy-chained.
 - [ ] Side Pi 3B at side sign, ribbon <50 cm, chain=2. Rear Pi 3B, chain=1.

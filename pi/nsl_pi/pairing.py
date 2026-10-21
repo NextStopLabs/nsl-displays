@@ -87,7 +87,7 @@ def pairing_valid(doc: dict | None) -> bool:
     if not doc or not doc.get("controller_id") or not doc.get("pairing_code"):
         return False
     try:
-        # expires_at is "%Y-%m-%dT%H:%M:%SZ" — UTC, so calendar.timegm, NOT
+        # expires_at is "%Y-%m-%dT%H:%M:%SZ" - UTC, so calendar.timegm, NOT
         # time.mktime (mktime reads it as local time; on UTC+ zones a fresh
         # code looked expired and the Pi re-registered in a tight loop).
         import calendar as _cal
@@ -130,7 +130,7 @@ def _post_json(portal_url: str, path: str, body: dict, timeout: float = 20.0) ->
     """POST JSON, tolerating a root-vs-/portal base mismatch.
 
     Returns (doc, working_base). A 404 whose body is not JSON means the path
-    missed the app entirely (proxy has no such prefix) — retry once with the
+    missed the app entirely (proxy has no such prefix) - retry once with the
     alternate base. A JSON 404 (e.g. unknown controller) is authoritative.
     """
     import urllib.error
@@ -155,7 +155,7 @@ def _post_json(portal_url: str, path: str, body: dict, timeout: float = 20.0) ->
             except Exception:
                 doc = None
             if e.code == 404 and doc is None:
-                continue  # proxy miss (non-JSON 404) — try the alternate base
+                continue  # proxy miss (non-JSON 404) - try the alternate base
             if doc is not None:
                 raise urllib.error.HTTPError(e.url, e.code, json.dumps(doc),
                                              e.hdrs, e.fp)
@@ -172,7 +172,7 @@ def claim_once(portal_url: str, controller_id: str, timeout: float = 20.0) -> di
 
 def try_claim(portal_url: str, controller_id: str) -> tuple[str, str | None, str]:
     """One claim poll. Returns (state, token, working_base) where state is
-    'paired' | 'waiting' | 'unknown' (server pruned us — re-register)."""
+    'paired' | 'waiting' | 'unknown' (server pruned us - re-register)."""
     import urllib.error
     try:
         doc, base = _post_json(portal_url, "/api/device/claim",

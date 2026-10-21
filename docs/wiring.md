@@ -1,4 +1,4 @@
-# Pi wiring quick reference (README 4.1) — regular mapping, parallel=1
+# Pi wiring quick reference (README 4.1) - regular mapping, parallel=1
 # Pi header pin -> panel IDC. E line REQUIRED for 80x40 panels.
 
 | Pi header | Signal | Panel IDC |

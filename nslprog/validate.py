@@ -55,7 +55,7 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     res = ValidationResult()
     con.execute("PRAGMA foreign_keys = ON")
 
-    # integrity + fk (Pi side checks, run always — cheap on small files)
+    # integrity + fk (Pi side checks, run always - cheap on small files)
     try:
         integ = con.execute("PRAGMA integrity_check").fetchone()[0]
         if integ != "ok":
@@ -198,8 +198,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
         ref = lay.get("destination_id", lay["id"])
         _check_layout_json(lj, disp, res, ref)
 
-    # unknown display names warning (program displays no output uses — informational;
-    # portal knows outputs, Pi always accepts; emit only if a layout references nothing — skip here)
+    # unknown display names warning (program displays no output uses - informational;
+    # portal knows outputs, Pi always accepts; emit only if a layout references nothing - skip here)
 
     # --- content_hash ---
     if check_hash and "content_hash" in meta:

@@ -1,7 +1,7 @@
 [project]
 name = "nsl-displays"
 version = "1.0.0"
-description = "NSL Displays — bus stop announcement & LED destination system"
+description = "NSL Displays - bus stop announcement & LED destination system"
 requires-python = ">=3.11"
 dependencies = [
   "pillow>=10.0",

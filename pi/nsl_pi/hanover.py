@@ -7,7 +7,7 @@ File layout (reverse-engineered, verified by rendering A-Z):
 Columns are vertical bitmasks, LSB = TOP row. Pure ASCII 32..126 renders true;
 codes 127+ use Hanover's custom map (rendered as-is by code point).
 
-Fonts are 1:1 pixels — never scaled. Use font ids ``han-<STEM>`` where STEM is
+Fonts are 1:1 pixels - never scaled. Use font ids ``han-<STEM>`` where STEM is
 the file name without extension (e.g. ``han-0705C1E1``).
 """
 from __future__ import annotations
@@ -105,7 +105,7 @@ def warn_once_unknown(font_id: str):
     """One log line per unknown id (services run for weeks; never spam)."""
     if font_id not in _warned_missing:
         _warned_missing.add(font_id)
-        print(f"display: unknown han font {font_id!r} in {fonts_dir()} — falling back to default font",
+        print(f"display: unknown han font {font_id!r} in {fonts_dir()} - falling back to default font",
               flush=True)
 
 

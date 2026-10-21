@@ -1,4 +1,4 @@
-"""Board layout renderer — shared by portal preview, main Pi and receivers.
+"""Board layout renderer - shared by portal preview, main Pi and receivers.
 
 Canvas = real pixels (e.g. 240x40). Layout JSON per format.md 6.2.
 Renders with Pillow so portal preview and bus output stay identical.
@@ -74,7 +74,7 @@ def autofit_layout(width: int, height: int) -> dict:
 
     Geometry scales from the 240x40 front standard (num 70 wide, dest 25 tall,
     via fills the rest); the same Hanover fonts/scale/spacing apply on every
-    board size. Mirrored in portal/frontend/app.js + layout.js — keep identical.
+    board size. Mirrored in portal/frontend/app.js + layout.js - keep identical.
     """
     num_w = max(16, round(width * 70 / 240))
     dest_h = max(8, round(height * 25 / 40))

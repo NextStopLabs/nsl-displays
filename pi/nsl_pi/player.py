@@ -151,7 +151,7 @@ def play_test_tone(base_dir: str, out_wav: str | None = None) -> dict:
     """Play the local test chime through the configured ALSA device.
 
     Always writes out_wav when given (diagnostics), plays via aplay when
-    present. Returns {played, device, bytes} — played=False with a reason
+    present. Returns {played, device, bytes} - played=False with a reason
     when there is nothing to play through (dev machine, no PA yet).
     """
     device = configured_device(base_dir)

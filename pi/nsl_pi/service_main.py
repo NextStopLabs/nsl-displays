@@ -1,7 +1,7 @@
 """Pi core service entrypoint. Owns state + the bus-LAN state server. Never touches GPIO.
 
 Runs on device via systemd (deploy/nsl-core.service). Rendering belongs to
-nsl_pi.display_main (deploy/nsl-display.service) — two drivers on one matrix
+nsl_pi.display_main (deploy/nsl-display.service) - two drivers on one matrix
 corrupts output, and two servers on :8090 crash each other.
 """
 from __future__ import annotations

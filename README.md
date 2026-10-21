@@ -1,6 +1,6 @@
-# NSL Displays — Bus Stop Announcement & LED Destination System
+# NSL Displays - Bus Stop Announcement & LED Destination System
 
-> **Start here for installs: [`README2.md`](README2.md) — full setup guide
+> **Start here for installs: [`README2.md`](README2.md) - full setup guide
 > (portal + flash-and-pair images + pairing + audio + first program).
 > This file remains the detailed reference.
 
@@ -15,7 +15,7 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 1. [What this is](#1-what-this-is)
 2. [Hardware you have](#2-hardware-you-have)
 3. [How it fits together](#3-how-it-fits-together)
-4. [Wiring — the 10 m bus rule](#4-wiring--the-10-m-bus-rule)
+4. [Wiring - the 10 m bus rule](#4-wiring--the-10-m-bus-rule)
 5. [Power](#5-power)
 6. [Networking](#6-networking)
 7. [Programs, codes, stops, audio, layouts](#7-programs-codes-stops-audio-layouts)
@@ -24,10 +24,10 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 10. [Local controller 192.168.4.1](#10-local-controller-19216841)
 11. [Portal remote control](#11-portal-remote-control)
 12. [Sync, offline, updates](#12-sync-offline-updates)
-12A. [Host server setup — portal](#12a-host-server-setup--portal)
-12B. [Front controller Pi setup — Pi 4B](#12b-front-controller-pi-setup--pi-4b)
-12C. [Receiver Pi setup — side/rear Pi 3B](#12c-receiver-pi-setup--siderear-pi-3b)
-13. [First build — bench test](#13-first-build--bench-test)
+12A. [Host server setup - portal](#12a-host-server-setup--portal)
+12B. [Front controller Pi setup - Pi 4B](#12b-front-controller-pi-setup--pi-4b)
+12C. [Receiver Pi setup - side/rear Pi 3B](#12c-receiver-pi-setup--siderear-pi-3b)
+13. [First build - bench test](#13-first-build--bench-test)
 14. [Bus install checklist](#14-bus-install-checklist)
 15. [Power-on, pairing, first program](#15-power-on-pairing-first-program)
 16. [File layout on the Pi](#16-file-layout-on-the-pi)
@@ -70,19 +70,19 @@ Front Pi 4B ──bus LAN (Ethernet switch)──► Side Pi 3B ──► 160x40
 | Front | 3x 80x40 P4 HUB75 | 240x40 | Raspberry Pi 4B | `chain=3, parallel=1` |
 | Side | 2x 80x40 P4 HUB75 | 160x40 | Raspberry Pi 3B | `chain=2, parallel=1` |
 | Rear | 1x 80x40 P4 HUB75 | 80x40 | Raspberry Pi 3B | `chain=1, parallel=1` |
-| Network | — | — | 5-port unmanaged Ethernet switch (5 V) + 3x CAT5e | `10.9.0.0/24` bus LAN |
+| Network | - | - | 5-port unmanaged Ethernet switch (5 V) + 3x CAT5e | `10.9.0.0/24` bus LAN |
 
 Panels: 80x40 P4 HUB75, requiring the **E address line**. Any vendor-compatible 80x40 HUB75 panel works if E is routed.
 
 Pis:
-- Front Pi 4B — controller. Runs core, player, agent, keypad, front display driver, AP + hotspot client, local web UI. Pi 4 is used here because 3 chained panels is the heaviest render load.
-- Side Pi 3B — receiver. Display renderer only.
-- Rear Pi 3B — receiver. Display renderer only. A Pi 3B is sufficient for 1–2 panels.
+- Front Pi 4B - controller. Runs core, player, agent, keypad, front display driver, AP + hotspot client, local web UI. Pi 4 is used here because 3 chained panels is the heaviest render load.
+- Side Pi 3B - receiver. Display renderer only.
+- Rear Pi 3B - receiver. Display renderer only. A Pi 3B is sufficient for 1–2 panels.
 - Microcontrollers (e.g. Pico) are **not** display drivers in this design. Receivers must run Linux + `rpi-rgb-led-matrix` + the shared Pillow layout renderer so portal preview and bus output stay identical.
 
 Power (generic): vehicle 12/24 V stepped down to 5 V **at each sign** with local buck converters. See §5 for sizing. Each Pi needs its own clean 5 V tap (Pi 4: 5 V / 3 A, Pi 3B: 5 V / 2.5 A).
 
-Programs are built fresh in the portal — no legacy converter in v1.
+Programs are built fresh in the portal - no legacy converter in v1.
 
 ---
 
@@ -114,7 +114,7 @@ Software on each receiver Pi: minimal `receiver` service (render layout JSON + h
 
 ---
 
-## 4. Wiring — the long-bus rule
+## 4. Wiring - the long-bus rule
 
 **HUB75 ribbon does not travel the length of a bus.** It is single-ended 3.3/5 V parallel running at MHz pixel clocks. Reliable length is ~30–50 cm, ~1 m max with good cable and buffering. The correct topology on any 8–12 m vehicle is: **short HUB75 at each sign, long Ethernet between signs.**
 
@@ -151,13 +151,13 @@ Direct GPIO wiring works for bench/prototype. For vehicle installs, put a buffer
 
 ### 4.1 Full HUB75 wiring diagram (pin-level, `regular` mapping, `parallel=1`)
 
-Every Pi runs `parallel=1`, so each Pi only needs **chain [1]** plus the shared signals. Same wiring at all three signs — only `led-chain` differs (front 3, side 2, rear 1).
+Every Pi runs `parallel=1`, so each Pi only needs **chain [1]** plus the shared signals. Same wiring at all three signs - only `led-chain` differs (front 3, side 2, rear 1).
 
 **Pi 40-pin header → first panel INPUT (IDC 2x8).** Pin numbers are physical header pins. Based on `hzeller/rpi-rgb-led-matrix` `wiring.md`, `regular` mapping. Wire once, copy to all three Pis.
 
 | Pi header pin | Signal | To panel INPUT IDC | Notes |
 |---|---|---|---|
-| 6 (GND) | GND | IDC GND | Plus one more GND (e.g. header 9/14/20) to IDC GND — common ground |
+| 6 (GND) | GND | IDC GND | Plus one more GND (e.g. header 9/14/20) to IDC GND - common ground |
 | 7 | STB/LAT (strobe) | LAT | Shared to all chains (only chain 1 used here) |
 | 11 | CLK (clock) | CLK | Shared |
 | 12 (GPIO18) | OE- | OE | Shared |
@@ -165,7 +165,7 @@ Every Pi runs `parallel=1`, so each Pi only needs **chain [1]** plus the shared 
 | 16 | B | B | Shared |
 | 18 | C | C | Shared |
 | 22 | D | D | Shared (needed for 32+ row panels) |
-| 10 | E | E | Shared — **required for 80x40 panels** |
+| 10 | E | E | Shared - **required for 80x40 panels** |
 | 13 | [1] G1 | G1 (upper) | Chain-1 colour data |
 | 19 | [1] B2 | B2 (lower) | Chain-1 colour data |
 | 21 | [1] G2 | G2 (lower) | Chain-1 colour data |
@@ -173,7 +173,7 @@ Every Pi runs `parallel=1`, so each Pi only needs **chain [1]** plus the shared 
 | 24 | [1] R2 | R2 (lower) | Chain-1 colour data |
 | 26 | [1] B1 | B1 (upper) | Chain-1 colour data |
 
-Unused for this build: header pins 3, 5, 8, 29, 31–38, 40 (chains [2]/[3] data) — leave unconnected. With `parallel=1` most GPIOs stay free for optional buttons.
+Unused for this build: header pins 3, 5, 8, 29, 31–38, 40 (chains [2]/[3] data) - leave unconnected. With `parallel=1` most GPIOs stay free for optional buttons.
 
 **Panel chaining (at each sign):**
 
@@ -184,7 +184,7 @@ Pi ──IDC──► Panel 1 INPUT │ Panel 1 OUTPUT ──IDC──► Panel 
 ```
 
 - Only Panel 1 INPUT touches the Pi. Panels 2/3 connect output→input down the chain.
-- HUB75 IDC is 2x8 (R1 G1 B1 GND R2 G2 B2 E / A B C D CLK LAT OE GND — verify against the panel silkscreen; some vendors label R1/R2 as R0/R1, same function).
+- HUB75 IDC is 2x8 (R1 G1 B1 GND R2 G2 B2 E / A B C D CLK LAT OE GND - verify against the panel silkscreen; some vendors label R1/R2 as R0/R1, same function).
 - If using a HAT/bonnet: Pi plugs into HAT, HAT's J1/output goes to Panel 1 INPUT. Same signal map, just buffered to 5 V via 74AHCT245.
 
 **Combined sign wiring (one of these per sign):**
@@ -199,7 +199,7 @@ Pi header (table above) ── short IDC (<50 cm) ──► Panel 1 INPUT ──
 Pi eth0 ── CAT5e ──► switch (see §6.1)
 ```
 
-**GPIO note:** With `parallel=1` per Pi, most GPIO pins stay free, so optional GPIO buttons remain possible. The reserved-pin list is computed from the matrix mapping — the config UI greys those out.
+**GPIO note:** With `parallel=1` per Pi, most GPIO pins stay free, so optional GPIO buttons remain possible. The reserved-pin list is computed from the matrix mapping - the config UI greys those out.
 
 ---
 
@@ -215,7 +215,7 @@ Step the vehicle supply down to 5 V **at each sign**: **the long run carries the
 | Side (2 panels + Pi 3B) | 12/24 V → 5 V buck ≥10 A | ~2–4 A + Pi ~0.8 A | ~8 A + Pi |
 | Rear (1 panel + Pi 3B) | 12/24 V → 5 V buck ≥5 A | ~1–2 A + Pi ~0.8 A | ~4 A + Pi |
 
-Pis need clean 5 V: Pi 4 = 5 V / 3 A, Pi 3B = 5 V / 2.5 A. Give each Pi its own tap/fuse — do not power a Pi from a panel's power pigtail.
+Pis need clean 5 V: Pi 4 = 5 V / 3 A, Pi 3B = 5 V / 2.5 A. Give each Pi its own tap/fuse - do not power a Pi from a panel's power pigtail.
 
 ### 5.2 Rules
 
@@ -224,7 +224,7 @@ Pis need clean 5 V: Pi 4 = 5 V / 3 A, Pi 3B = 5 V / 2.5 A. Give each Pi its own 
 3. **Star ground at each sign:** converter 0 V → panel GNDs → HAT/adapter GND → Pi GND, short and thick. Do not daisy-chain a thin ground down the bus.
 4. **Wire gauge:** 5 V panel feeds 14–16 AWG, runs <1 m. Converter inputs 18–20 AWG minimum. Thin wire on 5 V causes brown-outs that look like software flicker.
 5. **Acceptance test:** display full-white test pattern, measure at the panel terminals. Drop source-to-panel ≤100 mV, no panel reset, Pi `vcgencmd get_throttled` shows `0x0`.
-6. **Brightness 70** is the operating default — it cuts real current substantially vs full-white worst case, which is what the bucks are sized for.
+6. **Brightness 70** is the operating default - it cuts real current substantially vs full-white worst case, which is what the bucks are sized for.
 
 ---
 
@@ -232,11 +232,11 @@ Pis need clean 5 V: Pi 4 = 5 V / 3 A, Pi 3B = 5 V / 2.5 A. Give each Pi its own 
 
 Two networks, different jobs. Don't confuse them.
 
-### 6.1 Bus LAN (signs talking to each other — always on)
+### 6.1 Bus LAN (signs talking to each other - always on)
 
 Front Pi 4B ↔ side Pi 3B ↔ rear Pi 3B, all via one Ethernet switch. Carries display state (destination fields + layout + override + brightness). Requirements: <100 ms latency, hold-last-frame on drop.
 
-**Physical connection — all three Pis into a switch:**
+**Physical connection - all three Pis into a switch:**
 
 ```
                     ┌──────────────────┐
@@ -258,12 +258,12 @@ Switch mounted at the front cabinet, powered from the front 5 V rail (fused 1 A)
 ```
 
 - Cable: standard CAT5e/CAT6 patch, RJ45. Short patch front Pi → switch, long runs switch → side (~5 m) and switch → rear (~10 m). No crossover needed (Pi auto-MDIX).
-- Switch: any tiny 5-port unmanaged 5 V industrial/desktop switch. One port per Pi, two ports spare. This is the star topology — no daisy-chaining, one unplug never takes down two signs.
-- IPs (static, on the wired interface only — do not touch the Wi-Fi interface):
+- Switch: any tiny 5-port unmanaged 5 V industrial/desktop switch. One port per Pi, two ports spare. This is the star topology - no daisy-chaining, one unplug never takes down two signs.
+- IPs (static, on the wired interface only - do not touch the Wi-Fi interface):
   - Front: `10.9.0.1/24`, Side: `10.9.0.2/24`, Rear: `10.9.0.3/24`.
   - Example (NetworkManager): `nmcli con add type ethernet ifname eth0 con-name bus-lan ip4 10.9.0.1/24`
   - Test: `ping 10.9.0.2`, `ping 10.9.0.3`, `ssh pi@10.9.0.2`.
-- Why wired, not Wi-Fi: a bus body is a metal box with engine/door RF noise, and a single-radio Pi cannot be AP + client at once. Wire is fit-and-forget. Wi-Fi join to the front AP is fallback only if a cable is cut — signs hold last frame meanwhile.
+- Why wired, not Wi-Fi: a bus body is a metal box with engine/door RF noise, and a single-radio Pi cannot be AP + client at once. Wire is fit-and-forget. Wi-Fi join to the front AP is fallback only if a cable is cut - signs hold last frame meanwhile.
 - Keep bus LAN and hotspot/AP networks separate: bus LAN is `10.9.0.0/24` wired only; AP is `192.168.4.0/24` Wi-Fi only. Internet (hotspot) touches the front Pi only.
 
 Receiver protocol v1 (kept deliberately simple): front Pi exposes state over TCP/WebSocket on the bus LAN (`http://10.9.0.1:8090/state`); receivers poll/subscribe at 10 Hz, render with the same Pillow renderer, hold last frame if the link drops. Receivers never talk to the portal. The portal still sees one controller.
@@ -279,7 +279,7 @@ Behaviour:
 - Boot: look for saved hotspot ~60 s → join if found, else start AP.
 - While AP has a client connected, don't switch away (single radio can't do both reliably).
 - **Update mode** (keypad key / local UI button / portal command): drop AP, join hotspot for N minutes (default 5), then return to AP. Turn hotspot on first, then trigger update mode.
-- Phone can't join the Pi AP while hosting the hotspot — so on hotspot use the **portal** remote page (over mobile data); use `192.168.4.1` only in AP mode.
+- Phone can't join the Pi AP while hosting the hotspot - so on hotspot use the **portal** remote page (over mobile data); use `192.168.4.1` only in AP mode.
 - First pairing must be done on hotspot (needs internet).
 
 ---
@@ -335,12 +335,12 @@ Print this for the cab.
 SELECT DESTINATION:  type 8-digit code ─► auto-selects on 8th digit
                      (or type code + ENTER if Enter-required mode)
 CORRECT A DIGIT:     BACKSPACE (one digit) / DELETE or ESC (clear all)
-BAD CODE:            board flashes INVALID — nothing changes, retype
+BAD CODE:            board flashes INVALID - nothing changes, retype
 NEXT STOP:           [+]  (default map, user-definable)
 PREV STOP:           [-]
 ANNOUNCE NEXT STOP:  [*]
 CLEAR OVERRIDE:      [/]
-UPDATE MODE:         [.]  (join hotspot 5 min — turn hotspot on first)
+UPDATE MODE:         [.]  (join hotspot 5 min - turn hotspot on first)
 VOLUME:              keypad map or local UI / portal
 ```
 
@@ -376,15 +376,15 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 - **Programs:** installed versions, active program, apply pending, roll back, **import `.nslpack`** (offline program install).
 - **Settings (login):** display outputs + matrix options, keypad map, GPIO bindings, audio device/volume, AP name/password, saved hotspot networks, join-hotspot-now, portal URL, release channel, startup program/destination.
 - **Diagnostics:** connection, last sync, pairing code, test pattern/message/announcement, live keypad/GPIO state, logs, check-for-updates, restart/shutdown.
-- Listens on all interfaces (`NSL_UI_HOST`/`NSL_UI_PORT`, default `0.0.0.0:80`) but only serves loopback, the AP subnet (`192.168.4.0/24`) and the bus LAN (`10.9.0.0/24`) — anything else gets 403. Extra subnets via `NSL_UI_ALLOW` (e.g. `NSL_UI_ALLOW=0.0.0.0/0` opens it fully — only on networks you trust: commands are unauthenticated). There is no login; the network boundary is the access control, so use `192.168.4.1` in AP mode and the portal page on hotspot.
+- Listens on all interfaces (`NSL_UI_HOST`/`NSL_UI_PORT`, default `0.0.0.0:80`) but only serves loopback, the AP subnet (`192.168.4.0/24`) and the bus LAN (`10.9.0.0/24`) - anything else gets 403. Extra subnets via `NSL_UI_ALLOW` (e.g. `NSL_UI_ALLOW=0.0.0.0/0` opens it fully - only on networks you trust: commands are unauthenticated). There is no login; the network boundary is the access control, so use `192.168.4.1` in AP mode and the portal page on hotspot.
 
 ---
 
 ## 11. Portal remote control
 
-Per-controller page. Pick the bus, type the 8-digit code, done — stop nav, announcements, override, volume and program switching live under "More controls". Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus-vs-active, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
+Per-controller page. Pick the bus, type the 8-digit code, done - stop nav, announcements, override, volume and program switching live under "More controls". Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus-vs-active, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
 
-Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … — command not queued`) — it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (every `NSL_POLL_S`, default 10 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY / active vZ` — installed ≠ selected: codes only work in the **active** version, and a `bus parked on vX` warning tells you exactly when the bus sits on an old one. Offline ⇒ keypad + local UI keep working.
+Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … - command not queued`) - it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (every `NSL_POLL_S`, default 10 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY / active vZ` - installed ≠ selected: codes only work in the **active** version, and a `bus parked on vX` warning tells you exactly when the bus sits on an old one. Offline ⇒ keypad + local UI keep working.
 
 ---
 
@@ -392,13 +392,13 @@ Truth rules: a command to an **offline** bus is refused immediately (`controller
 
 **On hotspot connect:** auth → heartbeat → flush outbox (events, logs, install results) → fetch manifest (desired program versions, config version, latest release) → download `.nslprog` first (tiny), then only missing audio by SHA-256 (resumable range requests, hash-verified) → stage in `incoming/` → validate → atomic move → report.
 
-Order: program data + config first, audio second, software last — so a short hotspot window still lands the important changes. Sync never changes current state or clears an override.
+Order: program data + config first, audio second, software last - so a short hotspot window still lands the important changes. Sync never changes current state or clears an override.
 
 **Software auto-update:** check on connect → download signed bundle (resume + hash) → verify signature against baked-in public key (key lives off the web server) → install to inactive slot → symlink switch → restart → health check (agent, core, player, display, local UI responsive) → roll back on failure, report. Never switches mid-service unless forced; waits for idle/restart/Apply-now.
 
 ---
 
-## 12A. Host server setup — portal
+## 12A. Host server setup - portal
 
 Runs `portal/backend` (FastAPI under `/portal`) + Postgres + file storage + TTS worker, behind Caddy. See `deploy/docker-compose.yml`, `portal/Dockerfile`, `deploy/config/Caddyfile`, `portal/backend/db.py`.
 
@@ -406,7 +406,7 @@ Runs `portal/backend` (FastAPI under `/portal`) + Postgres + file storage + TTS 
 
 **Requirements:** Ubuntu 22.04+ / Debian 12, Docker + Compose v2 plugin (or Python 3.11 + `ffmpeg` + `espeak-ng` + `piper` for bare metal). Ports `80/443` open, DNS A record for your domain pointing at the host.
 
-**Option 1 — Docker (production):**
+**Option 1 - Docker (production):**
 
 ```bash
 git clone <repo> nsl-displays && cd nsl-displays/deploy
@@ -419,13 +419,13 @@ curl https://<DOMAIN>/portal/health   # {"ok": true, ...}
 ```
 
 What this starts (`deploy/docker-compose.yml`):
-- `portal`: built from repo root (`portal/Dockerfile`: `python:3.11-slim` + `ffmpeg` + `espeak-ng` + `requirements.txt` incl. `piper-tts`), runs `uvicorn portal.backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal`. State is SQLite at `/data/portal.db` + blobs under `/data/storage` (`audio/<aa>/<hash>.wav`, `programs/<id>/<v>.nslprog`, `voices/<id>/model.onnx`), all on the `portal-data` volume — schema auto-creates on first request. Postgres is planned (plan.md) but not wired yet (`db.py` only speaks SQLite), so there is no `db` service.
+- `portal`: built from repo root (`portal/Dockerfile`: `python:3.11-slim` + `ffmpeg` + `espeak-ng` + `requirements.txt` incl. `piper-tts`), runs `uvicorn portal.backend.app:app --host 0.0.0.0 --port 8000 --root-path /portal`. State is SQLite at `/data/portal.db` + blobs under `/data/storage` (`audio/<aa>/<hash>.wav`, `programs/<id>/<v>.nslprog`, `voices/<id>/model.onnx`), all on the `portal-data` volume - schema auto-creates on first request. Postgres is planned (plan.md) but not wired yet (`db.py` only speaks SQLite), so there is no `db` service.
 - `proxy`: `caddy:2-alpine` with `deploy/config/Caddyfile` (`{$DOMAIN}`, automatic Let's Encrypt via `{$ACME_EMAIL}`), strips the `/portal` prefix and reverse-proxies to `portal:8000`. Certs persist in `caddy-data`.
 - `backup` (profile, not always-on): `docker compose --profile backup run --rm backup` copies the db + storage tree to `deploy/backups/<date>/` via `tools/backup.py`. Run it from host cron nightly (`0 3 * * * ...`), and copy off-host.
 
-Update with `git pull && docker compose up --build -d`. Never commit `.env` (gitignored) — `PORTAL_SECRET` signs user sessions and all Pi device tokens; rotating it logs everyone out and forces re-pairing.
+Update with `git pull && docker compose up --build -d`. Never commit `.env` (gitignored) - `PORTAL_SECRET` signs user sessions and all Pi device tokens; rotating it logs everyone out and forces re-pairing.
 
-**Option 2 — bare metal / dev (SQLite, no Docker):**
+**Option 2 - bare metal / dev (SQLite, no Docker):**
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
@@ -456,20 +456,20 @@ journalctl -u nsl-portal -f
 
 ---
 
-## 12B. Front controller Pi setup — Pi 4B
+## 12B. Front controller Pi setup - Pi 4B
 
 The bus brain: core + player + agent + keypad + front HUB75 + AP + bus-LAN server. See `pi/install.sh`, `pi/nsl_pi/service_main.py`, `pi/nsl_pi/agent_main.py`, `pi/nsl_pi/netmode.py`.
 
-**Full bus — 3 copy-pastes (one per flashed Pi, Raspberry Pi OS Lite 64-bit):**
+**Full bus - 3 copy-pastes (one per flashed Pi, Raspberry Pi OS Lite 64-bit):**
 
 ```bash
-# 1) FRONT (Pi 4B) — copy-paste on the flashed front Pi:
+# 1) FRONT (Pi 4B) - copy-paste on the flashed front Pi:
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
   | sudo bash -s -- --unit bus-1
-# 2) SIDE (Pi 3B) — copy-paste on the flashed side Pi:
+# 2) SIDE (Pi 3B) - copy-paste on the flashed side Pi:
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
   | sudo bash -s -- --role side --unit bus-1
-# 3) REAR (Pi 3B) — copy-paste on the flashed rear Pi:
+# 3) REAR (Pi 3B) - copy-paste on the flashed rear Pi:
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
   | sudo bash -s -- --role rear --unit bus-1
 # Add --audio jack to the front command if you use the 3.5mm onboard jack
@@ -482,7 +482,7 @@ Then: read the 6-char code off the front board → portal Controllers → Pair c
 
 **1. Flash OS:** Raspberry Pi OS **Lite 64-bit**, hostname `nsl-front`, user `pi`, SSH on. Boot, `sudo apt-get update && sudo apt-get upgrade -y`.
 
-**2. Install (one command — copy-paste on the flashed Pi):**
+**2. Install (one command - copy-paste on the flashed Pi):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
@@ -499,7 +499,7 @@ registers with the portal and prints the 6-char pairing code. Manual equivalent
 
 What `pi/install.sh` does:
 - `hostnamectl set-hostname nsl-front`.
-- Audio: `--audio usb` (default) appends `dtparam=audio=off` to `/boot/firmware/config.txt` (or `/boot/config.txt`) — onboard audio clashes with HUB75, USB adapter is front-only. `--audio jack` keeps the 3.5mm onboard jack (comments out `audio=off`, needs software pulsing + reboot).
+- Audio: `--audio usb` (default) appends `dtparam=audio=off` to `/boot/firmware/config.txt` (or `/boot/config.txt`) - onboard audio clashes with HUB75, USB adapter is front-only. `--audio jack` keeps the 3.5mm onboard jack (comments out `audio=off`, needs software pulsing + reboot).
 - Sets `gpio=18=op,dh` in `/boot/firmware/config.txt` so panels stay blank (not full-bright) from power-on until the display driver takes over.
 - `apt-get install python3-pip python3-pil python3-fastapi python3-uvicorn sqlite3 flac alsa-utils network-manager evtest watchdog`.
 - `mkdir -p /var/lib/nsl /opt/nsl`, bootstraps `/var/lib/nsl/controller.db` via `pi/nsl_pi/store.py::init_controller_db` (state row, `controller_config`, keypad map, 3 `display_outputs` from `WIRING_PRESETS["bus-10m"]`).
@@ -527,7 +527,7 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 **4. Environment + services:**
 
 - `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
-- `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
+- `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix - front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
 - `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nsldisplays.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync polls every `NSL_POLL_S` (default 10 s).
 - `nsl-player` runs `python3 -m nsl_pi.player_main`: watches stop changes, plays the next-stop chain on the PA (front only, USB audio).
 - `nsl-input` runs `python3 -m nsl_pi.input_main`: cab USB keypad → Core commands (front only).
@@ -539,13 +539,13 @@ sudo systemctl restart nsl-agent nsl-core nsl-display nsl-local-ui
 systemctl is-active nsl-core nsl-agent nsl-display nsl-local-ui
 ```
 
-**5. Network (NetworkManager):** keep bus LAN and Wi-Fi apart — `10.9.0.0/24` wired only, `192.168.4.0/24` AP only (§6). Save the phone hotspot with `nmcli`, then boot logic (`netmode.py`) joins it ~60 s if visible else starts AP `NSL-<unit>` at `192.168.4.1`.
+**5. Network (NetworkManager):** keep bus LAN and Wi-Fi apart - `10.9.0.0/24` wired only, `192.168.4.0/24` AP only (§6). Save the phone hotspot with `nmcli`, then boot logic (`netmode.py`) joins it ~60 s if visible else starts AP `NSL-<unit>` at `192.168.4.1`.
 
 **6. Verify:** `ping 10.9.0.2; ping 10.9.0.3`, `curl http://10.9.0.1:8090/state`, `aplay -l` shows USB audio, keypad types 8 digits → front display selects, `vcgencmd get_throttled` → `0x0`. Unpaired boards show the 6-char pairing code.
 
 ---
 
-## 12C. Receiver Pi setup — side/rear Pi 3B
+## 12C. Receiver Pi setup - side/rear Pi 3B
 
 Render-only: poll front state @10 Hz, render with the same Pillow renderer, hold last frame on drop. No portal, audio, or keypad. See `pi/nsl_pi/receiver.py`, `service_main.py` (`ROLE != front` → `Receiver(...).run_forever()`).
 
@@ -579,12 +579,12 @@ Bus LAN is wired only (`10.9.0.2/24` side, `10.9.0.3/24` rear, `ipv4.never-defau
 
 ---
 
-## 13. First build — bench test
+## 13. First build - bench test
 
 Do this on a bench before touching the bus.
 
 1. Flash Raspberry Pi OS Lite to all three Pis. Hostnames: `nsl-front`, `nsl-side`, `nsl-rear`.
-2. On each: disable onboard audio (`dtparam=audio=off` — required, HUB75 clashes with it), enable USB audio on front Pi only, install `rpi-rgb-led-matrix` Python bindings, verify E-line works on one 80x40 panel.
+2. On each: disable onboard audio (`dtparam=audio=off` - required, HUB75 clashes with it), enable USB audio on front Pi only, install `rpi-rgb-led-matrix` Python bindings, verify E-line works on one 80x40 panel.
 3. Wire front chain on bench: front Pi → panel 1 → panel 2 → panel 3, ribbon <50 cm. Run the display program with `led-chain=3, parallel=1, rows=40, cols=80, brightness=70, slowdown-gpio=4`. Confirm 240x40 canvas lights.
 4. Wire side (`chain=2`) and rear (`chain=1`) the same way. Confirm each lights its own canvas.
 5. Link the three over Ethernet with static IPs, run the receiver sync once, confirm all three show the same destination.
@@ -611,7 +611,7 @@ Do this on a bench before touching the bus.
 
 1. Power all three Pis. The installer already registered the front Pi: its boards show the 6-char **pairing code** (also in `journalctl -u nsl-pairing -f` and on `192.168.4.1`).
 2. Join the phone hotspot so the front Pi reaches the portal (pairing record holds 15 min; `nsl-pairing` re-registers automatically if it lapses).
-3. Portal → Controllers → Pair controller → enter code + name, click Pair. The Pi polls `POST /api/device/claim`, fetches its device token itself, saves it (`/var/lib/nsl/device-token` 0600 + agent drop-in), restarts `nsl-agent` and starts syncing — no token copy-paste.
+3. Portal → Controllers → Pair controller → enter code + name, click Pair. The Pi polls `POST /api/device/claim`, fetches its device token itself, saves it (`/var/lib/nsl/device-token` 0600 + agent drop-in), restarts `nsl-agent` and starts syncing - no token copy-paste.
 4. Build a program in the portal (General → Services/Destinations/Stops → Display layouts → Preview). Publish → Upload to the bus. Note the total download size.
 5. Next hotspot session the bus pulls it. Select a destination by code from keypad, portal, or local UI. Check all three signs + announcement chain.
 6. Management: rename, online/last-seen/version, installed vs desired per program, manual sync trigger, unpair (revokes token).
@@ -654,7 +654,7 @@ Matrix options (same names as the current command-line flags):
 
 Display output record: name, panel count, `parallel_chain`, `x_offset`, brightness, enabled, bound program display, `transport`, `receiver_addr`. Presets: (1) 10 m bus default, (2)/(3) bench-only 3-chain / single-chain-6.
 
-Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanoseconds` on flicker, enable hardware pulse, reserve one core for the display driver, USB audio (I2S also uses pins — avoid with HUB75).
+Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanoseconds` on flicker, enable hardware pulse, reserve one core for the display driver, USB audio (I2S also uses pins - avoid with HUB75).
 
 ---
 
@@ -663,7 +663,7 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
 - Mono 16-bit FLAC at one fixed system rate (22.05 or 44.1 kHz), silence trimmed, loudness-normalised, SHA-256 addressed. Identical clips stored/downloaded once.
 - Sources: file upload (MP3/WAV/OGG/M4A/FLAC, transcoded) or Piper TTS (type text → pick voice → generate → save; text+settings kept for regen; bulk generate per stop/service/program skipping existing).
 - Voices: built-in default + per-organisation uploads (`.onnx` + `.onnx.json` pair, validated, test-synthesised, size-limited, licence note + rights tick). Runs sandboxed on the server; Pi never runs Piper.
-- Player decodes to PCM and chains sample-accurately — no gapless-mode dependency.
+- Player decodes to PCM and chains sample-accurately - no gapless-mode dependency.
 - Bus output is USB audio by default: `dtparam=audio=off` kills the onboard jack because hardware pulsing shares PWM hardware with HUB75. The 3.5 mm jack works too, with a tradeoff: keep software pulsing (`no-hardware-pulse`, the default) and the jack stays usable at the cost of slightly more flicker. To use it: make sure `dtparam=audio=off` is **absent** from `/boot/firmware/config.txt` (and `/boot/config.txt`), reboot, confirm `aplay -l` lists the Headphones card, then:
   ```bash
   speaker-test -c1 -t wav -D plughw:0,0   # short test tone, Ctrl+C to stop
@@ -679,13 +679,13 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
   ```
   Announcements auto-play on stop change; keypad/portal/local-UI announce buttons play immediately. No clips uploaded = silence (check the portal preview lists clips first).
 
-  **Test audio (no program needed):** the controller installer plays a local two-tone chime at setup so you can verify the USB adapter → amp → PA chain before anything has synced. The same chime plays automatically once when pairing completes (`nsl-pairing`, after the token is saved). Re-play any time with `curl -X POST http://192.168.4.1/api/audio-test` (front Pi, AP or bus LAN). If the chime is silent, check `aplay -l`, the USB adapter seating, amp volume, and `audio_device` in `controller.db` — portal clips can only work once this local tone is heard.
+  **Test audio (no program needed):** the controller installer plays a local two-tone chime at setup so you can verify the USB adapter → amp → PA chain before anything has synced. The same chime plays automatically once when pairing completes (`nsl-pairing`, after the token is saved). Re-play any time with `curl -X POST http://192.168.4.1/api/audio-test` (front Pi, AP or bus LAN). If the chime is silent, check `aplay -l`, the USB adapter seating, amp volume, and `audio_device` in `controller.db` - portal clips can only work once this local tone is heard.
 
 ---
 
 ## 19. Board layout standard
 
-Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`), `scale` (integer 1–8, default 1; Hanover bitmap fonts only — integer-upscales the glyphs for tall displays, e.g. a 19 px font at ×2 fills 40 px), `spacing` (integer −8…16 px, default 0; extra tracking between Hanover glyphs, negative tightens). Static text is never clipped to its box — ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
+Canvas = real pixels (front 240x40, side 160x40, rear 80x40). A layout = elements of type `field` (`num`/`via`/`dest`/extra) or fixed `text`. Per element: x/y/w/h, font, colour, align/valign, scroll (`none`/`always`/`if_too_long`), flash, page (pages alternate every `page_seconds`), visibility (`always`/`has_text`/`override_active`/`override_inactive`), `scale` (integer 1–8, default 1; Hanover bitmap fonts only - integer-upscales the glyphs for tall displays, e.g. a 19 px font at ×2 fills 40 px), `spacing` (integer −8…16 px, default 0; extra tracking between Hanover glyphs, negative tightens). Static text is never clipped to its box - ink may overflow and still shows (wide glyphs, tall fonts); only scrolling crops to the box. Per-layout override behaviour: `replace` / `hide_others` / `full`.
 
 Example (front, `num | via over dest`):
 
@@ -707,11 +707,11 @@ Example (front, `num | via over dest`):
 }
 ```
 
-Resolution order per destination per display: own layout → display default template → built-in auto-fit (`num` left + dest fill). Same renderer in portal preview, main Pi, and receivers — snapshot-tested identical.
+Resolution order per destination per display: own layout → display default template → built-in auto-fit (`num` left + dest fill). Same renderer in portal preview, main Pi, and receivers - snapshot-tested identical.
 
 ### 19.1 Hanover bitmap fonts
 
-`HANOVERFONTS/*.Fnt` (shipped in the repo, installed to `/var/lib/nsl/fonts`): real Hanover HELEN glyphs, 1:1 pixels, LSB = top row. Use font id `han-<STEM>` (e.g. `han-0705C1E1`) on any layout element, in the editor dropdown or JSON. Names carry approximate pixel height — most full-coverage workhorses are the 19 px set (`19ArialB`, `movia18`, `1713B3E1`…). ASCII 32–126 renders true; other code points fall back to `?`. The `/api/fonts` list reports per-font `coverage` (of 95 printable ASCII); avoid near-empty files (`bigbus*` carry 1–2 glyphs only — test remnants, not fonts). `scale` (1–8, default 1) integer-upscales Hanover glyphs — ×2 of 19 px fills a 40 px board. The editor preview, stop-by-stop preview, and bus renderer all blit the identical glyphs, so WYSIWYG holds. Unknown `han-` ids fall back with a warning, never a blank board.
+`HANOVERFONTS/*.Fnt` (shipped in the repo, installed to `/var/lib/nsl/fonts`): real Hanover HELEN glyphs, 1:1 pixels, LSB = top row. Use font id `han-<STEM>` (e.g. `han-0705C1E1`) on any layout element, in the editor dropdown or JSON. Names carry approximate pixel height - most full-coverage workhorses are the 19 px set (`19ArialB`, `movia18`, `1713B3E1`…). ASCII 32–126 renders true; other code points fall back to `?`. The `/api/fonts` list reports per-font `coverage` (of 95 printable ASCII); avoid near-empty files (`bigbus*` carry 1–2 glyphs only - test remnants, not fonts). `scale` (1–8, default 1) integer-upscales Hanover glyphs - ×2 of 19 px fills a 40 px board. The editor preview, stop-by-stop preview, and bus renderer all blit the identical glyphs, so WYSIWYG holds. Unknown `han-` ids fall back with a warning, never a blank board.
 
 ---
 
@@ -755,12 +755,12 @@ Resolution order per destination per display: own layout → display default tem
 
 ## 23. Glossary
 
-- **Program** — a set of services/destinations/stops/layouts published as one `.nslprog` version.
-- **Service** — e.g. route 100, with its three announcement clips.
-- **Destination** — a code + board fields (`num`/`via`/`dest`) + stops + layouts.
-- **Code** — 8-digit selector, unique per program.
-- **Stop** — ordered point with name audio + board text/override.
-- **Display / output** — program display (front/side/rear sizes) vs physical output (panel chain + driver).
-- **Override** — replacement board message with the lifetime rule in §7.
-- **`.nslpack`** — offline zip (program + audio) for local import/backup.
-- **Update mode** — temporary hotspot-join for syncing.
+- **Program** - a set of services/destinations/stops/layouts published as one `.nslprog` version.
+- **Service** - e.g. route 100, with its three announcement clips.
+- **Destination** - a code + board fields (`num`/`via`/`dest`) + stops + layouts.
+- **Code** - 8-digit selector, unique per program.
+- **Stop** - ordered point with name audio + board text/override.
+- **Display / output** - program display (front/side/rear sizes) vs physical output (panel chain + driver).
+- **Override** - replacement board message with the lifetime rule in §7.
+- **`.nslpack`** - offline zip (program + audio) for local import/backup.
+- **Update mode** - temporary hotspot-join for syncing.

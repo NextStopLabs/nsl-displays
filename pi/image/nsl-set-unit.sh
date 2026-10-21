@@ -1,5 +1,5 @@
 #!/bin/bash
-# nsl-set-unit — personalize a golden-image front clone for its bus.
+# nsl-set-unit - personalize a golden-image front clone for its bus.
 # Usage: sudo nsl-set-unit bus-2
 # Updates hostname, controller name/AP name, service env, then reboots.
 # Pair AFTER this (each bus gets its own code).
@@ -24,8 +24,8 @@ pa="/etc/systemd/system/nsl-agent.service.d/nsl-portal.conf"
 [ -f "$pa" ] && sed -i "s/NSL_UNIT=[^\" ]*/NSL_UNIT=$UNIT/" "$pa"
 systemctl daemon-reload
 if [ "$NOREBOOT" = "1" ]; then
-  echo "unit=$UNIT applied — reboot to finish (hostname + services)"
+  echo "unit=$UNIT applied - reboot to finish (hostname + services)"
   exit 0
 fi
-echo "unit=$UNIT applied — rebooting"
+echo "unit=$UNIT applied - rebooting"
 reboot

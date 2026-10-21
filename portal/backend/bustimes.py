@@ -1,4 +1,4 @@
-"""bustimes.org import — services list, timetable parse, description split.
+"""bustimes.org import - services list, timetable parse, description split.
 
 plan.md 5.3a / user request: import services from
   https://bustimes.org/api/services/?operator=BULI
@@ -184,7 +184,7 @@ def spoken_stop_name(full_name: str) -> str:
     Church" -> "St Christopher Church") and ensures terminal punctuation
     ("St Christopher Church" -> "St Christopher Church."), which gives the
     TTS sentence-final prosody instead of a clipped fragment. Names without
-    a comma are kept whole. The stop record itself keeps the full name —
+    a comma are kept whole. The stop record itself keeps the full name -
     only the clip name and spoken audio use this form.
     """
     s = (full_name or "").strip()
@@ -200,7 +200,7 @@ def spoken_stop_name(full_name: str) -> str:
             if not s:
                 s = head or tail
     s = _strip_trailing_qualifier_paren(s.strip())
-    # "PH" (public house) would be read out letter by letter — say "pub".
+    # "PH" (public house) would be read out letter by letter - say "pub".
     # Whole word only, so "Phoenix" is untouched.
     s = re.sub(r"\bPH\b", "pub", s)
     if s and s[-1] not in ".!?":

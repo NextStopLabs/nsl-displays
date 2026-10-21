@@ -227,8 +227,8 @@ def index():
 
 
 INDEX_HTML = """<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>NSL Local Controller — 192.168.4.1</title><link rel=stylesheet href="/ui.css"></head>
-<body><div class=window><div class=titlebar>NSL Local Controller — bus control (offline OK)</div>
+<title>NSL Local Controller - 192.168.4.1</title><link rel=stylesheet href="/ui.css"></head>
+<body><div class=window><div class=titlebar>NSL Local Controller - bus control (offline OK)</div>
 <div class=body>
 <div class=group><div class=grouptitle>Destination</div>
 <label>8-digit code<input id=code maxlength=8 inputmode=numeric></label>
@@ -257,7 +257,7 @@ async function setUnit(){const u=document.getElementById('unit').value.trim();
 document.getElementById('unitmsg').textContent='applying…';
 const r=await fetch('/api/identity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit:u})});
 const j=await r.json().catch(()=>({}));
-document.getElementById('unitmsg').textContent=r.ok?('unit '+j.unit+' applied — rebooting, rejoin the AP in ~1 min'):('failed: '+(j.detail||r.status))}
+document.getElementById('unitmsg').textContent=r.ok?('unit '+j.unit+' applied - rebooting, rejoin the AP in ~1 min'):('failed: '+(j.detail||r.status))}
 async function audioTest(){const r=await fetch('/api/audio-test',{method:'POST'});const j=await r.json().catch(()=>({}));
 alert(r.ok?(j.played?('chime played on '+j.device):('silent: '+(j.reason||'no output'))):('failed: '+(j.detail||r.status)))}
 refresh();setInterval(refresh,2000);

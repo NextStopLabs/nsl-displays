@@ -11,7 +11,7 @@ The program data format is defined in **`program-format.md`**.
 1. **Multi-user** portal where each account (organisation) has its own private data.
 2. **Programs**: users create programs in the portal and upload them to controllers. A program holds services, destinations (with 8-digit codes), stops, audio references and board layouts, stored in the new **program file format** (`.nslprog`, a SQLite file; see `program-format.md`).
 3. **Web portal** at `nsldisplays.com/portal` to pair controllers, build programs, manage audio and voices, design what each board shows, and remotely control a controller.
-4. **Raspberry Pi 4 controller** that runs programs, plays announcements and drives the LED boards (one logical controller per bus: main Pi drives front directly, side/rear over network — see 6.6.1), controlled by a USB keypad, the portal and a local web controller (and optional GPIO buttons).
+4. **Raspberry Pi 4 controller** that runs programs, plays announcements and drives the LED boards (one logical controller per bus: main Pi drives front directly, side/rear over network - see 6.6.1), controlled by a USB keypad, the portal and a local web controller (and optional GPIO buttons).
 5. **Three displays from one logical controller** (front, side, rear) with a documented wiring method for a 10 m bus (see 6.6). Front is driven directly from the main Pi's GPIO; side and rear are too far for HUB75 ribbon and use networked receiver Pis.
 6. **Local controller** on the Pi at `192.168.4.1` (its own Wi-Fi access point) that works fully offline.
 7. **Works with an occasional connection**: the Pi joins your phone's hotspot when you want to update it; sync is small, resumable and safe.
@@ -447,8 +447,8 @@ The Pi creates its own Wi-Fi access point. Join it from a phone or laptop and op
 
 **Confirmed on this vehicle:**
 - Front to rear distance: ~10 m (front at one end, rear at the other, side in the middle).
-- Current wiring: front board wired directly into the main Pi's GPIO (works — keep for front only).
-- Power: front 15 V feed already split down to 5 V for the 3 chained front panels at the sign. Side 10 V / 5 A and rear 5 V / 5 A feeds available, plus 5 V for the Pi(s) — each remote sign still needs its own local 5 V regulation (see Power below).
+- Current wiring: front board wired directly into the main Pi's GPIO (works - keep for front only).
+- Power: front 15 V feed already split down to 5 V for the 3 chained front panels at the sign. Side 10 V / 5 A and rear 5 V / 5 A feeds available, plus 5 V for the Pi(s) - each remote sign still needs its own local 5 V regulation (see Power below).
 - Spares on hand: 1x Pi 3B, 1x Pi 4, plus Pico Ws. No existing programs to convert (no converter needed).
 
 **Key rule: HUB75 ribbon cannot run 10 m.** It is single-ended 3.3/5 V parallel at MHz pixel clocks and is only reliable for ~30–50 cm (max ~1 m with good ribbon and buffering). Your current direct-GPIO wiring is fine for the front panels next to the Pi, but must **not** be extended down the bus. Do not run long HUB75 ribbons to side/rear.
@@ -457,14 +457,14 @@ The Pi creates its own Wi-Fi access point. Join it from a phone or laptop and op
 
 | Location | Panels | Size | Driver (confirmed stock) |
 |---|---|---|---|
-| front | 3 | 240 x 40 | Main Pi 4B, direct HUB75 (short ribbon <50 cm) — existing wiring |
+| front | 3 | 240 x 40 | Main Pi 4B, direct HUB75 (short ribbon <50 cm) - existing wiring |
 | side | 2 | 160 x 40 | Spare Pi 4 at the sign, direct HUB75 (`chain=2, parallel=1`) |
 | rear | 1 | 80 x 40 | Spare Pi 3B at the sign, direct HUB75 (`chain=1, parallel=1`) |
 
 - Pico Ws are **not** used as display drivers in v1: they cannot run `rpi-rgb-led-matrix` + the shared Pillow renderer. Keep them for future use (e.g. door sensors, temperature, keypad satellite). Displays are all Pi-driven so portal preview and bus rendering stay identical.
-- The main Pi 4B at the front holds controller core, player, agent, keypad, and drives the front chain directly (your existing wiring, ideally via a buffered HAT/bonnet — see below).
+- The main Pi 4B at the front holds controller core, player, agent, keypad, and drives the front chain directly (your existing wiring, ideally via a buffered HAT/bonnet - see below).
 - Each remote sign gets its assigned spare Pi mounted within 50 cm of its panels, driving them locally (`side Pi 4: chain=2, parallel=1`; `rear Pi 3B: chain=1, parallel=1`).
-- The main Pi publishes state (destination fields, layouts, override, brightness) to the receivers over the bus LAN (wired Ethernet preferred; dedicated Wi-Fi as fallback). Latency target <100 ms — fine for destination boards. Receivers render with the same renderer and hold last frame if the link drops.
+- The main Pi publishes state (destination fields, layouts, override, brightness) to the receivers over the bus LAN (wired Ethernet preferred; dedicated Wi-Fi as fallback). Latency target <100 ms - fine for destination boards. Receivers render with the same renderer and hold last frame if the link drops.
 - The portal still sees **one controller** per bus. `display_outputs` gains a `transport: local | network` field plus receiver address; wiring profiles become "10 m bus (front local + side/rear networked)" as default, keeping the old "3 parallel chains" and "single chain" profiles for bench testing only.
 
 **Front wiring (keep, harden):**
@@ -690,7 +690,7 @@ All portal routes are under the base path `/portal` (for example `https://nsldis
 
 ## 12. Open Questions
 
-1. **Distance between displays**: ~~how far?~~ Resolved — ~10 m front-to-rear. Design updated to 6.6.1 (front local, side/rear networked receiver Pis). No long HUB75 runs.
+1. **Distance between displays**: ~~how far?~~ Resolved - ~10 m front-to-rear. Design updated to 6.6.1 (front local, side/rear networked receiver Pis). No long HUB75 runs.
 2. **Wiring board**: front currently direct-GPIO (works for prototype). For vehicle use: do you want to stay hand-wired or fit a buffered HAT/bonnet (recommended)? Either way it must carry the E line for 80x40 panels.
-3. **Power in the vehicle**: confirmed feeds are front 15 V/5 A, side 10 V/5 A, rear 5 V/5 A + 5 V for Pi(s). Still needed: are those feeds already regulated/clean, what wire gauge/fuse is on each, and where exactly the buck converters will mount? Panels must get 5 V only — 15 V/10 V direct will destroy them.
-4. **Converting existing programs**: ~~do you need a converter?~~ Resolved — no existing programs, no converter needed.
+3. **Power in the vehicle**: confirmed feeds are front 15 V/5 A, side 10 V/5 A, rear 5 V/5 A + 5 V for Pi(s). Still needed: are those feeds already regulated/clean, what wire gauge/fuse is on each, and where exactly the buck converters will mount? Panels must get 5 V only - 15 V/10 V direct will destroy them.
+4. **Converting existing programs**: ~~do you need a converter?~~ Resolved - no existing programs, no converter needed.

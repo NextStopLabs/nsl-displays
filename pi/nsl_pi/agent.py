@@ -104,7 +104,7 @@ class Agent:
             for m in items:
                 pid, ver = m["program_id"], int(m["version"])
                 b = m["bundle"]
-                # idempotent sync: this exact build is already on disk — record desire, skip download
+                # idempotent sync: this exact build is already on disk - record desire, skip download
                 have = con.execute("SELECT content_hash, bundle_sha256 FROM installed_programs WHERE program_id=? AND version=?",
                                    (pid, ver)).fetchone()
                 if have and have[0] == (m.get("content_hash") or "") and have[1] == b["sha256"]:
@@ -162,7 +162,7 @@ class Agent:
                                 os.remove(tmp)
                         except OSError:
                             pass
-                # 3. install (atomic move + registry) — activation is Core's job at safe moment
+                # 3. install (atomic move + registry) - activation is Core's job at safe moment
                 import shutil
                 self.progress = {"phase": "installing", "program": m.get("program_name", pid), "version": ver}
                 final = os.path.join(self.programs_dir, pid, f"{ver}.nslprog")

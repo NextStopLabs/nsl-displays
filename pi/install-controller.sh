@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-controller — one-command setup for the FRONT controller Pi (Pi 4B).
+# install-controller - one-command setup for the FRONT controller Pi (Pi 4B).
 #
 # Single copy-paste on a flashed Raspberry Pi OS Lite 64-bit:
 #
@@ -112,7 +112,7 @@ print('CONTROLLER_ID=' + doc['controller_id'])
 "; then
   echo "registered"
 else
-  echo "WARNING: registration failed (offline?). nsl-pairing keeps retrying — join the hotspot and watch journalctl -u nsl-pairing -f"
+  echo "WARNING: registration failed (offline?). nsl-pairing keeps retrying - join the hotspot and watch journalctl -u nsl-pairing -f"
 fi
 
 CODE="$(PYTHONPATH="$DIR:$DIR/pi" python3 -c "from nsl_pi import pairing as P; d=P.load_pairing() or {}; print(d.get('pairing_code',''))" 2>/dev/null || true)"
@@ -135,11 +135,11 @@ raise SystemExit(0 if rep.get('played') else 42)
     echo "    re-run any time: curl -s -X POST http://192.168.4.1/api/audio-test"
   fi
 else
-  echo "    WARNING: aplay not found — audio packages may have failed to install"
+  echo "    WARNING: aplay not found - audio packages may have failed to install"
 fi
 echo
 echo "================================================================"
-echo "  CONTROLLER READY — PAIR IT (one step):"
+echo "  CONTROLLER READY - PAIR IT (one step):"
 echo "  Code:  ${CODE:-<see journalctl -u nsl-pairing -f>}"
 echo "  Portal: $PORTAL  -> Controllers -> Pair controller"
 echo "  Enter the code + name \"$UNIT\", click Pair."

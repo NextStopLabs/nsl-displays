@@ -1,5 +1,5 @@
 #!/bin/bash
-# nsl-golden-firstboot — sanitize a golden-image clone on its first boot.
+# nsl-golden-firstboot - sanitize a golden-image clone on its first boot.
 # Fresh SSH/machine-id/hostname, wipe pairing state so each clone registers
 # as its own controller, then never run again (flag file).
 set -euo pipefail
@@ -42,4 +42,4 @@ else
 fi
 
 date -u +%FT%TZ > "$FLAG"
-echo "golden firstboot done — continuing normal boot (code on boards shortly)"
+echo "golden firstboot done - continuing normal boot (code on boards shortly)"

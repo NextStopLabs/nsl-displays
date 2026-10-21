@@ -1,4 +1,4 @@
-# Program File Format (`.nslprog`) — Version 1
+# Program File Format (`.nslprog`) - Version 1
 
 The program format is the one definition of a "program" used everywhere: the editing database on the server (PostgreSQL or SQLite), the published bundle that is uploaded to a controller, and the installed copy on the Raspberry Pi (SQLite).
 

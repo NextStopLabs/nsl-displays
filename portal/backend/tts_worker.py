@@ -1,4 +1,4 @@
-"""TTS worker — Piper runs here sandboxed (plan.md 5.3b)."""
+"""TTS worker - Piper runs here sandboxed (plan.md 5.3b)."""
 from __future__ import annotations
 
 
@@ -33,4 +33,4 @@ def synth(text: str, voice: str, speed: float = 1.0) -> bytes:
 
 
 if __name__ == "__main__":
-    print("tts worker placeholder — queue polling goes here")
+    print("tts worker placeholder - queue polling goes here")

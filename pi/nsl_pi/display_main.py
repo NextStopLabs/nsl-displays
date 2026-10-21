@@ -1,7 +1,7 @@
 """Display service entrypoint. Sole owner of the HUB75 matrix (or virtual PNGs).
 
 Runs on device via systemd (deploy/nsl-display.service). No ports, no portal
-contact — front re-renders from Core at 10 Hz (scroll/page animation runs off
+contact - front re-renders from Core at 10 Hz (scroll/page animation runs off
 wall-clock), receivers poll the front Pi and hold last frame on drop.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ STATE_REFRESH_S = 0.5
 def pairing_layout(w: int, h: int, code: str, portal_host: str = "") -> list:
     """Stacked (text, font, y_top, height) rows for the pairing frame.
 
-    Measured with textbbox and vertically centred with gaps — rows never
+    Measured with textbbox and vertically centred with gaps - rows never
     overlap and never leave the canvas, on 240x40 down to 80x40.
     """
     from PIL import Image, ImageDraw, ImageFont
@@ -113,7 +113,7 @@ def main():
     # boot self-test: full-white 1.5 s proves panels/power/HAT before any content.
     # If this flash never appears, the fault is hardware, not software.
     try:
-        print("display self-test: white pattern 1.5s — look at the panels", flush=True)
+        print("display self-test: white pattern 1.5s - look at the panels", flush=True)
         drv.test_pattern("white")
     except Exception as e:
         print(f"display self-test failed: {e}", flush=True)
@@ -143,7 +143,7 @@ def main():
                 import traceback as _tb
                 fetch_fails += 1
                 if fetch_fails == 1 or fetch_fails % 20 == 0:
-                    print(f"display: snapshot failed x{fetch_fails} ({e}) — holding last frame",
+                    print(f"display: snapshot failed x{fetch_fails} ({e}) - holding last frame",
                           flush=True)
                 if fetch_fails == 1:
                     print("".join(_tb.format_exception(type(e), e, e.__traceback__)), flush=True)
@@ -175,13 +175,13 @@ def main():
             if not st.get("program_id") and not st.get("override_text"):
                 empty_snaps += 1
                 if empty_snaps == 1 or empty_snaps % 40 == 0:
-                    print("display: nothing selected and no override — boards show blank "
+                    print("display: nothing selected and no override - boards show blank "
                           f"(x{empty_snaps}; select a destination to fill them)", flush=True)
             else:
                 empty_snaps = 0
-            summary = (f"prog={st.get('program_id') or '—'} dest={st.get('destination_id') or '—'} "
-                       f"stop={st.get('stop_id') or '—'} override={st.get('override_text') or '—'} "
-                       f"fields={','.join(sorted((snap.get('fields') or {}).keys())) or '—'} "
+            summary = (f"prog={st.get('program_id') or '-'} dest={st.get('destination_id') or '-'} "
+                       f"stop={st.get('stop_id') or '-'} override={st.get('override_text') or '-'} "
+                       f"fields={','.join(sorted((snap.get('fields') or {}).keys())) or '-'} "
                        f"layouts={len(snap.get('layouts') or {})}")
             if summary != last_summary:
                 print(f"display state: {summary}", flush=True)
@@ -194,7 +194,7 @@ def main():
                     print(f"display: first frame pushed ({len(outputs)} output(s), first {w0}px wide)",
                           flush=True)
             except Exception as e:
-                print(f"display: render failed ({e}) — holding last frame", flush=True)
+                print(f"display: render failed ({e}) - holding last frame", flush=True)
         time.sleep(1.0 / RENDER_HZ)
 
 

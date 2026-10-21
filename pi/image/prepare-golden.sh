@@ -1,5 +1,5 @@
 #!/bin/bash
-# prepare-golden — turn THIS Pi into a capture-ready golden master.
+# prepare-golden - turn THIS Pi into a capture-ready golden master.
 #
 # Flow: install one Pi per role with the normal installer (unpaired!),
 # verify it, then run:  sudo bash prepare-golden.sh
@@ -8,7 +8,7 @@
 # fresh pairing registration) and comes up showing its own pairing code.
 #
 # Run ON the golden Pi, from the repo checkout. One image per ROLE
-# (front/side/rear) — clones of one image serve many buses of that role,
+# (front/side/rear) - clones of one image serve many buses of that role,
 # then each bus gets its unit via nsl-set-unit (front only).
 set -euo pipefail
 if [ "$(id -u)" -ne 0 ]; then echo "run as root: sudo bash prepare-golden.sh"; exit 1; fi
@@ -22,7 +22,7 @@ if [ -f /var/lib/nsl/device-token ]; then
   exit 1
 fi
 
-echo "==> role=$ROLE — installing first-boot sanitizer"
+echo "==> role=$ROLE - installing first-boot sanitizer"
 cp "$REPO/pi/image/nsl-golden-firstboot.service" /etc/systemd/system/
 cp "$REPO/pi/image/nsl-golden-firstboot.sh" /usr/local/sbin/
 cp "$REPO/pi/image/nsl-set-unit.sh" /usr/local/sbin/nsl-set-unit
@@ -46,7 +46,7 @@ rm -rf /root/.cache /home/*/.cache
 
 echo "================================================================"
 echo "  Golden master ready (role=$ROLE, UNPAIRED)."
-echo "  1. sudo poweroff — pull the SD."
+echo "  1. sudo poweroff - pull the SD."
 echo "  2. Capture: sudo bash pi/image/capture.sh /dev/sdX nsl-$ROLE.img"
 echo "  3. Flash nsl-$ROLE.img.xz to fleet SDs, boot with wired net."
 echo "  4. Front clones: each shows its OWN pairing code → pair per bus."

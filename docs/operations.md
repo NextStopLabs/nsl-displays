@@ -1,4 +1,4 @@
-# Operations — sync, updates, backups
+# Operations - sync, updates, backups
 
 ## Sync order (hotspot)
 1. program data + config first, 2. audio by hash (resume + verify), 3. software last.

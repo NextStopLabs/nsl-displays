@@ -1,4 +1,4 @@
-# NSL Displays — Full Setup Guide (v2)
+# NSL Displays - Full Setup Guide (v2)
 
 Canonical end-to-end setup. The old `README.md` sections are reference material;
 **this file is the one to follow** for a fresh install.
@@ -6,7 +6,7 @@ Canonical end-to-end setup. The old `README.md` sections are reference material;
 Portal: **https://nsldisplays.com/portal**
 Health: **https://nsldisplays.com/portal/health**
 
-Local-only URLs (unchanged — these are device networks, not the internet):
+Local-only URLs (unchanged - these are device networks, not the internet):
 `http://192.168.4.1` (Pi AP), `http://10.9.0.1:8090/state` (bus LAN).
 
 ---
@@ -55,12 +55,12 @@ Notes:
 
 ---
 
-## 2. Flash and pair — golden images (recommended)
+## 2. Flash and pair - golden images (recommended)
 
 No SSH, no typing, no file-copying. Flash, boot with wired net, pair.
 
 ```bash
-# download once (per role — front/side/rear are different images):
+# download once (per role - front/side/rear are different images):
 curl -fSL -o nsl-front.img.xz https://nsldisplays.com/images/nsl-front.img.xz
 curl -fSL -o nsl-front.img.xz.sha256 https://nsldisplays.com/images/nsl-front.img.xz.sha256
 sha256sum -c nsl-front.img.xz.sha256
@@ -108,12 +108,12 @@ curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/i
 
 `--unit` must match on all three (AP becomes `NSL-<unit>`).
 Add `--audio jack` to the front command for 3.5mm onboard audio
-(default `--audio jack`; pass `--audio usb` for a USB adapter). Add `--portal <url>` only for a non-production portal —
+(default `--audio jack`; pass `--audio usb` for a USB adapter). Add `--portal <url>` only for a non-production portal -
 use the exact base your browser uses: if the UI loads at
 `https://nsldisplays.com` with no `/portal` path, pass
 `--portal https://nsldisplays.com`.
 
-What the scripts do (all idempotent — safe to re-run):
+What the scripts do (all idempotent - safe to re-run):
 
 - Controller: hostname `nsl-front`, audio mode (`dtparam=audio=off` for USB,
   kept enabled for jack), `gpio=18=op,dh` so panels stay blank from power-on
@@ -139,9 +139,9 @@ Fallback when you don't have a golden image yet. Both end at §3.
 2. Open `pi/autoinstall/firstrun.sh` in a text editor, set the 5 CONFIG lines
    (`NSL_ROLE` per Pi, `NSL_UNIT` per bus, `NSL_AUDIO`, portal default is fine).
 3. Copy the file onto the SD boot drive as `firstrun.sh` (the small FAT
-   partition your computer shows after flashing — drive root, next to
+   partition your computer shows after flashing - drive root, next to
    `config.txt`). Optional: also drop your SSH key as `nsl-ssh.pub`.
-4. Boot with wired net (needs internet). Walk away — it creates the `pi` user
+4. Boot with wired net (needs internet). Walk away - it creates the `pi` user
    (password `nsl-setup`, forced change on first login), enables SSH, and runs
    the normal installer as a self-removing service. Progress: re-mount the SD
    and read `nsl-status.txt`, or SSH in and tail
@@ -164,7 +164,7 @@ via the local UI (§2) or `sudo nsl-set-unit bus-2`. Boards need nothing further
 
 ---
 
-## 3. Pairing — one code, one click
+## 3. Pairing - one code, one click
 
 1. Power all three Pis. The front boards show a 6-char **pairing code**
    (also `journalctl -u nsl-pairing -f`, and `http://192.168.4.1`).
@@ -178,7 +178,7 @@ via the local UI (§2) or `sudo nsl-set-unit bus-2`. Boards need nothing further
    restarts `nsl-agent`, and **plays the test chime** (§4). Boards switch from
    the pairing frame to normal content. No token copy-paste. A row stuck on
    “waiting for Pi” means the Pi can't reach the portal (wrong base URL or no
-   internet — the Pi logs which base it tried every minute).
+   internet - the Pi logs which base it tried every minute).
 5. Removing a bus: Controllers → Remove deletes the controller entirely
    (token revoked, row gone; audit history kept).
 
@@ -210,7 +210,7 @@ immediately. No clips = silence (preview lists clips per stop first).
 
 ---
 
-## 5. First program — portal to bus
+## 5. First program - portal to bus
 
 1. Portal → Programs → New (`Burton routes`).
 2. Open it → add Service `100`, add destinations with 8-digit codes
@@ -219,7 +219,7 @@ immediately. No clips = silence (preview lists clips per stop first).
    layouts; auto-fit starter is fine) → Preview (screens + announcements).
 4. Publish → Upload to the bus (sends latest version).
 5. Next hotspot session the bus pulls it (program first, audio second,
-   software last — short windows still land the important bits).
+   software last - short windows still land the important bits).
 6. On the bus: type the 8-digit code (keypad, portal remote, or local UI).
    Check all three signs + announcement. `INVALID` = wrong active program.
 
@@ -251,14 +251,14 @@ pending command count.
   Unpair revokes access (bus keeps showing last content, syncs stop).
 - Portal upgrade: `git pull && docker compose up --build -d`.
 - Pi software: auto-updates from portal releases (signed bundles, A/B +
-  rollback). Re-run the install scripts any time for repair — they update the
+  rollback). Re-run the install scripts any time for repair - they update the
   checkout and re-enable services without wiping state.
 
 ---
 
 ## 8. Migrating to the domain (IP or old domain → nsldisplays.com)
 
-Tokens are domain-independent — **no re-pair needed**. Point the portal and
+Tokens are domain-independent - **no re-pair needed**. Point the portal and
 the buses at the new URL:
 
 ```bash
@@ -266,7 +266,7 @@ the buses at the new URL:
 docker compose up --build -d   # Caddy issues the Let's Encrypt cert
 curl https://nsldisplays.com/portal/health
 
-# each FRONT Pi (boards need nothing — they never call the portal):
+# each FRONT Pi (boards need nothing - they never call the portal):
 NEW=https://nsldisplays.com/portal
 sudo sed -i "s|^Environment=\"PORTAL_URL=.*|Environment=\"PORTAL_URL=$NEW\"|" \
   /etc/systemd/system/nsl-agent.service.d/nsl-portal.conf \
@@ -278,7 +278,7 @@ sqlite3 /var/lib/nsl/controller.db "UPDATE controller_config SET portal_url='$NE
 sudo systemctl daemon-reload && sudo systemctl restart nsl-agent nsl-pairing
 ```
 
-(Or just re-run `install-controller.sh` — same `--unit`, it re-registers and
+(Or just re-run `install-controller.sh` - same `--unit`, it re-registers and
 keeps state. Either way the already-paired token keeps working.)
 
 ---

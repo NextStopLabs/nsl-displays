@@ -48,7 +48,7 @@ class DisplayDriver:
                 else:
                     # never crash-loop the bus over a renamed option; shout instead
                     print(f"display driver: RGBMatrixOptions has no {attr!r} "
-                          f"(library version?) — skipped", flush=True)
+                          f"(library version?) - skipped", flush=True)
             print(f"display driver: options rows={wanted['rows']} cols={wanted['cols']} "
                   f"chain={wanted['chain_length']} parallel={wanted['parallel']} "
                   f"brightness={wanted['brightness']} mapping={wanted['hardware_mapping']} "
@@ -63,7 +63,7 @@ class DisplayDriver:
                 o.drop_privileges = False
             else:
                 print("display driver: RGBMatrixOptions has no 'drop_privileges' "
-                      "(library version?) — file access may break after init", flush=True)
+                      "(library version?) - file access may break after init", flush=True)
             self.matrix = RGBMatrix(options=o)
         print(f"display driver: {'HUB75 hardware' if self.matrix is not None else 'virtual PNG output ' + str(virtual_dir)} "
               f"(rgbmatrix module {'present' if HAS_MATRIX else 'MISSING'})", flush=True)
@@ -72,7 +72,7 @@ class DisplayDriver:
         """snapshot from Core.display_snapshot(). Renders each LOCAL output.
 
         Outputs with transport 'network' belong to other Pis (their own
-        nsl-display renders them) — drawing them here would composite several
+        nsl-display renders them) - drawing them here would composite several
         frames at the same origin, i.e. garbled flickering text.
         """
         from .renderer import autofit_layout, current_page, render_frame
@@ -153,7 +153,7 @@ class DisplayDriver:
         import time as _t
         last = self._push_logged.get(name, 0)
         if n == 1 or _t.time() - last > 60:
-            print(f"display driver: {detail} x{n} ({e}) — "
+            print(f"display driver: {detail} x{n} ({e}) - "
                   f"panels dark but software alive; check power/HAT/ribbon", flush=True)
             self._push_logged[name] = _t.time()
 
