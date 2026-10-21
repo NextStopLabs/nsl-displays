@@ -18,7 +18,7 @@ def main():
     from nsl_pi.store import init_controller_db
     from nsl_pi.core import Core
     db = os.path.join(BASE, "controller.db")
-    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", "bus-1"))
+    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", ""))
     if ROLE != "front":
         # receivers: display service owns rendering; core has nothing to serve.
         while True:

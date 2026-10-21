@@ -58,7 +58,7 @@ def main():
     import json
     import sqlite3
     db = os.path.join(BASE, "controller.db")
-    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", "bus-1"))
+    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", ""))
     con = sqlite3.connect(db)
     con.row_factory = sqlite3.Row
     outputs = [dict(r) for r in con.execute("SELECT * FROM display_outputs")]

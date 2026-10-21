@@ -24,7 +24,7 @@ import os
 import subprocess
 import time
 
-DEFAULT_PORTAL = "https://nslboards.com/portal"
+DEFAULT_PORTAL = "https://nsldisplays.com/portal"
 BASE_ENV = "NSL_BASE"
 TOKEN_ENV = "NSL_TOKEN"
 PORTAL_ENV = "PORTAL_URL"

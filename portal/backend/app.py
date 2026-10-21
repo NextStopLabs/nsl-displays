@@ -1411,7 +1411,7 @@ def put_controller_config(cid: str, body: dict, u: dict = Depends(current_user))
     con.execute("INSERT INTO controller_config VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(controller_id) DO UPDATE SET version=version+1, matrix_options=excluded.matrix_options, audio_device=excluded.audio_device, ap_name=excluded.ap_name, startup_program_id=excluded.startup_program_id, startup_code=excluded.startup_code, portal_url=excluded.portal_url, channel=excluded.channel, updated_at=excluded.updated_at",
                 (cid, 1, _j.dumps(body.get("matrix_options", {})), body.get("audio_device", "default"),
                  body.get("ap_name", "NSL-unit"), body.get("startup_program_id"), body.get("startup_code"),
-                 body.get("portal_url", "https://nslboards.com/portal"), body.get("channel", "stable"), _utcnow()))
+                 body.get("portal_url", "https://nsldisplays.com/portal"), body.get("channel", "stable"), _utcnow()))
     con.execute("UPDATE controllers SET config_version=config_version+1 WHERE id=?", (cid,))
     for o in body.get("outputs", []):
         if "id" in o and con.execute("SELECT 1 FROM display_outputs WHERE id=?", (o["id"],)).fetchone():

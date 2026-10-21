@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS wifi_networks (
 CREATE TABLE IF NOT EXISTS controller_config (
   controller_id TEXT PRIMARY KEY, version INTEGER DEFAULT 1, matrix_options TEXT DEFAULT '{}',
   audio_device TEXT DEFAULT 'default', ap_name TEXT DEFAULT 'NSL-unit',
-  startup_program_id TEXT, startup_code TEXT, portal_url TEXT DEFAULT 'https://nslboards.com/portal',
+  startup_program_id TEXT, startup_code TEXT, portal_url TEXT DEFAULT 'https://nsldisplays.com/portal',
   channel TEXT DEFAULT 'stable', updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS command_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, controller_id TEXT NOT NULL, user_id TEXT,

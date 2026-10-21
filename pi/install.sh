@@ -6,11 +6,13 @@ UNIT="${2:-bus-1}"
 AUDIO="${3:-${NSL_AUDIO:-usb}}"   # usb|jack — jack keeps the 3.5mm onboard output
 if [ "$AUDIO" != "usb" ] && [ "$AUDIO" != "jack" ]; then echo "audio must be usb|jack"; exit 1; fi
 
-sudo hostnamectl set-hostname "nsl-${ROLE}"
-# keep sudo/hostname lookups working (else "unable to resolve host nsl-${ROLE}")
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# keep sudo/hostname lookups working (else "unable to resolve host nsl-${ROLE}");
+# hosts entry BEFORE the rename so sudo never warns mid-install.
 if ! grep -q "nsl-${ROLE}" /etc/hosts 2>/dev/null; then
   echo "127.0.0.1 nsl-${ROLE}" | sudo tee -a /etc/hosts >/dev/null
 fi
+sudo hostnamectl set-hostname "nsl-${ROLE}"
 # audio: USB adapter is the default (onboard off — HUB75 shares PWM hardware).
 # --audio jack keeps the 3.5mm onboard jack: needs software pulsing
 # (the default no-hardware-pulse) and a reboot after install.
@@ -41,8 +43,7 @@ sudo apt-get update
 sudo apt-get install -y python3-pip python3-pil python3-fastapi python3-uvicorn \
   sqlite3 flac alsa-utils network-manager evtest watchdog
 sudo mkdir -p /var/lib/nsl /opt/nsl
-NSL_ROLE="$ROLE" NSL_UNIT="$UNIT" python3 -m nsl_pi.store_init 2>/dev/null || \
-  python3 -c "import os,sys; sys.path.insert(0,'.'); from pi.nsl_pi.store import init_controller_db; init_controller_db('/var/lib/nsl/controller.db', controller_name='$UNIT')"
+PYTHONPATH="$REPO:$REPO/pi" sudo -E python3 -c "from nsl_pi.store import init_controller_db; init_controller_db('/var/lib/nsl/controller.db', controller_name='$UNIT')"
 # static bus LAN
 case "$ROLE" in
   front) IP=10.9.0.1/24;; side) IP=10.9.0.2/24;; rear) IP=10.9.0.3/24;;
@@ -51,8 +52,7 @@ sudo nmcli con add type ethernet ifname eth0 con-name bus-lan ip4 "$IP" ipv4.nev
 sudo cp deploy/nsl-*.service /etc/systemd/system/
 # Code location + role: units run `python3 -m nsl_pi.*`, so both the repo root
 # (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep
-# this working wherever the repo was cloned from.
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# this working wherever the repo was cloned from (REPO computed at top).
 # Hanover bitmap fonts for the on-bus renderer (ships with the repo)
 if [ -d "$REPO/HANOVERFONTS" ]; then
   sudo mkdir -p /var/lib/nsl/fonts

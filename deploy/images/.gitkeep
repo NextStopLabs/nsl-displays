@@ -1,0 +1,2 @@
+Golden SD images + checksums live here (served at https://nsldisplays.com/images/).
+Build per README2 §2A Option B, then: cp nsl-*.img.xz* deploy/images/

@@ -1,0 +1,11 @@
+[Unit]
+Description=NSL golden-image first-boot sanitize (one-shot)
+After=local-fs.target
+Before=nsl-pairing.service nsl-agent.service nsl-display.service
+ConditionPathExists=!/var/lib/nsl/.image-booted
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nsl-golden-firstboot.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

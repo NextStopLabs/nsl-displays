@@ -7,7 +7,7 @@
 #     | sudo bash -s -- --unit bus-1
 #
 # Optional flags:
-#   --portal https://nslboards.com/portal   portal base URL (default shown)
+#   --portal https://nsldisplays.com/portal   portal base URL (default shown)
 #   --unit bus-1                             bus name: AP becomes NSL-<unit>
 #   --repo https://github.com/NextStopLabs/nsl-displays.git
 #   --dir /opt/nsl-displays                  checkout location
@@ -20,7 +20,7 @@
 # its agent and starts syncing. No manual token copy needed.
 set -euo pipefail
 
-PORTAL="https://nslboards.com/portal"
+PORTAL="https://nsldisplays.com/portal"
 UNIT=""
 REPO="https://github.com/NextStopLabs/nsl-displays.git"
 DIR="/opt/nsl-displays"
@@ -77,6 +77,11 @@ else
   (cd /root/rpi-rgb-led-matrix && pip install . --break-system-packages)
 fi
 
+echo "==> unit helper (rename without SSH via local UI)"
+if [ -f "$DIR/pi/image/nsl-set-unit.sh" ]; then
+  cp "$DIR/pi/image/nsl-set-unit.sh" /usr/local/sbin/nsl-set-unit
+  chmod +x /usr/local/sbin/nsl-set-unit
+fi
 echo "==> portal URL drop-in (token arrives via pairing)"
 mkdir -p /etc/systemd/system/nsl-agent.service.d
 cat > /etc/systemd/system/nsl-agent.service.d/nsl-portal.conf <<EOF

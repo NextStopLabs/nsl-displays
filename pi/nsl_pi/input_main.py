@@ -19,7 +19,7 @@ def main():
     from nsl_pi.input_keypad import KeypadEntry, find_keypad
     from nsl_pi.player import play_announcement
     db = os.path.join(BASE, "controller.db")
-    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", "bus-1"))
+    init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", ""))
     if ROLE != "front":
         while True:
             time.sleep(3600)

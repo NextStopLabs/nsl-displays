@@ -1,6 +1,6 @@
 # Project Plan: Bus Stop Announcement System
 
-A multi-user online portal at **nslboards.com/portal** for building **programs** (services, destinations, stops, audio, board layouts) and a Raspberry Pi 4 controller that programs are uploaded to. The Pi plays announcements, drives the LED destination boards, and updates itself from the portal whenever it is connected (for example through a phone hotspot). The driver controls it with a **USB keypad**, the **portal's remote control page**, or the Pi's own **local controller** at **192.168.4.1** (works with no internet). GPIO buttons are optional.
+A multi-user online portal at **nsldisplays.com/portal** for building **programs** (services, destinations, stops, audio, board layouts) and a Raspberry Pi 4 controller that programs are uploaded to. The Pi plays announcements, drives the LED destination boards, and updates itself from the portal whenever it is connected (for example through a phone hotspot). The driver controls it with a **USB keypad**, the **portal's remote control page**, or the Pi's own **local controller** at **192.168.4.1** (works with no internet). GPIO buttons are optional.
 
 The program data format is defined in **`program-format.md`**.
 
@@ -10,7 +10,7 @@ The program data format is defined in **`program-format.md`**.
 
 1. **Multi-user** portal where each account (organisation) has its own private data.
 2. **Programs**: users create programs in the portal and upload them to controllers. A program holds services, destinations (with 8-digit codes), stops, audio references and board layouts, stored in the new **program file format** (`.nslprog`, a SQLite file; see `program-format.md`).
-3. **Web portal** at `nslboards.com/portal` to pair controllers, build programs, manage audio and voices, design what each board shows, and remotely control a controller.
+3. **Web portal** at `nsldisplays.com/portal` to pair controllers, build programs, manage audio and voices, design what each board shows, and remotely control a controller.
 4. **Raspberry Pi 4 controller** that runs programs, plays announcements and drives the LED boards (one logical controller per bus: main Pi drives front directly, side/rear over network — see 6.6.1), controlled by a USB keypad, the portal and a local web controller (and optional GPIO buttons).
 5. **Three displays from one logical controller** (front, side, rear) with a documented wiring method for a 10 m bus (see 6.6). Front is driven directly from the main Pi's GPIO; side and rear are too far for HUB75 ribbon and use networked receiver Pis.
 6. **Local controller** on the Pi at `192.168.4.1` (its own Wi-Fi access point) that works fully offline.
@@ -36,7 +36,7 @@ The program data format is defined in **`program-format.md`**.
 ```
 ┌──────────────────────────────┐   HTTPS / WebSocket (outbound   ┌────────────────────────────────┐
 │  Web Portal                  │   from the Pi, over the phone   │  Raspberry Pi 4 Controller     │
-│  nslboards.com/portal        │   hotspot when connected)       │  - Agent (sync + update)       │
+│  nsldisplays.com/portal        │   hotspot when connected)       │  - Agent (sync + update)       │
 │  - Accounts & orgs           │ ◄─────────────────────────────► │  - Controller core (state)     │
 │  - Program editor            │   pairing, program upload,      │  - Player (audio engine)       │
 │  - Board layout editor       │   audio download, remote        │  - Display driver (LED)        │
@@ -95,9 +95,9 @@ These are recommendations, and can be swapped without changing the rest of the p
 ### 3.2 Self-hosting, domain and URLs
 
 - Deployed with **Docker Compose** on your own hardware: `portal`, `db` (PostgreSQL), `storage` (local volume or MinIO), `tts` worker (Piper), `proxy` (Caddy or nginx with TLS).
-- **Public URL:** `https://nslboards.com/portal`. The proxy routes `/portal` to the app, so the web app is built with base path `/portal` (API under `/portal/api`, device WebSocket under `/portal/api/device/stream`). The rest of `nslboards.com` can be a separate site.
+- **Public URL:** `https://nsldisplays.com/portal`. The proxy routes `/portal` to the app, so the web app is built with base path `/portal` (API under `/portal/api`, device WebSocket under `/portal/api/device/stream`). The rest of `nsldisplays.com` can be a separate site.
 - **Local URL on the Pi:** `http://192.168.4.1` (see 6.3). No internet needed.
-- Pis only make **outbound** HTTPS/WebSocket connections to `nslboards.com/portal`, so no inbound ports are needed on the vehicles. The portal is exposed to the internet through the proxy, with a public TLS certificate (Let's Encrypt).
+- Pis only make **outbound** HTTPS/WebSocket connections to `nsldisplays.com/portal`, so no inbound ports are needed on the vehicles. The portal is exposed to the internet through the proxy, with a public TLS certificate (Let's Encrypt).
 - **Backups**: nightly PostgreSQL dump plus a copy of the audio, voices, programs and releases folders, with a tested restore procedure.
 - Portal upgrades with `docker compose pull && docker compose up -d`; migrations run automatically on start.
 - Simple health endpoint and disk-space check so you know before storage fills.
@@ -204,7 +204,7 @@ Each stop has:
 
 ---
 
-## 5. Web Portal (nslboards.com/portal)
+## 5. Web Portal (nsldisplays.com/portal)
 
 ### 5.1 Accounts and multi-user
 - Sign up, sign in, sign out, password reset.
@@ -568,7 +568,7 @@ Build as a shared CSS/component package used by the portal and the Pi's local co
 
 ## 8. API Outline
 
-All portal routes are under the base path `/portal` (for example `https://nslboards.com/portal/api/...`).
+All portal routes are under the base path `/portal` (for example `https://nsldisplays.com/portal/api/...`).
 
 **Portal (user, session auth)**
 - `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `POST /auth/reset`

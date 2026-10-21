@@ -1,5 +1,9 @@
 # NSL Displays — Bus Stop Announcement & LED Destination System
 
+> **Start here for installs: [`README2.md`](README2.md) — full setup guide
+> (portal + flash-and-pair images + pairing + audio + first program).
+> This file remains the detailed reference.
+
 > One logical controller per bus. Three physical signs. Portal-built programs. Offline-first Pi control.
 
 This README is the wiki for the project. `plan.md` is the build plan, `format.md` is the `.nslprog` file spec. This file is how to wire it, power it, run it, and operate it.
@@ -39,14 +43,14 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 
 ## 1. What this is
 
-- **Portal** at `nslboards.com/portal`: multi-user web app. Build programs (services → destinations → stops), upload/generate audio with Piper, design what each LED board shows, pair controllers, push programs, remote-control a bus.
+- **Portal** at `nsldisplays.com/portal`: multi-user web app. Build programs (services → destinations → stops), upload/generate audio with Piper, design what each LED board shows, pair controllers, push programs, remote-control a bus.
 - **Bus controller**: a main Raspberry Pi 4 at the front of the bus. Runs the service: plays announcements, drives the front LED sign, tells the side/rear signs what to show, reads the USB keypad, hosts the local controller page.
 - **Two receiver Pis**: one at the side sign, one at the rear sign. They drive their local panels and mirror the main Pi's state. The portal still sees **one controller per bus**.
 - **Program file** (`.nslprog`): a single SQLite file per published program version. Holds services, 8-digit destination codes, stops, displays, board layouts, audio references. Audio travels as separate hash-named FLAC files. Full spec in `format.md`.
 - **Offline-first**: the bus runs entirely from local cache. Internet (phone hotspot) is only needed to sync new programs, audio, or software updates.
 
 ```
-Portal (nslboards.com/portal)
+Portal (nsldisplays.com/portal)
   │  HTTPS/WSS, Pi-initiated only (hotspot)
   ▼
 Front Pi 4B ──bus LAN (Ethernet switch)──► Side Pi 3B ──► 160x40 sign
@@ -483,7 +487,7 @@ Then: read the 6-char code off the front board → portal Controllers → Pair c
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
   | sudo bash -s -- --unit bus-1
-# --portal defaults to https://nslboards.com/portal; --unit sets the AP name NSL-<unit>
+# --portal defaults to https://nsldisplays.com/portal; --unit sets the AP name NSL-<unit>
 # --audio jack keeps the 3.5mm onboard jack (default is --audio usb).
 # Jack mode needs software pulsing (the default) and a reboot after install.
 ```
@@ -524,13 +528,13 @@ Match `led-*` flags to §17 / `deploy/config/matrix.example.json` (`chain 3, par
 
 - `nsl-core` runs `python3 -m nsl_pi.service_main`: owns state, serves `http://10.9.0.1:8090/state` for receivers (front only; idle on side/rear). Never touches GPIO.
 - `nsl-display` runs `python3 -m nsl_pi.display_main`: sole owner of the HUB75 matrix — front re-renders from Core at 10 Hz, side/rear poll the front at 10 Hz and hold last frame on drop.
-- `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nslboards.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync polls every `NSL_POLL_S` (default 10 s).
+- `nsl-agent` runs `python3 -m nsl_pi.agent_main`: needs `PORTAL_URL` (default `https://nsldisplays.com/portal`) + `NSL_TOKEN` (device token from pairing, §15). Set via systemd override until paired, then heartbeat/sync polls every `NSL_POLL_S` (default 10 s).
 - `nsl-player` runs `python3 -m nsl_pi.player_main`: watches stop changes, plays the next-stop chain on the PA (front only, USB audio).
 - `nsl-input` runs `python3 -m nsl_pi.input_main`: cab USB keypad → Core commands (front only).
 - `nsl-local-ui` serves the local controller on port 80 (all interfaces, but only AP-subnet/bus-LAN/loopback clients get answers, 403 otherwise).
 
 ```bash
-sudo systemctl edit nsl-agent   # add: [Service] Environment="PORTAL_URL=https://nslboards.com/portal" Environment="NSL_TOKEN=<token>"
+sudo systemctl edit nsl-agent   # add: [Service] Environment="PORTAL_URL=https://nsldisplays.com/portal" Environment="NSL_TOKEN=<token>"
 sudo systemctl restart nsl-agent nsl-core nsl-display nsl-local-ui
 systemctl is-active nsl-core nsl-agent nsl-display nsl-local-ui
 ```

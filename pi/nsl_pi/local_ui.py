@@ -181,6 +181,46 @@ def api_audio_test():
     return rep
 
 
+@app.get("/api/identity")
+def api_identity_get():
+    """Current unit name (empty = not personalized yet)."""
+    import sqlite3 as _s
+    base = os.environ.get("NSL_BASE", "/var/lib/nsl")
+    try:
+        con = _s.connect(os.path.join(base, "controller.db"))
+        try:
+            row = con.execute("SELECT controller_name, ap_name FROM controller_config WHERE id=1").fetchone()
+        finally:
+            con.close()
+        return {"unit": (row[0] if row else "") or "", "ap": (row[1] if row else "") or ""}
+    except Exception:
+        return {"unit": "", "ap": ""}
+
+
+@app.post("/api/identity")
+def api_identity(body: dict):
+    """Rename this bus (unit) without SSH: join the AP, open 192.168.4.1,
+    set the name, reboot when told. Used for golden-image clones."""
+    import re as _re
+    import shutil as _sh
+    import subprocess as _sp
+    unit = ((body or {}).get("unit") or "").strip()
+    if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}", unit):
+        raise HTTPException(400, "unit: letters/numbers/dash/underscore, max 32, e.g. bus-2")
+    setter = _sh.which("nsl-set-unit")
+    if not setter:
+        raise HTTPException(500, "unit rename needs nsl-set-unit (re-run the installer)")
+    r = _sp.run([setter, unit, "--no-reboot"], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise HTTPException(500, (r.stderr or r.stdout or "set-unit failed")[-300:])
+    # reboot after the response is sent (hostname + services need it)
+    try:
+        _sp.Popen(["bash", "-c", "sleep 3; reboot"])
+    except Exception:
+        pass
+    return {"ok": True, "unit": unit, "rebooting": True}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return INDEX_HTML
@@ -200,6 +240,11 @@ INDEX_HTML = """<!doctype html><html><head><meta charset=utf8><meta name=viewpor
 <label>Override text<input id=ov></label>
 <div class=row><button onclick="cmd('override_apply')">Apply override</button></div>
 </div>
+<div class=group><div class=grouptitle>Bus identity</div>
+<label>Unit name (bus-1, bus-2…)<input id=unit maxlength=32></label>
+<div class=row><button onclick="setUnit()">Apply + reboot</button><button onclick="audioTest()">Test audio</button></div>
+<div class=hint id=unitmsg></div></div>
+<script>fetch('/api/identity').then(r=>r.json()).then(j=>{if(j.unit)document.getElementById('unit').value=j.unit;}).catch(()=>{})</script>
 <div class=group><div class=grouptitle>Status</div><pre id=state>…</pre></div>
 </div></div>
 <script>
@@ -208,6 +253,13 @@ async function cmd(command){const body={command};if(command==='select_code')body
 if(command==='override_apply')body.text=document.getElementById('ov').value;
 if(command==='stop_next'||command==='stop_prev'){}
 await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});refresh()}
+async function setUnit(){const u=document.getElementById('unit').value.trim();
+document.getElementById('unitmsg').textContent='applying…';
+const r=await fetch('/api/identity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit:u})});
+const j=await r.json().catch(()=>({}));
+document.getElementById('unitmsg').textContent=r.ok?('unit '+j.unit+' applied — rebooting, rejoin the AP in ~1 min'):('failed: '+(j.detail||r.status))}
+async function audioTest(){const r=await fetch('/api/audio-test',{method:'POST'});const j=await r.json().catch(()=>({}));
+alert(r.ok?(j.played?('chime played on '+j.device):('silent: '+(j.reason||'no output'))):('failed: '+(j.detail||r.status)))}
 refresh();setInterval(refresh,2000);
 </script></body></html>
 """

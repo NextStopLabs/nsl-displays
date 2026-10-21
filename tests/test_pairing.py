@@ -52,7 +52,7 @@ def test_pairing_register_claim_save(tmp_path, monkeypatch):
 def test_pairing_frame_renders_code():
     from pi.nsl_pi.display_main import pairing_frame
     for w, h in ((240, 40), (160, 40), (80, 40)):
-        img = pairing_frame({"width_px": w, "height_px": h}, "KQ7Z2M", "nslboards.com/portal")
+        img = pairing_frame({"width_px": w, "height_px": h}, "KQ7Z2M", "nsldisplays.com/portal")
         assert img.size == (w, h)
         assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 50
 

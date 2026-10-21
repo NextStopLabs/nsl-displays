@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS controller_config (
   startup_code TEXT,
   startup_mode TEXT NOT NULL DEFAULT 'restore',
   release_channel TEXT NOT NULL DEFAULT 'stable',
-  portal_url TEXT NOT NULL DEFAULT 'https://nslboards.com/portal',
+  portal_url TEXT NOT NULL DEFAULT 'https://nsldisplays.com/portal',
   controller_name TEXT NOT NULL DEFAULT 'bus-1',
   updated_at TEXT NOT NULL
 );

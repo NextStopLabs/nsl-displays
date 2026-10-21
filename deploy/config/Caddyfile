@@ -7,6 +7,13 @@
 		uri strip_prefix /portal
 		reverse_proxy portal:8000
 	}
+# Golden images + checksums. Publish with: cp nsl-*.img.xz* deploy/images/
+# then https://{$DOMAIN}/images/nsl-front.img.xz is downloadable.
+	handle /images/* {
+		uri strip_prefix /images
+		root * /srv/images
+		file_server browse
+	}
 	handle {
 		respond "nsl portal: ok" 200
 	}

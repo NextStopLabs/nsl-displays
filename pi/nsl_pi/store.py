@@ -29,18 +29,22 @@ def _utcnow() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def init_controller_db(path: str, controller_name: str = "bus-1", role: str = "front"):
+def init_controller_db(path: str, controller_name: str = "", role: str = "front"):
+    """Bootstrap a fresh controller.db. controller_name stays EMPTY unless the
+    caller passes one (installer --unit, nsl-set-unit, local UI): nothing in
+    code presumes a bus name, so golden-image clones never share one."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fresh = not os.path.exists(path)
     con = sqlite3.connect(path)
     con.executescript(CONTROLLER_DB_DDL)
     if fresh:
         import json
+        ap = f"NSL-{controller_name}" if controller_name else "NSL-setup"
         con.execute("INSERT OR IGNORE INTO state VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?)", (_utcnow(),))
         con.execute(
             "INSERT OR IGNORE INTO controller_config (id, version, matrix_options, audio_device, ap_name, startup_mode, release_channel, portal_url, controller_name, updated_at) VALUES (1,1,?,?,?,?,?,?,?,?)",
-            (json.dumps({}), "default", f"NSL-{controller_name}", "restore", "stable",
-             "https://nslboards.com/portal", controller_name, _utcnow()))
+            (json.dumps({}), "default", ap, "restore", "stable",
+             "https://nsldisplays.com/portal", controller_name, _utcnow()))
         con.execute("INSERT OR IGNORE INTO keypad_config VALUES (1,'',1,5000,'front')")
         for key_name, role_, param in DEFAULT_KEYMAP:
             if role_ == "digit":
