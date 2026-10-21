@@ -180,6 +180,40 @@ def test_bustimes_import_no_audio_is_synchronous(tmp_path, monkeypatch):
         sorted(ri["audio"]["silent"]) == sorted(["Perry Crofts", "Mid Point", "St Francis College"])
 
 
+def test_bustimes_import_all_services(tmp_path, monkeypatch):
+    """Import-all loops through every service returned by the operator/search
+    query and queues a single background audio job for all missing stops."""
+    c, appmod = _client(tmp_path, monkeypatch)
+    import portal.backend.bustimes as btmod
+    btmod.cache_clear()
+    btmod.fetch_service_detail = lambda sid: {
+        "id": sid, "line_name": f"S{sid}", "slug": f"s{sid}",
+        "description": "Tamworth - Lichfield"}
+    btmod.fetch_timetable = lambda sid: [
+        {"stops": ["Perry Crofts", "Mid Point", "St Francis College"], "trips": 1}]
+    btmod.fetch_services = lambda **kw: {"count": 2, "next": None, "previous": None, "results": [
+        {"id": 1, "line_name": "S1", "slug": "s1", "description": "Tamworth - Lichfield"},
+        {"id": 2, "line_name": "S2", "slug": "s2", "description": "Lichfield - Tamworth"}]}
+
+    def fake_synth(texts, voice_id, org, speaker_id=None):
+        return {t: ((_fake_wav(appmod, t), 100), "") for t in texts}
+    monkeypatch.setattr(appmod, "_synth_many_piper", fake_synth)
+
+    r = c.post("/api/auth/signup", data={"email": "all@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "P"}, headers=H).json()["program_id"]
+    ri = c.post("/api/bustimes/import-all", json={
+        "program_id": pid, "operator": "BULI", "voice_id": "v1"}, headers=H).json()
+    assert ri["state"] == "working" and ri["job_id"], ri
+    assert len(ri["imported"]) == 2, ri
+    assert ri["audio"]["pending"] == 3  # unique stops deduped across both services
+    job = _wait_job(c, ri["job_id"], H)
+    assert job["state"] == "done", job
+    assert job["result"]["generated"] == 3, job["result"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert len(prog["services"]) == 2
+
+
 def test_synth_many_falls_back_to_cli_without_piper_package(tmp_path, monkeypatch):
     """No `piper` Python package in this env -> parallel CLI fallback, one
     call per text (no per-stop model-load serialisation in our code)."""

@@ -2568,53 +2568,32 @@ def bustimes_job(jid: str, u: dict = Depends(current_user)):
     return _job_public(job)
 
 
-@app.post("/api/bustimes/import")
-def bustimes_import(body: dict, u: dict = Depends(current_user)):
-    """Import a bustimes.org service into a program.
+def _do_bustimes_import_one(con, org: str, pid: str, user_id: str, bustimes_id: int,
+                            voice_id: str | None, speaker_id: int | None,
+                            service_number: str | None = None,
+                            service_name: str | None = None,
+                            req_dests: list[dict] | None = None,
+                            gen_audio: bool = True) -> tuple[dict, list[str]]:
+    """Import a single bustimes.org service into a program.
 
-    Body: {program_id, bustimes_id, service_number?, service_name?,
-           voice_id?, generate_audio=true,
-           destinations?: [{name, via?, dest?, code?, direction?}]}
-    Omits -> destinations default to the description parts, each mapped to
-    its auto-detected timetable direction. Stops come from that direction's
-    timetable block; stop audio is reused by name or generated with Piper.
+    Returns (summary, pending_stop_names). The caller is responsible for
+    spawning an audio worker if pending stops need synthesis.
     """
     from . import bustimes as _bt
-    pid = body.get("program_id", "")
-    org = _org_of_program(pid)
-    require_role(u["id"], org, "owner", "editor")
-    try:
-        bustimes_id = int(body.get("bustimes_id"))
-    except (TypeError, ValueError):
-        raise HTTPException(400, "bustimes_id (service ID) is required")
-    try:
-        detail = _bt.fetch_service_detail(bustimes_id)
-    except Exception as e:
-        raise HTTPException(502, f"bustimes.org lookup failed: {e}")
-    line_name = (body.get("service_number") or detail.get("line_name") or "").strip()
+    detail = _bt.fetch_service_detail(bustimes_id)
+    line_name = (service_number or detail.get("line_name") or "").strip()
     if not line_name:
-        raise HTTPException(400, "service has no line name - pass service_number explicitly")
-    description = (body.get("service_name") or detail.get("description") or line_name).strip()
+        raise ValueError("service has no line name - pass service_number explicitly")
+    description = (service_name or detail.get("description") or line_name).strip()
     parts = _bt.split_description(detail.get("description") or description)
-    try:
-        directions = _bt.fetch_timetable(bustimes_id)
-    except Exception as e:
-        raise HTTPException(502, f"timetable download failed: {e}")
+    directions = _bt.fetch_timetable(bustimes_id)
     if not directions or not any(d.get("stops") for d in directions):
-        raise HTTPException(400, "no timetable stops found for that service")
-    req_dests = body.get("destinations")
+        raise ValueError("no timetable stops found for that service")
     if req_dests is None:
         req_dests = [{"name": p, "via": "", "dest": p,
                       "direction": _bt.auto_direction_for_part(p, directions)} for p in parts]
         if not req_dests:
             req_dests = [{"name": description, "via": "", "dest": description, "direction": 0}]
-    voice_id = body.get("voice_id")
-    gen_audio = body.get("generate_audio", True)
-    if gen_audio and not voice_id:
-        # No voice -> stops stay silent; surface loudly instead of failing.
-        pass
-    con = db()
-    speaker_id = _check_speaker(con, voice_id, org, body.get("speaker_id"))
     row = con.execute("SELECT * FROM p_services WHERE program_id=? AND number=?",
                       (pid, line_name)).fetchone()
     if row:
@@ -2667,8 +2646,6 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
             warnings.append(f"destination {name} ({code}): no stops - pick a timetable direction")
         made.append({"destination_id": did, "code": code, "name": name, "stops": n_stops,
                      "direction": direction})
-    # Link any clips already in the library straight away (fast DB reads only),
-    # so the program is usable the moment this response returns.
     unique_stops = list(dict.fromkeys(all_stops))
     linked, pending = 0, []
     for sname in unique_stops:
@@ -2679,29 +2656,140 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
             linked += 1
         else:
             pending.append(sname)
-    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), user_id, pid))
     con.commit()
-    base = {"ok": True, "service_id": sid, "service_number": line_name,
-            "destinations": made, "warnings": warnings}
+    summary = {"ok": True, "service_id": sid, "service_number": line_name,
+               "destinations": made, "warnings": warnings,
+               "audio": {"unique_stops": len(unique_stops), "with_audio": linked,
+                         "pending": len(pending), "voice_id": voice_id,
+                         "speaker_id": speaker_id}}
+    return summary, pending
+
+
+@app.post("/api/bustimes/import")
+def bustimes_import(body: dict, u: dict = Depends(current_user)):
+    """Import a bustimes.org service into a program.
+
+    Body: {program_id, bustimes_id, service_number?, service_name?,
+           voice_id?, generate_audio=true,
+           destinations?: [{name, via?, dest?, code?, direction?}]}
+    Omits -> destinations default to the description parts, each mapped to
+    its auto-detected timetable direction. Stops come from that direction's
+    timetable block; stop audio is reused by name or generated with Piper.
+    """
+    pid = body.get("program_id", "")
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    try:
+        bustimes_id = int(body.get("bustimes_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "bustimes_id (service ID) is required")
+    voice_id = body.get("voice_id")
+    gen_audio = body.get("generate_audio", True)
+    con = db()
+    speaker_id = _check_speaker(con, voice_id, org, body.get("speaker_id"))
+    try:
+        summary, pending = _do_bustimes_import_one(
+            con, org, pid, u["id"], bustimes_id, voice_id, speaker_id,
+            service_number=body.get("service_number"),
+            service_name=body.get("service_name"),
+            req_dests=body.get("destinations"), gen_audio=gen_audio)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"bustimes.org lookup failed: {e}")
+    base = {k: summary[k] for k in ("ok", "service_id", "service_number", "destinations", "warnings")}
     if gen_audio and voice_id and pending:
-        # Slow part (Piper synthesis) runs in the background with progress on
-        # GET /api/bustimes/jobs/<id> - the request returns immediately.
-        job = _job_create(org, pid, sid, line_name, len(pending))
+        job = _job_create(org, pid, summary["service_id"], summary["service_number"], len(pending))
         _threading.Thread(target=_bustimes_audio_worker,
                           args=(job["job_id"], org, pid, voice_id, pending, speaker_id),
                           daemon=True).start()
         base.update(state="working", job_id=job["job_id"],
-                    audio={"unique_stops": len(unique_stops), "with_audio": linked,
+                    audio={"unique_stops": summary["audio"]["unique_stops"],
+                           "with_audio": summary["audio"]["with_audio"],
                            "pending": len(pending), "voice_id": voice_id, "speaker_id": speaker_id,
                            "message": f"service imported; generating audio for {len(pending)} stop(s) in the background"})
         return base
     silent = pending
+    warnings = list(summary["warnings"])
     if gen_audio and not voice_id and pending:
         warnings.append("no voice selected - stops stay silent until you pick a voice and re-run audio generation")
     base.update(state="done", job_id=None,
-                audio={"unique_stops": len(unique_stops), "with_audio": linked,
+                audio={"unique_stops": summary["audio"]["unique_stops"],
+                       "with_audio": summary["audio"]["with_audio"],
                        "silent": silent, "voice_id": voice_id, "speaker_id": speaker_id, "errors": []},
                 warnings=warnings)
+    return base
+
+
+@app.post("/api/bustimes/import-all")
+def bustimes_import_all(body: dict, u: dict = Depends(current_user)):
+    """Import every bustimes.org service returned by an operator/search query.
+
+    Body: {program_id, operator?, search?, voice_id?, speaker_id?, generate_audio=true}
+    Services are imported sequentially; one background audio job is queued for
+    all unique missing stop clips. Pagination is capped at 10 pages (~250 svcs).
+    """
+    from . import bustimes as _bt
+    pid = body.get("program_id", "")
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    operator = (body.get("operator") or "").strip()
+    search = (body.get("search") or "").strip()
+    if not operator and not search:
+        raise HTTPException(400, "operator or search is required")
+    voice_id = body.get("voice_id")
+    gen_audio = body.get("generate_audio", True)
+    con = db()
+    speaker_id = _check_speaker(con, voice_id, org, body.get("speaker_id"))
+
+    services: list[dict] = []
+    page = 1
+    while page <= 10:
+        try:
+            data = _bt.fetch_services(operator=operator, search=search, page=page)
+        except Exception as e:
+            raise HTTPException(502, f"bustimes.org lookup failed: {e}")
+        results = data.get("results") or []
+        services.extend(results)
+        if not data.get("next") or not results:
+            break
+        page += 1
+    if not services:
+        raise HTTPException(400, "no services found for that operator/search")
+
+    imported: list[dict] = []
+    skipped: list[dict] = []
+    all_pending: list[str] = []
+    for svc in services:
+        svc_id = svc.get("id")
+        if not svc_id:
+            skipped.append({"reason": "missing service id"})
+            continue
+        try:
+            summary, pending = _do_bustimes_import_one(
+                con, org, pid, u["id"], int(svc_id), voice_id, speaker_id, gen_audio=False)
+            imported.append(summary)
+            all_pending.extend(pending)
+        except Exception as e:
+            skipped.append({"id": svc_id, "line_name": svc.get("line_name"), "reason": str(e)})
+    all_pending = list(dict.fromkeys(all_pending))
+
+    base = {"state": "done", "job_id": None,
+            "imported": imported, "skipped": skipped,
+            "audio": {"unique_stops": len(all_pending), "with_audio": 0,
+                      "pending": len(all_pending), "voice_id": voice_id,
+                      "speaker_id": speaker_id}}
+    if gen_audio and voice_id and all_pending:
+        job = _job_create(org, pid, "", "all services", len(all_pending))
+        _threading.Thread(target=_bustimes_audio_worker,
+                          args=(job["job_id"], org, pid, voice_id, all_pending, speaker_id),
+                          daemon=True).start()
+        base.update(state="working", job_id=job["job_id"],
+                    audio={"unique_stops": len(all_pending), "with_audio": 0,
+                           "pending": len(all_pending), "voice_id": voice_id,
+                           "speaker_id": speaker_id,
+                           "message": f"imported {len(imported)} service(s); generating audio for {len(all_pending)} stop(s)"})
     return base
 
 

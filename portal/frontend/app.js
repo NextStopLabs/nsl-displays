@@ -818,6 +818,21 @@ function bustimesVoiceOptions(selected) {
   return `<option value="">No voice - stops stay silent</option>` + vs.map((x) =>
     `<option value="${esc(x.id)}"${x.id === selected ? " selected" : ""}>${esc(x.name)}</option>`).join("");
 }
+function syncSpeakerFor(voiceSelId, speakerSelId) {
+  const sbox = $(speakerSelId);
+  if (!sbox) return;
+  const v = (S.voices || []).find((x) => x.id === $(voiceSelId).value);
+  const list = voiceSpeakers(v);
+  const prev = sbox.value;
+  if (list.length > 1) {
+    sbox.innerHTML = list.map((s) => `<option value="${s.id}">${esc(s.name != null ? s.name : s.id)}</option>`).join("");
+    if (list.some((s) => String(s.id) === prev)) sbox.value = prev;
+    sbox.disabled = false;
+  } else {
+    sbox.innerHTML = `<option value="">Default speaker</option>`;
+    sbox.disabled = true;
+  }
+}
 function wireBustimesImport(p) {
   const box = $("bt-results"), det = $("bt-detail"), ebox = $("bt-err");
   if (!$("bt-find")) return;
@@ -829,13 +844,76 @@ function wireBustimesImport(p) {
       const r = await api("/api/bustimes/services?operator=" + encodeURIComponent($("bt-operator").value.trim()) +
         "&search=" + encodeURIComponent($("bt-search").value.trim()));
       const rows = r.results || [];
-      box.innerHTML = rows.length ? `<table><thead><tr><th>Service</th><th>Description</th><th>Typical destinations</th><th></th></tr></thead><tbody>` +
+      if (!rows.length) {
+        box.innerHTML = `<p class=hint>No services found for that operator/search.</p>`;
+        return;
+      }
+      const allConfig = `<div class=group style="margin-bottom:14px"><div class=grouptitle>Import all ${esc(rows.length)} shown service(s)</div>
+        <div class=row>
+          <div style="flex:1"><label for=bt-all-voice>Voice for stop audio</label><select id=bt-all-voice>${bustimesVoiceOptions(localStorage.getItem("nsl_voice") || "")}</select></div>
+          <div style="flex:1"><label for=bt-all-speaker>Speaker</label><select id=bt-all-speaker></select></div>
+          <div style="flex:1"><label for=bt-all-gen>Stop audio</label><select id=bt-all-gen><option value="yes">Generate missing stop audio</option><option value="no">Skip audio (silent stops)</option></select></div>
+          <div style="align-self:end"><button id=bt-all-import class=primary>Import all ${esc(rows.length)} services</button></div></div>
+        <div id=bt-all-progress></div><div id=bt-all-result></div><div class=err id=bt-all-err></div></div>`;
+      box.innerHTML = allConfig + `<table><thead><tr><th>Service</th><th>Description</th><th>Typical destinations</th><th></th></tr></thead><tbody>` +
         rows.map((s) => `<tr><td><b>${esc(s.line_name)}</b></td><td>${esc(s.description)}</td>` +
           `<td>${(s.destinations || []).map(esc).join(" · ") || "-"}</td>` +
           `<td><button data-bt="${s.id}">Import…</button></td></tr>`).join("") + `</tbody></table>
-        <p class=hint>${esc(r.count)} service(s). Typical destinations are the description split on " - ".</p>`
-        : `<p class=hint>No services found for that operator/search.</p>`;
+        <p class=hint>${esc(r.count)} service(s) total. Typical destinations are the description split on " - ".</p>`;
+      syncSpeakerFor("bt-all-voice", "bt-all-speaker");
+      $("bt-all-voice").addEventListener("change", () => syncSpeakerFor("bt-all-voice", "bt-all-speaker"));
       box.querySelectorAll("[data-bt]").forEach((b) => b.onclick = () => showBustimesDetail(p, b.dataset.bt));
+      $("bt-all-import").onclick = async () => {
+        const ibtn = $("bt-all-import"), prog = $("bt-all-progress"), res = $("bt-all-result"), ierr = $("bt-all-err");
+        const t0 = Date.now();
+        const elapsed = () => `${Math.round((Date.now() - t0) / 1000)}s`;
+        const btBar = (done, total, stage) => {
+          const pct = total ? Math.round(100 * done / total) : 0;
+          return `<p class=hint>${esc(stage || "working…")} - ${done}/${total}</p>` +
+            `<div style="border:1px solid #888;background:#fff;height:16px;width:100%"><div style="background:#1a5fb4;height:100%;width:${pct}%"></div></div>`;
+        };
+        try {
+          ibtn.disabled = true; ierr.textContent = ""; res.innerHTML = "";
+          prog.innerHTML = btBar(0, 1, "sending import request");
+          const tick = setInterval(() => { ibtn.textContent = `Importing all… ${elapsed()}`; }, 1000);
+          const r = await api("/api/bustimes/import-all", { method: "POST", body: {
+            program_id: p.id, operator: $("bt-operator").value.trim(), search: $("bt-search").value.trim(),
+            voice_id: $("bt-all-voice").value || null,
+            speaker_id: selectedSpeaker("bt-all-speaker"),
+            generate_audio: $("bt-all-gen").value !== "no" } });
+          clearInterval(tick);
+          if (r.state === "done" || !r.job_id) {
+            prog.innerHTML = "";
+            res.innerHTML = `<div class=group><div class=grouptitle>Import complete</div>` +
+              `<p>Imported <b>${esc(r.imported.length)}</b> service(s). Skipped <b>${esc(r.skipped.length)}</b>.</p>` +
+              `${r.skipped.length ? `<p class=hint>Skipped: ${esc(r.skipped.map((x) => (x.line_name || x.id || "unknown") + ": " + x.reason).slice(0, 5).join(" | "))}${r.skipped.length > 5 ? "…" : ""}</p>` : ""}` +
+              `</div>`;
+            openProgram(p.id);
+            return;
+          }
+          let job = null;
+          for (;;) {
+            await new Promise((done) => setTimeout(done, 1000));
+            try { job = await api(`/api/bustimes/jobs/${encodeURIComponent(r.job_id)}`); }
+            catch (e) { ierr.textContent = "Lost track of the import job: " + String(e.message || e); break; }
+            if (!document.contains(prog)) break;
+            prog.innerHTML = btBar(job.done || 0, job.total || 1, `${job.stage || "working"} · ${elapsed()} elapsed`);
+            if (job.state === "done" || job.state === "error") break;
+          }
+          prog.innerHTML = "";
+          if (job && job.state === "done") {
+            res.innerHTML = `<div class=group><div class=grouptitle>Import complete</div>` +
+              `<p>Imported <b>${esc(r.imported.length)}</b> service(s). Audio generated for <b>${job.result.generated || 0}</b> stop(s), reused <b>${job.result.reused || 0}</b>, silent <b>${(job.result.silent || []).length}</b>.</p>` +
+              `${(job.result.errors || []).length ? `<p class=err>${esc(job.result.errors.slice(0, 5).join(" | "))}${job.result.errors.length > 5 ? "…" : ""}</p>` : ""}` +
+              `</div>`;
+            openProgram(p.id);
+          } else if (job) {
+            ierr.textContent = "Audio generation failed: " + (job.error || "unknown error") + " - services and stops were still imported.";
+            openProgram(p.id);
+          }
+        } catch (e) { ierr.textContent = String(e.message || e); }
+        finally { ibtn.disabled = false; ibtn.textContent = `Import all ${esc(rows.length)} services`; }
+      };
     } catch (e) { ebox.textContent = String(e.message || e); box.innerHTML = ""; }
     finally { btn.disabled = false; btn.textContent = "Search bustimes.org"; }
   };
