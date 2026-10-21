@@ -43,7 +43,9 @@ sudo apt-get update
 sudo apt-get install -y python3-pip python3-pil python3-fastapi python3-uvicorn \
   sqlite3 flac alsa-utils network-manager evtest watchdog
 sudo mkdir -p /var/lib/nsl /opt/nsl
-PYTHONPATH="$REPO:$REPO/pi" sudo -E python3 -c "from nsl_pi.store import init_controller_db; init_controller_db('/var/lib/nsl/controller.db', controller_name='$UNIT')"
+# NOTE: plain `sudo python3` (no env tricks): sudo strips PYTHONPATH even with
+# -E, so the repo paths go on sys.path inside the script itself.
+sudo python3 -c "import sys; sys.path.insert(0, '$REPO'); sys.path.insert(0, '$REPO/pi'); from nsl_pi.store import init_controller_db; init_controller_db('/var/lib/nsl/controller.db', controller_name='$UNIT')"
 # static bus LAN
 case "$ROLE" in
   front) IP=10.9.0.1/24;; side) IP=10.9.0.2/24;; rear) IP=10.9.0.3/24;;
