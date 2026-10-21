@@ -117,7 +117,7 @@ def test_bustimes_import_service_with_background_audio(tmp_path, monkeypatch):
     import portal.backend.bustimes as btmod
     _mock_bustimes(btmod)
 
-    def fake_synth(texts, voice_id, org):
+    def fake_synth(texts, voice_id, org, speaker_id=None):
         return {t: ((_fake_wav(appmod, t), 100), "") for t in texts}
     monkeypatch.setattr(appmod, "_synth_many_piper", fake_synth)
 
@@ -186,7 +186,7 @@ def test_synth_many_falls_back_to_cli_without_piper_package(tmp_path, monkeypatc
     c, appmod = _client(tmp_path, monkeypatch)
     calls = []
 
-    def fake_cli(text, model, config):
+    def fake_cli(text, model, config, speaker_id=None):
         calls.append(text)
         return ((_fake_wav(appmod), 100), "")
 

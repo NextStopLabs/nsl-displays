@@ -1,4 +1,4 @@
-"""Portal backend — FastAPI under base path /portal (plan.md 8).
+"""Portal backend - FastAPI under base path /portal (plan.md 8).
 
 Run: uvicorn portal.backend.app:app --root-path /portal
 Covers: auth, orgs, controllers+pairing, programs/services/destinations/stops,
@@ -27,7 +27,7 @@ from .db import connect
 
 # The shared Pi library lives in repo-root/pi (``pi.nsl_pi``). Dev checkouts and
 # Pi services have it on sys.path already; bare portal deployments (uvicorn from
-# the repo root, Docker) only have the root — add both, idempotently.
+# the repo root, Docker) only have the root - add both, idempotently.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for _p in (_REPO_ROOT, os.path.join(_REPO_ROOT, "pi")):
     if os.path.isdir(_p) and _p not in sys.path:
@@ -465,7 +465,7 @@ def suggest_code(pid: str, _used_extra: set[str] | None = None) -> str:
         cand = f"{i:08d}"
         if cand not in used:
             return cand
-    raise HTTPException(400, "program is full — no free destination codes")
+    raise HTTPException(400, "program is full - no free destination codes")
 
 
 @app.put("/api/destinations/{did}/stops")
@@ -573,7 +573,7 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
         (d["organisation_id"],))}
     def _meta(h):
         c = clips.get(h or "")
-        return {"sha": h, "label": (c["filename"] if c else h or "—"),
+        return {"sha": h, "label": (c["filename"] if c else h or "-"),
                 "duration_ms": (c["duration_ms"] if c else None)} if h else None
     def _seq(moment):
         seq = []
@@ -659,7 +659,7 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
             audio_needed[a["sha256"]] = dict(a)
     missing = ref_hashes - set(audio_needed)
     if missing:
-        raise ValueError(f"{len(missing)} referenced clip(s) missing from the audio library — re-upload them")
+        raise ValueError(f"{len(missing)} referenced clip(s) missing from the audio library - re-upload them")
     for a in audio_needed.values():
         fp = _resolve_clip_path(a) or os.path.join(STORAGE_DIR, str(a.get("storage_key") or ""))
         try:
@@ -757,7 +757,7 @@ def upload(pid: str, body: dict, u: dict = Depends(current_user)):
 @app.post("/api/programs/{pid}/publish-upload")
 def publish_upload(pid: str, body: dict, u: dict = Depends(current_user)):
     """One flow: publish (if changed) + upload latest to the chosen buses.
-    This is the normal path — versions are an implementation detail."""
+    This is the normal path - versions are an implementation detail."""
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner", "editor")
     try:
@@ -850,7 +850,7 @@ def _wav_bytes_from_pcm(pcm: bytes, rate: int = _CANON_RATE) -> bytes:
 
 
 def _resample_linear(samples: list[int], src_rate: int, dst_rate: int = _CANON_RATE) -> list[int]:
-    """Pure-Python resample (linear interpolation) — no ffmpeg needed.
+    """Pure-Python resample (linear interpolation) - no ffmpeg needed.
 
     Piper voices ship at 16/22.05/24 kHz and XTTS at 24 kHz; resampling the
     already-parsed samples also handles files whose headers ffmpeg chokes on.
@@ -901,7 +901,7 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
             elif sw == 3:  # 24-bit signed (DAW exports)
                 samples = [int.from_bytes(frames[i:i + 3], "little", signed=True) >> 8
                            for i in range(0, len(frames) - len(frames) % 3, 3)]
-            elif sw == 4:  # 32-bit: float (-1..1) or int — sniff it
+            elif sw == 4:  # 32-bit: float (-1..1) or int - sniff it
                 n4 = len(frames) // 4
                 as_float = list(_st.unpack(f"<{n4}f", frames[:n4 * 4]))
                 if as_float and max(abs(v) for v in as_float) <= 4.0:
@@ -913,13 +913,13 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
             if ch == 2:
                 samples = [int((samples[i] + samples[i + 1]) / 2) for i in range(0, len(samples), 2)]
             elif ch > 2:
-                raise HTTPException(400, f"that WAV has {ch} channels — export mono or stereo")
+                raise HTTPException(400, f"that WAV has {ch} channels - export mono or stereo")
             if sr != _CANON_RATE:
                 samples = _resample_linear(samples, sr, _CANON_RATE)
             pcm = _st.pack(f"<{len(samples)}h", *[max(-32768, min(32767, s)) for s in samples])
             peak = max((abs(s) for s in _st.unpack(f"<{len(pcm)//2}h", pcm)), default=0) if pcm else 0
             if peak < 100:
-                raise HTTPException(400, "that file is digital silence — nothing would play")
+                raise HTTPException(400, "that file is digital silence - nothing would play")
             return pcm, int(len(pcm) / 2 / _CANON_RATE * 1000)
         except HTTPException:
             raise
@@ -928,7 +928,7 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
     # General path: needs ffmpeg (MP3/OGG/M4A/FLAC/etc).
     ff = _sh.which("ffmpeg")
     if not ff:
-        raise HTTPException(400, "that format needs ffmpeg to decode — upload a 22050 Hz mono WAV instead")
+        raise HTTPException(400, "that format needs ffmpeg to decode - upload a 22050 Hz mono WAV instead")
     suffix = os.path.splitext(hint_name or "upload")[1] or ".bin"
     with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as t:
         t.write(raw)
@@ -947,7 +947,7 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
     import struct as _st2
     peak = max((abs(s) for s in _st2.unpack(f"<{len(p.stdout)//2}h", p.stdout)), default=0)
     if peak < 100:
-        raise HTTPException(400, "that file decodes to silence — nothing would play")
+        raise HTTPException(400, "that file decodes to silence - nothing would play")
     return p.stdout, int(len(p.stdout) / 2 / _CANON_RATE * 1000)
 
 
@@ -981,12 +981,12 @@ def _resolve_piper_voice(voice_id: str | None,
     ``model.onnx.json``). Empty error means usable.
     """
     if not voice_id:
-        return None, None, "no voice selected — pick a voice in the Voice dropdown"
+        return None, None, "no voice selected - pick a voice in the Voice dropdown"
     con = db()
     v = con.execute("SELECT * FROM voices WHERE id=? AND (organisation_id=? OR organisation_id IS NULL)",
                     (voice_id, organisation_id)).fetchone()
     if not v:
-        return None, None, "selected voice not found for this organisation — re-select it"
+        return None, None, "selected voice not found for this organisation - re-select it"
     model = os.path.join(STORAGE_DIR, str(v["model_key"]))
     config = os.path.join(STORAGE_DIR, str(v["config_key"]))
     # piper1-gpl __main__.py ignores --config and always loads
@@ -1002,11 +1002,11 @@ def _resolve_piper_voice(voice_id: str | None,
     except OSError:
         pass
     if not (os.path.exists(model) and os.path.exists(config)):
-        return None, None, "voice files missing on server disk (STORAGE_DIR mismatch?) — re-upload the voice"
+        return None, None, "voice files missing on server disk (STORAGE_DIR mismatch?) - re-upload the voice"
     return model, config, ""
 
 
-def _piper_cli_wav(text: str, model: str, config: str) -> tuple[tuple[bytes, int] | None, str]:
+def _piper_cli_wav(text: str, model: str, config: str, speaker_id: int | None = None) -> tuple[tuple[bytes, int] | None, str]:
     """Synthesise one text with the `piper` binary (no DB access; thread-safe)."""
     import shutil as _sh
     import subprocess as _sp
@@ -1016,8 +1016,11 @@ def _piper_cli_wav(text: str, model: str, config: str) -> tuple[tuple[bytes, int
     with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
         tmp = t.name
     try:
-        p = _sp.run(["piper", "--model", model, "--config", config, "--output_file", tmp],
-                    input=text.encode(), capture_output=True, timeout=120)
+        args = ["piper", "--model", model, "--config", config]
+        if speaker_id is not None:
+            args += ["--speaker", str(speaker_id)]
+        args += ["--output_file", tmp]
+        p = _sp.run(args, input=text.encode(), capture_output=True, timeout=120)
         if p.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 200:
             err = (p.stderr or b"").decode(errors="ignore")[-300:] if p else ""
             return None, f"piper failed (exit {p.returncode if p else '?'}) {err}".strip()
@@ -1035,12 +1038,42 @@ def _piper_cli_wav(text: str, model: str, config: str) -> tuple[tuple[bytes, int
             pass
 
 
+def _check_speaker(con, voice_id: str | None, organisation_id: str, speaker_id) -> int | None:
+    """Normalise an optional speaker choice against the voice's speaker map.
+
+    Returns the int id (or None for the default speaker). Raises 400 when the
+    choice doesn't exist on that voice.
+    """
+    if speaker_id in (None, ""):
+        return None
+    try:
+        sid = int(speaker_id)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "unknown speaker — pick one from the voice's speaker list")
+    if not voice_id:
+        raise HTTPException(400, "pick a voice to use a speaker")
+    row = con.execute("SELECT speakers FROM voices WHERE id=? AND (organisation_id=? OR organisation_id IS NULL)",
+                      (voice_id, organisation_id)).fetchone()
+    ids: list[int] = []
+    if row and row["speakers"]:
+        try:
+            ids = [s.get("id") for s in json.loads(row["speakers"]) if isinstance(s, dict)]
+        except Exception:
+            ids = []
+    if ids:
+        if sid not in ids:
+            raise HTTPException(400, "unknown speaker — pick one from the voice's speaker list")
+    elif sid != 0:
+        raise HTTPException(400, "that voice has a single speaker")
+    return sid
+
+
 def _synth_many_piper(texts: list[str], voice_id: str | None,
-                      organisation_id: str) -> dict[str, tuple[tuple[bytes, int] | None, str]]:
+                      organisation_id: str, speaker_id: int | None = None) -> dict[str, tuple[tuple[bytes, int] | None, str]]:
     """Synthesise many short texts with a single voice model load.
 
     The old per-stop path spawned one `piper` process per stop, reloading the
-    ONNX model every time — minutes of silence for a full service. This loads
+    ONNX model every time - minutes of silence for a full service. This loads
     the model once: in-process via the `piper` Python package when available,
     else one CLI process per text run across a small thread pool.
     Returns {text: ((wav, duration_ms) | None, error)}.
@@ -1063,10 +1096,24 @@ def _synth_many_piper(texts: list[str], voice_id: str | None,
                 _voice = _PiperVoice.load(model, config)
             except TypeError:
                 _voice = _PiperVoice.load(model)
+            _syn_cfg = None
+            if speaker_id is not None:
+                try:
+                    from piper.config import SynthesisConfig as _SynCfg
+                    _syn_cfg = _SynCfg(speaker_id=speaker_id)
+                except Exception:
+                    return {t: (None, "installed piper package is too old to pick a speaker") for t in want}
             for t in want:
                 try:
                     pcm_parts, rate = bytearray(), None
-                    for chunk in _voice.synthesize(t):
+                    try:
+                        chunks = _voice.synthesize(t, syn_config=_syn_cfg)
+                    except TypeError:
+                        if speaker_id is not None:
+                            out[t] = (None, "installed piper package is too old to pick a speaker")
+                            continue
+                        chunks = _voice.synthesize(t)
+                    for chunk in chunks:
                         pcm_parts += getattr(chunk, "audio_int16_bytes", b"")
                         rate = rate or getattr(chunk, "sample_rate", None)
                     if not pcm_parts:
@@ -1085,7 +1132,7 @@ def _synth_many_piper(texts: list[str], voice_id: str | None,
     import concurrent.futures as _fu
     workers = max(1, min(4, len(want)))
     with _fu.ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(_piper_cli_wav, t, model, config): t for t in want}
+        futs = {ex.submit(_piper_cli_wav, t, model, config, speaker_id): t for t in want}
         for fut in _fu.as_completed(futs):
             try:
                 out[futs[fut]] = fut.result()
@@ -1107,7 +1154,8 @@ def _wav_bytes_at_rate(pcm: bytes, rate: int) -> bytes:
     return buf.getvalue()
 
 
-def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tuple[tuple[bytes, int] | None, str]:
+def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str,
+                   speaker_id: int | None = None) -> tuple[tuple[bytes, int] | None, str]:
     """Run the `piper` binary with the uploaded ONNX voice (single text).
 
     Returns (result, reason). result is None when falling back to the
@@ -1116,7 +1164,7 @@ def _try_piper_wav(text: str, voice_id: str | None, organisation_id: str) -> tup
     model, config, err = _resolve_piper_voice(voice_id, organisation_id)
     if err:
         return None, err
-    return _piper_cli_wav(text, model, config)
+    return _piper_cli_wav(text, model, config, speaker_id)
 
 
 def _resolve_clip_path(row) -> str | None:
@@ -1171,20 +1219,21 @@ def upload_audio(organisation_id: str = Form(...), file: UploadFile = File(...),
 
 @app.post("/api/audio/generate")
 def generate_audio(body: dict, u: dict = Depends(current_user)):
-    """Piper TTS. Fails loudly — no preview-tone fallback."""
+    """Piper TTS. Fails loudly - no preview-tone fallback."""
     require_role(u["id"], body["organisation_id"], "owner", "editor")
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "type the text to speak first")
     if not body.get("voice_id"):
         raise HTTPException(400, "select a voice — no preview tones, generation needs a real voice")
+    speaker_id = _check_speaker(db(), body.get("voice_id"), body["organisation_id"], body.get("speaker_id"))
     want = _slugify_clip(body.get("name") or "")
     if not want:
         # suggest from the text: first few words -> derby-bus-station style
         want = _slugify_clip("-".join(text.split()[:5]))
     if not want or len(want) < 2:
         raise HTTPException(400, "give this clip a name, e.g. derby-bus-station")
-    real, tts_error = _try_piper_wav(text, body.get("voice_id"), body["organisation_id"])
+    real, tts_error = _try_piper_wav(text, body.get("voice_id"), body["organisation_id"], speaker_id)
     if real is None:
         raise HTTPException(500, tts_error or "voice generation failed")
     wav, duration_ms = real
@@ -1199,7 +1248,8 @@ def generate_audio(body: dict, u: dict = Depends(current_user)):
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), body["organisation_id"], h, friendly,
                  f"audio/{h[:2]}/{h}.wav", duration_ms, "tts", text, body.get("voice_id"),
-                 json.dumps({"speed": body.get("speed", 1.0), "placeholder": False}), _utcnow()))
+                 json.dumps({"speed": body.get("speed", 1.0), "placeholder": False,
+                             "speaker_id": speaker_id}), _utcnow()))
     con.commit()
     row = con.execute("SELECT filename, duration_ms FROM audio_files WHERE organisation_id=? AND sha256=?",
                       (body["organisation_id"], h)).fetchone()
@@ -1245,13 +1295,25 @@ def upload_voice(organisation_id: str = Form(...), name: str = Form(...),
         sr = int(sr)
     except Exception:
         sr = 22050
+    # Multi-speaker models carry {"speaker_id_map": {"Name": 0, ...}}.
+    spk_map = cfg.get("speaker_id_map") or {}
+    speakers: list[dict] = []
+    if isinstance(spk_map, dict):
+        try:
+            speakers = sorted(({"id": int(v), "name": str(k)} for k, v in spk_map.items()),
+                              key=lambda s: s["id"])
+        except (TypeError, ValueError):
+            speakers = []
+    num_speakers = len(speakers) if speakers else 1
     con = db()
-    con.execute("INSERT INTO voices VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT INTO voices (id, organisation_id, name, model_key, config_key, language,"
+                " sample_rate, is_default, licence_note, uploaded_by, size_bytes, created_at,"
+                " num_speakers, speakers) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (vid, organisation_id, name, f"voices/{vid}/model.onnx",
                  f"voices/{vid}/model.onnx.json", lang, sr,
-                 0, "", u["id"], len(mraw), _utcnow()))
+                 0, "", u["id"], len(mraw), _utcnow(), num_speakers, json.dumps(speakers)))
     con.commit()
-    return {"voice_id": vid, "sample_rate": sr}
+    return {"voice_id": vid, "sample_rate": sr, "num_speakers": num_speakers, "speakers": speakers}
 
 
 @app.get("/api/voices")
@@ -1426,12 +1488,12 @@ def device_release(authorization: str | None = Header(default=None)):
 
 
 # remote command fan-out: portal persists, Pi picks up on next heartbeat (<=60 s).
-# Offline buses are refused up front — a command that can't reach a bus is an
+# Offline buses are refused up front - a command that can't reach a bus is an
 # error here, not a silent "queued".
 @app.get("/api/controllers/{cid}/live")
 def controller_live(cid: str, u: dict = Depends(current_user)):
     """What the bus is doing right now: program, service, destination,
-    current stop (n/N), next stop, override and volume — resolved to names
+    current stop (n/N), next stop, override and volume - resolved to names
     from the published bundle the bus reports running.
 
     Shows last-known state when the bus is offline (`stale: true`); the
@@ -1511,7 +1573,7 @@ def remote_command(cid: str, body: dict, u: dict = Depends(current_user)):
         raise HTTPException(404, "no paired controller")
     require_role(u["id"], c["organisation_id"], "owner", "editor")
     if not _controller_online(c):
-        raise HTTPException(409, f"controller offline (last seen {c['last_seen_at'] or 'never'}) — command not queued")
+        raise HTTPException(409, f"controller offline (last seen {c['last_seen_at'] or 'never'}) - command not queued")
     con.execute("INSERT INTO pending_commands VALUES (?,?,?,?,?,?)",
                 (str(uuid.uuid4()), cid, json.dumps(body), u["id"], _utcnow(), None))
     con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
@@ -1655,7 +1717,7 @@ def unpair(cid: str, u: dict = Depends(current_user)):
 def rotate_device_token(cid: str, u: dict = Depends(current_user)):
     """Issue a fresh device token for a paired controller (old one stops working).
 
-    The token is returned once and never stored — the UI must show it immediately.
+    The token is returned once and never stored - the UI must show it immediately.
     """
     con = db()
     c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
@@ -1755,7 +1817,7 @@ def list_audio(organisation_id: str, u: dict = Depends(current_user)):
             params = {}
         d["placeholder"] = bool(params.get("placeholder"))
         # Old stub wrote 1s of zeros with params like {"speed": 1.0} and no
-        # placeholder marker — flag so the UI can say "silent, regenerate".
+        # placeholder marker - flag so the UI can say "silent, regenerate".
         d["silent_legacy"] = (d.get("source") == "tts" and "placeholder" not in params
                               and (d.get("duration_ms") or 0) == 1000)
         clips.append(d)
@@ -1774,7 +1836,7 @@ def preview_audio(sha: str, organisation_id: str, u: dict = Depends(current_user
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
     path = _resolve_clip_path(row)
     if not path:
-        raise HTTPException(404, "file missing — re-upload or regenerate this clip")
+        raise HTTPException(404, "file missing - re-upload or regenerate this clip")
     with open(path, "rb") as f:
         magic = f.read(12)
     # Canonical WAV (and legacy WAV-data-with-.flac-name) -> audio/wav.
@@ -1782,27 +1844,27 @@ def preview_audio(sha: str, organisation_id: str, u: dict = Depends(current_user
         return FileResponse(path, media_type="audio/wav", filename=f"{row['filename']}.wav")
     if magic[:4] == b"fLaC":
         return FileResponse(path, media_type="audio/flac", filename=f"{row['filename']}.flac")
-    # Legacy raw uploads stored under a .flac name (e.g. MP3 bytes) — transcode
+    # Legacy raw uploads stored under a .flac name (e.g. MP3 bytes) - transcode
     # on the fly so old clips play instead of staying silent.
     import shutil as _sh
     from fastapi.responses import Response as _Response
     ff = _sh.which("ffmpeg")
     if not ff:
-        raise HTTPException(404, "stored file is not directly playable and ffmpeg is missing — re-upload as WAV")
+        raise HTTPException(404, "stored file is not directly playable and ffmpeg is missing - re-upload as WAV")
     with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
         tmp = t.name
     try:
         p = _sp.run([ff, "-v", "error", "-i", path, "-ac", "1", "-ar", str(_CANON_RATE),
                      "-f", "wav", "-y", tmp], capture_output=True)
         if p.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) < 100:
-            raise HTTPException(404, "stored file is corrupt — re-upload or regenerate this clip")
+            raise HTTPException(404, "stored file is corrupt - re-upload or regenerate this clip")
         with open(tmp, "rb") as f:
             data = f.read()
         return _Response(content=data, media_type="audio/wav")
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(404, "stored file is corrupt — re-upload or regenerate this clip")
+        raise HTTPException(404, "stored file is corrupt - re-upload or regenerate this clip")
     finally:
         try:
             os.remove(tmp)
@@ -1885,7 +1947,7 @@ def delete_audio(sha: str, organisation_id: str, replacement: str | None = None,
                                (sha, organisation_id)).fetchone()]
     if (stop_n or svc_cols) and replacement is None:
         used = (["stops"] if stop_n else []) + svc_cols
-        raise HTTPException(400, f"clip is used by {', '.join(used)} — pick a replacement")
+        raise HTTPException(400, f"clip is used by {', '.join(used)} - pick a replacement")
     replaced_stops, replaced_services = 0, 0
     if replacement is not None:
         if replacement == sha:
@@ -2065,7 +2127,7 @@ def tfl_clip(body: dict, u: dict = Depends(current_user)):
         end_ms = full_ms
     start_ms, end_ms = max(0, start_ms), min(full_ms, end_ms)
     if start_ms >= end_ms:
-        raise HTTPException(400, "selection is empty — drag a region on the waveform first")
+        raise HTTPException(400, "selection is empty - drag a region on the waveform first")
     if end_ms - start_ms < 50:
         raise HTTPException(400, "selection too short (min 50 ms)")
     import struct as _st
@@ -2081,7 +2143,7 @@ def tfl_clip(body: dict, u: dict = Depends(current_user)):
         samples[-(i + 1)] = int(samples[-(i + 1)] * g)
     peak = max((abs(s) for s in samples), default=0)
     if peak < 100:
-        raise HTTPException(400, "that selection is silence — widen the region")
+        raise HTTPException(400, "that selection is silence - widen the region")
     cut = _st.pack(f"<{len(samples)}h", *samples)
     wav = _wav_bytes_from_pcm(cut)
     duration_ms = int(len(cut) / 2 / _CANON_RATE * 1000)
@@ -2168,7 +2230,7 @@ def tfl_merge(body: dict, u: dict = Depends(current_user)):
             end_ms = full_ms
         start_ms, end_ms = max(0, start_ms), min(full_ms, end_ms)
         if start_ms >= end_ms or end_ms - start_ms < 50:
-            raise HTTPException(400, f"part {os.path.basename(src)} is empty/too short — check its selection")
+            raise HTTPException(400, f"part {os.path.basename(src)} is empty/too short - check its selection")
         s0 = int(start_ms / 1000 * _CANON_RATE)
         s1 = int(end_ms / 1000 * _CANON_RATE)
         s0, s1 = max(0, min(s0, total)), max(0, min(s1, total))
@@ -2187,7 +2249,7 @@ def tfl_merge(body: dict, u: dict = Depends(current_user)):
             ov = min(int(j["xfade_ms"] / 1000 * _CANON_RATE), len(out), len(seg))
             if ov < 32:
                 raise HTTPException(400,
-                    f"crossfade on join {i} is longer than the words either side — shorten it")
+                    f"crossfade on join {i} is longer than the words either side - shorten it")
             # equal-power crossfade: constant loudness through the overlap.
             denom = max(1, ov - 1)
             mixed = [out[len(out) - ov + k] * _m.cos(k / denom * _m.pi / 2)
@@ -2204,10 +2266,10 @@ def tfl_merge(body: dict, u: dict = Depends(current_user)):
             out.extend(seg)
             applied.append({"gap_ms": j["gap_ms"], "xfade_ms": 0})
     if len(out) / _CANON_RATE > 60:
-        raise HTTPException(400, "merged clip would be over 60 s — shorten the parts")
+        raise HTTPException(400, "merged clip would be over 60 s - shorten the parts")
     peak = max((abs(s) for s in out), default=0)
     if peak < 100:
-        raise HTTPException(400, "merged audio is silence — widen the selections")
+        raise HTTPException(400, "merged audio is silence - widen the selections")
     # outer-edge fade so the clip starts/ends cleanly on the bus.
     edge = min(len(out) // 4, int(_CANON_RATE * 0.008))
     for i in range(edge):
@@ -2294,7 +2356,7 @@ def bustimes_service_detail(sid: int, u: dict = Depends(current_user)):
 
 
 # ---------- bustimes.org import jobs ----------
-# A full service import synthesises dozens of stop clips — minutes of Piper
+# A full service import synthesises dozens of stop clips - minutes of Piper
 # work. That must never block the request with no feedback, so the audio
 # phase runs in a background thread and the UI polls this registry for
 # live progress, then shows a confirmation summary when it finishes.
@@ -2362,7 +2424,8 @@ def _find_clip_for_stop(con, org: str, spoken_name: str, stop_name: str | None =
     return row[0]
 
 
-def _store_clip(con, org: str, name: str, voice_id: str, wav: bytes, duration_ms: int) -> str:
+def _store_clip(con, org: str, name: str, voice_id: str, wav: bytes, duration_ms: int,
+                speaker_id: int | None = None) -> str:
     """Save synthesised WAV bytes to the audio library. Returns the sha256."""
     h = hashlib.sha256(wav).hexdigest()
     os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
@@ -2374,11 +2437,12 @@ def _store_clip(con, org: str, name: str, voice_id: str, wav: bytes, duration_ms
     con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), org, h, friendly, f"audio/{h[:2]}/{h}.wav",
                  duration_ms, "tts", name, voice_id,
-                 json.dumps({"speed": 1.0, "placeholder": False}), _utcnow()))
+                 json.dumps({"speed": 1.0, "placeholder": False, "speaker_id": speaker_id}), _utcnow()))
     return h
 
 
-def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, names: list[str]) -> None:
+def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, names: list[str],
+                           speaker_id: int | None = None) -> None:
     """Background thread: synthesise stop clips (one model load) and link them.
 
     Progress is visible on GET /api/bustimes/jobs/<id> after every stop, so a
@@ -2394,12 +2458,12 @@ def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, n
         total = len(names)
         _job_progress(jid, "synthesising stop audio", 0, total)
         # Spoken form: "Tutbury, adj St Christopher Church" is announced as
-        # "St Christopher Church." — the stop record keeps the full name,
+        # "St Christopher Church." - the stop record keeps the full name,
         # only the clip name and spoken audio use the short form.
         spoken = {n: _bt.spoken_stop_name(n) for n in names}
         # Single model load for the whole batch (was: one `piper` process
-        # per stop, each reloading the ONNX voice — minutes of hang).
-        synth = _synth_many_piper([spoken[n] for n in names], voice_id, org)
+        # per stop, each reloading the ONNX voice - minutes of hang).
+        synth = _synth_many_piper([spoken[n] for n in names], voice_id, org, speaker_id)
         generated, reused, errors, silent = 0, 0, [], []
         for i, name in enumerate(names, 1):
             try:
@@ -2414,7 +2478,7 @@ def _bustimes_audio_worker(jid: str, org: str, program_id: str, voice_id: str, n
                         _job_progress(jid, f"synthesising stop audio ({i}/{total})", i, total)
                         continue
                     wav, duration_ms = real
-                    h = _store_clip(con, org, spoken[name], voice_id, wav, duration_ms)
+                    h = _store_clip(con, org, spoken[name], voice_id, wav, duration_ms, speaker_id)
                     generated += 1
                 con.execute("UPDATE p_stops SET audio=? WHERE program_id=? AND name=? "
                             "AND (audio IS NULL OR audio='')", (h, program_id, name))
@@ -2471,7 +2535,7 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
         raise HTTPException(502, f"bustimes.org lookup failed: {e}")
     line_name = (body.get("service_number") or detail.get("line_name") or "").strip()
     if not line_name:
-        raise HTTPException(400, "service has no line name — pass service_number explicitly")
+        raise HTTPException(400, "service has no line name - pass service_number explicitly")
     description = (body.get("service_name") or detail.get("description") or line_name).strip()
     parts = _bt.split_description(detail.get("description") or description)
     try:
@@ -2492,6 +2556,7 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
         # No voice -> stops stay silent; surface loudly instead of failing.
         pass
     con = db()
+    speaker_id = _check_speaker(con, voice_id, org, body.get("speaker_id"))
     row = con.execute("SELECT * FROM p_services WHERE program_id=? AND number=?",
                       (pid, line_name)).fetchone()
     if row:
@@ -2516,7 +2581,7 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
             try:
                 stops = list((directions[int(direction)] or {}).get("stops") or [])
             except (ValueError, IndexError, TypeError):
-                warnings.append(f"destination {name}: bad direction {direction!r} — no stops added")
+                warnings.append(f"destination {name}: bad direction {direction!r} - no stops added")
                 stops = []
         code = ((entry or {}).get("code") or "").strip()
         if len(code) != 8 or not code.isdigit() or code in used_codes or con.execute(
@@ -2541,7 +2606,7 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
                          None, None, 1 if i == len(stops) else 0))
             n_stops += 1
         if not stops:
-            warnings.append(f"destination {name} ({code}): no stops — pick a timetable direction")
+            warnings.append(f"destination {name} ({code}): no stops - pick a timetable direction")
         made.append({"destination_id": did, "code": code, "name": name, "stops": n_stops,
                      "direction": direction})
     # Link any clips already in the library straight away (fast DB reads only),
@@ -2562,22 +2627,22 @@ def bustimes_import(body: dict, u: dict = Depends(current_user)):
             "destinations": made, "warnings": warnings}
     if gen_audio and voice_id and pending:
         # Slow part (Piper synthesis) runs in the background with progress on
-        # GET /api/bustimes/jobs/<id> — the request returns immediately.
+        # GET /api/bustimes/jobs/<id> - the request returns immediately.
         job = _job_create(org, pid, sid, line_name, len(pending))
         _threading.Thread(target=_bustimes_audio_worker,
-                          args=(job["job_id"], org, pid, voice_id, pending),
+                          args=(job["job_id"], org, pid, voice_id, pending, speaker_id),
                           daemon=True).start()
         base.update(state="working", job_id=job["job_id"],
                     audio={"unique_stops": len(unique_stops), "with_audio": linked,
-                           "pending": len(pending), "voice_id": voice_id,
+                           "pending": len(pending), "voice_id": voice_id, "speaker_id": speaker_id,
                            "message": f"service imported; generating audio for {len(pending)} stop(s) in the background"})
         return base
     silent = pending
     if gen_audio and not voice_id and pending:
-        warnings.append("no voice selected — stops stay silent until you pick a voice and re-run audio generation")
+        warnings.append("no voice selected - stops stay silent until you pick a voice and re-run audio generation")
     base.update(state="done", job_id=None,
                 audio={"unique_stops": len(unique_stops), "with_audio": linked,
-                       "silent": silent, "voice_id": voice_id, "errors": []},
+                       "silent": silent, "voice_id": voice_id, "speaker_id": speaker_id, "errors": []},
                 warnings=warnings)
     return base
 

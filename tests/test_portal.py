@@ -239,3 +239,28 @@ def test_hanover_font_endpoints(tmp_path, monkeypatch):
     assert c.get("/api/fonts/../x", headers=H).status_code in (400, 404)
     assert c.get("/api/fonts/han-nope", headers=H).status_code == 404
     assert c.get("/api/fonts").status_code == 401
+
+
+def test_multi_speaker_voice_upload_and_choice(tmp_path, monkeypatch):
+    """Uploading a multi-speaker voice records its speakers; generate and
+    bustimes import accept a speaker_id and reject unknown ones."""
+    import json as _json
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "spk@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    cfg = {"audio": {"sample_rate": 22050}, "language": {"code": "en_GB"},
+           "speaker_id_map": {"Emma": 0, "Elinor": 2}}
+    up = c.post("/api/voices", data={"organisation_id": org, "name": "multi"},
+                files={"model": ("m.onnx", b"X" * 64, "application/octet-stream"),
+                       "config": ("m.onnx.json", _json.dumps(cfg).encode(), "application/json")},
+                headers=H).json()
+    assert up["num_speakers"] == 2 and up["speakers"] == [
+        {"id": 0, "name": "Emma"}, {"id": 2, "name": "Elinor"}], up
+    v = [x for x in c.get("/api/voices", params={"organisation_id": org}, headers=H).json()["voices"]
+         if x["id"] == up["voice_id"]][0]
+    assert v["num_speakers"] == 2
+    # unknown speaker rejected before any synthesis is attempted
+    bad = c.post("/api/audio/generate",
+                 json={"organisation_id": org, "text": "hello", "name": "hello-x",
+                       "voice_id": up["voice_id"], "speaker_id": 5}, headers=H)
+    assert bad.status_code == 400, bad.text

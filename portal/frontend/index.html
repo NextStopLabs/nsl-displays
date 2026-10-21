@@ -1,7 +1,7 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>NSL Portal</title><link rel=icon href=data:,><link rel=stylesheet href="styles.css">
 </head><body>
-<div class=window><div class=titlebar>NSL Boards — Portal</div>
+<div class=window><div class=titlebar>NSL Boards - Portal</div>
 <div class=body>
 <div id=authbar class=row style="justify-content:space-between;align-items:center">
 <span id=who>Not signed in</span>
@@ -77,7 +77,7 @@
 <table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Programs (want / on bus)</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
 </div>
 <dialog id=token-dialog>
-<div class=grouptitle>Device token — copy it now</div>
+<div class=grouptitle>Device token - copy it now</div>
 <p class=hint id=token-sub>This token is shown <b>once</b>. The Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.</p>
 <div class=row><div style="flex:1"><label for=token-value>Device token</label><input id=token-value readonly></div>
 <div style="align-self:end"><button id=btn-token-copy>Copy</button></div></div>
@@ -87,10 +87,10 @@
 </section>
 <section id=tab-audio style="display:none">
 <div class=group><div class=grouptitle>Audio clips</div>
-<p class=hint>Clips are picked by name everywhere — stops, services and announcements. Names use lowercase letters, numbers and dashes.</p>
+<p class=hint>Clips are picked by name everywhere - stops, services and announcements. Names use lowercase letters, numbers and dashes.</p>
 <table><thead><tr><th>Clip name</th><th>Source</th><th>Preview</th><th>Actions</th></tr></thead><tbody id=audiorows></tbody></table>
 <div class=row>
-<div style="flex:2;min-width:200px"><label for=au-name>Clip name <span class=req>(required)</span></label><input id=au-name><div class=hint>e.g. derby-bus-station. Auto-filled from the file — edit before uploading.</div><div class=err id=au-name-err></div></div>
+<div style="flex:2;min-width:200px"><label for=au-name>Clip name <span class=req>(required)</span></label><input id=au-name><div class=hint>e.g. derby-bus-station. Auto-filled from the file - edit before uploading.</div><div class=err id=au-name-err></div></div>
 <div style="flex:2"><label for=au-file>Audio file (MP3/WAV/OGG/M4A/FLAC, max 50 MB) <span class=req>(required)</span></label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
 <div style="align-self:end"><button id=btn-upload>Upload</button></div>
 </div>
@@ -107,14 +107,15 @@
 <p class=hint>Without an uploaded voice this saves an audible preview tone (not silence) so you can test playback. Upload a voice below for real speech.</p>
 <div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
 <div class=row>
-<div style="flex:2"><label for=gen-name>Clip name <span class=req>(required)</span></label><input id=gen-name><div class=hint>e.g. derby-bus-station. Auto-suggested from the text — edit before generating.</div><div class=err id=gen-name-err></div></div>
+<div style="flex:2"><label for=gen-name>Clip name <span class=req>(required)</span></label><input id=gen-name><div class=hint>e.g. derby-bus-station. Auto-suggested from the text - edit before generating.</div><div class=err id=gen-name-err></div></div>
 <div style="flex:1"><label for=gen-voice>Voice</label><select id=gen-voice></select></div>
+<div style="flex:1"><label for=gen-speaker>Speaker</label><select id=gen-speaker></select></div>
 <div style="flex:1"><label for=gen-speed>Speed</label><input id=gen-speed type=number step=0.1 value=1.0></div>
 <div style="align-self:end"><button id=btn-generate class=primary>Generate</button></div>
 </div>
 </div>
 <div class=group><div class=grouptitle>Voices</div>
-<table><thead><tr><th>Name</th><th>Language</th><th>Sample rate</th></tr></thead><tbody id=voicerows></tbody></table>
+<table><thead><tr><th>Name</th><th>Language</th><th>Sample rate</th><th>Speakers</th></tr></thead><tbody id=voicerows></tbody></table>
 <div class=row>
 <div style="flex:1"><label for=vv-name>Voice name <span class=req>(required)</span></label><input id=vv-name></div>
 <div style="flex:2"><label for=vv-model>Model file (.onnx) <span class=req>(required)</span></label><input id=vv-model type=file accept=".onnx"></div>
@@ -124,8 +125,8 @@
 </div>
 </section>
 <section id=tab-tfl style="display:none">
-<div class=group><div class=grouptitle>Audio creator — cut TfL announcements</div>
-<p class=hint>Search the iBus library — <b>Stops</b>, <b>Destinations</b>, <b>Routes</b> and <b>Originals</b> (e.g. <b>Morrisons</b>, a terminus, a route number, or S_WESTCOMBE…). Load a file, drag a region on the waveform, then save. The trimmed clip uploads straight to your Audio library so you can pick it in the stops portal.</p>
+<div class=group><div class=grouptitle>Audio creator - cut TfL announcements</div>
+<p class=hint>Search the iBus library - <b>Stops</b>, <b>Destinations</b>, <b>Routes</b> and <b>Originals</b> (e.g. <b>Morrisons</b>, a terminus, a route number, or S_WESTCOMBE…). Load a file, drag a region on the waveform, then save. The trimmed clip uploads straight to your Audio library so you can pick it in the stops portal.</p>
 <div class=row>
 <div style="flex:2;min-width:200px"><label for=tfl-q>Search announcements</label><input id=tfl-q placeholder="e.g. Morrisons"></div>
 <div style="flex:1;min-width:160px"><label for=tfl-folder>Library</label><select id=tfl-folder><option value="">All libraries</option><option value="Stops">Stops</option><option value="Destinations">Destinations</option><option value="Routes">Routes</option><option value="Original">Originals</option></select></div>
@@ -136,23 +137,23 @@
 </div>
 <div class=group id=tfl-editor style="display:none"><div class=grouptitle id=tfl-title>Trim</div>
 <audio id=tfl-audio controls style="width:100%"></audio>
-<div><label>Waveform — drag to select the bit to keep</label><canvas id=tfl-wave style="width:100%;height:110px;border:1px solid #888;background:#111;display:block"></canvas></div>
+<div><label>Waveform - drag to select the bit to keep</label><canvas id=tfl-wave style="width:100%;height:110px;border:1px solid #888;background:#111;display:block"></canvas></div>
 <div class=row>
 <div style="flex:1"><label for=tfl-start>Start (s)</label><input id=tfl-start type=number step=0.01 min=0 value=0></div>
 <div style="flex:1"><label for=tfl-end>End (s)</label><input id=tfl-end type=number step=0.01 min=0 value=0></div>
-<div style="flex:1"><label>Length</label><div id=tfl-dur class=hint>—</div></div>
+<div style="flex:1"><label>Length</label><div id=tfl-dur class=hint>-</div></div>
 <div style="align-self:end" class=row><button id=btn-tfl-play-sel class=primary>Play selection</button></div>
 </div>
 <div class=row>
-<div style="flex:2;min-width:200px"><label for=tfl-name>Clip name <span class=req>(required)</span></label><input id=tfl-name><div class=hint>Lowercase, numbers and dashes. Auto-filled from the file — edit before saving.</div><div class=err id=tfl-name-err></div></div>
+<div style="flex:2;min-width:200px"><label for=tfl-name>Clip name <span class=req>(required)</span></label><input id=tfl-name><div class=hint>Lowercase, numbers and dashes. Auto-filled from the file - edit before saving.</div><div class=err id=tfl-name-err></div></div>
 <div style="align-self:end" class=row><button id=btn-tfl-save class=primary>Cut &amp; save to library</button><button id=btn-tfl-add-merge>Add selection to merge</button></div>
 </div>
 <div id=tfl-save-msg class=hint></div>
 <div class=err id=tfl-err></div>
 </div>
-<div class=group><div class=grouptitle>Merge timeline — join words into one clip</div>
-<p class=hint>Example: load <b>Bloomfield Road…</b>, trim to just “Bloomfield”, press “Add selection to merge”. Then load a <b>Crescent</b> file, trim to “Crescent”, add it too. Tweak each part's trim inline (or press <b>Trim</b> to load it back into the waveform editor), set the gap or crossfade on each transition, preview the exact result, then save — and come back to tweak and re-save any time.</p>
-<div id=tfl-merge-list class=hint>No parts yet — add selections with the button above, or “+ Merge” a whole file from the search results.</div>
+<div class=group><div class=grouptitle>Merge timeline - join words into one clip</div>
+<p class=hint>Example: load <b>Bloomfield Road…</b>, trim to just “Bloomfield”, press “Add selection to merge”. Then load a <b>Crescent</b> file, trim to “Crescent”, add it too. Tweak each part's trim inline (or press <b>Trim</b> to load it back into the waveform editor), set the gap or crossfade on each transition, preview the exact result, then save - and come back to tweak and re-save any time.</p>
+<div id=tfl-merge-list class=hint>No parts yet - add selections with the button above, or “+ Merge” a whole file from the search results.</div>
 <div><label>Merged preview (exactly what save will produce)</label><canvas id=tfl-merge-wave style="width:100%;height:70px;border:1px solid #888;background:#111;display:block"></canvas></div>
 <div id=tfl-merge-total class=hint></div>
 <div class=row>

@@ -1,4 +1,4 @@
-/* NSL Portal app — talks to /api (same prefix as page URL). No placeholders; labels above inputs. */
+/* NSL Portal app - talks to /api (same prefix as page URL). No placeholders; labels above inputs. */
 "use strict";
 const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const $ = (id) => document.getElementById(id);
@@ -10,7 +10,7 @@ function slugifyClip(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-{2,}/g, "-").replace(/^-|-$/g, "").slice(0, 64);
 }
 function clipLabel(a) { return (a && (a.name || a.filename)) || "(unnamed)"; }
-function audioOptions(selected, { allowEmpty = true, emptyLabel = "No audio — silent" } = {}) {
+function audioOptions(selected, { allowEmpty = true, emptyLabel = "No audio - silent" } = {}) {
   const opts = (S.clips || []).map((a) =>
     `<option value="${esc(a.sha256)}"${a.sha256 === selected ? " selected" : ""}>${esc(clipLabel(a))}</option>`).join("");
   return (allowEmpty ? `<option value="">${esc(emptyLabel)}</option>` : "") + opts;
@@ -25,7 +25,7 @@ async function playClip(sha) {
       throw new Error(msg);
     }
     const blob = await r.blob();
-    if (!blob.size) throw new Error("empty audio file — re-upload or regenerate this clip");
+    if (!blob.size) throw new Error("empty audio file - re-upload or regenerate this clip");
     const url = URL.createObjectURL(blob);
     const el = new Audio(url);
     el.onended = () => URL.revokeObjectURL(url);
@@ -246,7 +246,7 @@ async function refreshMe() {
     $("orgsel").innerHTML = S.orgs.map((o) => `<option value="${o.id}"${o.id === S.org ? " selected" : ""}>${esc(o.name)} (${o.role})</option>`).join("");
     showAuth(true);
     await loadAll();
-  } catch (e) { showAuth(false); $("auth-err").textContent = "Session expired — sign in again."; }
+  } catch (e) { showAuth(false); $("auth-err").textContent = "Session expired - sign in again."; }
 }
 function showAuth(on) {
   $("authview").style.display = on ? "none" : "";
@@ -353,7 +353,7 @@ function renderProgram() {
     S.controllers.map((c) => {
       const act = (c.programs || []).find((x) => x.active_version != null);
       const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
-      const ghost = !c.last_seen_at ? ` <span class=err>never checked in — probably a duplicate row, delete it in the Controllers tab</span>` : "";
+      const ghost = !c.last_seen_at ? ` <span class=err>never checked in - probably a duplicate row, delete it in the Controllers tab</span>` : "";
       return `<div class=row data-ctlrow="${c.id}" style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})${ghost}</label>` +
         `<span class=hint data-upstat="${c.id}"></span>` +
         `<button data-up-latest="${c.id}" title="Publish (if changed) and upload the latest version to ${esc(c.name)}">Send latest</button></div>`;
@@ -374,7 +374,7 @@ function renderProgram() {
   h += `</tbody></table>`;
   h += `<div class=group><div class=grouptitle>New destination</div><div class=row>
     <div style="flex:1;min-width:140px"><label for=nd-service>Service</label><select id=nd-service>` +
-    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " — " + esc(s.name) : ""}</option>`).join("") +
+    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("") +
     `<option value="__new__">New service…</option></select></div>
     <div style="flex:1;min-width:120px"><label for=nd-code>Code (8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
     <div style="align-self:end" class=row><button id=nd-suggest type=button>Suggest</button></div></div>
@@ -400,7 +400,7 @@ function renderProgram() {
     <div class=err id=bt-err></div><div id=bt-results></div><div id=bt-detail></div></div>`;
 
   // ---- services tucked away: rename / announcements / delete ----
-  h += `<details id=svc-details><summary>Services (${(p.services || []).length}) — announcements &amp; rename</summary>`;
+  h += `<details id=svc-details><summary>Services (${(p.services || []).length}) - announcements &amp; rename</summary>`;
   h += `<div class=row>
     <div style="flex:1"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num></div>
     <div style="flex:2"><label for=ns-name>Service name</label><input id=ns-name></div>
@@ -411,9 +411,9 @@ function renderProgram() {
       <div style="flex:1"><label>Number</label><input data-svc-num="${s.id}" value="${esc(s.number)}"></div>
       <div style="flex:2"><label>Name</label><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></div></div>`;
     h += `<div class=row>
-      <div style="flex:1"><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default — the next stop is…" })}</select></div>
-      <div style="flex:1"><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default — approaching…" })}</select></div>
-      <div style="flex:1"><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default — …where this service terminates" })}</select></div>
+      <div style="flex:1"><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default - the next stop is…" })}</select></div>
+      <div style="flex:1"><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default - approaching…" })}</select></div>
+      <div style="flex:1"><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default - …where this service terminates" })}</select></div>
       <div style="flex:1;min-width:140px"><label>Terminus suffix plays on</label><select data-svc-mode="${s.id}">
         <option value="both"${(s.terminus_clip_mode || "both") === "both" ? " selected" : ""}>Next stop + approaching</option>
         <option value="next"${s.terminus_clip_mode === "next" ? " selected" : ""}>Next stop only</option>
@@ -425,7 +425,7 @@ function renderProgram() {
   h += `</div></details>`;
 
   // ---- preview: all screens stop-by-stop + announcements ----
-  h += `<div class=group><div class=grouptitle>Preview — screens + announcements (stop by stop)</div>`;
+  h += `<div class=group><div class=grouptitle>Preview - screens + announcements (stop by stop)</div>`;
   h += `<div class=row><div style="flex:2;min-width:200px"><label for=pv-dest>Destination</label><select id=pv-dest>` +
     flat.map(({ s, d }) => `<option value="${d.id}">${esc(d.code)} · ${esc(s.number)} · ${esc(dispName(d, s))}</option>`).join("") +
     `</select></div><div style="flex:1;min-width:140px"><label for=pv-pos>Stop</label><div class=row><button id=pv-first>|◀</button><button id=pv-prev>◀</button><button id=pv-next>▶</button></div></div></div>`;
@@ -468,7 +468,7 @@ function renderProgram() {
       const r = await api(`/api/programs/${p.id}/publish-upload`, { method: "POST",
         body: { controllers: [b.dataset.upLatest], notes: $("pd-notes").value } });
       err("");
-      alert(r.unchanged ? `No changes — v${r.version} re-queued for 1 controller.` : `Published v${r.version}, queued for 1 controller.`);
+      alert(r.unchanged ? `No changes - v${r.version} re-queued for 1 controller.` : `Published v${r.version}, queued for 1 controller.`);
       loadPrograms(); refreshUploadStatus();
     } catch (e) { err(String(e.message || e)); }
   });
@@ -484,9 +484,9 @@ function upStatusText(c, pid) {
     return (sync.phase === "audio" && sync.total ? `fetching audio ${sync.done || ""}/${sync.total}…`
       : sync.phase === "bundle" ? `downloading v${sync.version || ""}…`
       : sync.phase === "installing" ? "installing…" : `${sync.phase}…`);
-  if (inst == null) return c.online ? `queued v${des} — bus downloading…` : `queued v${des} — waiting for bus`;
+  if (inst == null) return c.online ? `queued v${des} - bus downloading…` : `queued v${des} - waiting for bus`;
   if (inst !== des) return `installing v${des}… (bus has v${inst})`;
-  if (act == null || act !== des) return `✓ installed v${des}` + (act != null ? ` — bus parked on v${act}, select a destination to switch` : " — bus will adopt it");
+  if (act == null || act !== des) return `✓ installed v${des}` + (act != null ? ` - bus parked on v${act}, select a destination to switch` : " - bus will adopt it");
   return `✓ live on v${des}`;
 }
 async function refreshUploadStatus() {
@@ -556,7 +556,7 @@ async function refreshUploadStatus() {
   const openEdit = (did) => {
     const found = findDest(did); if (!found) return;
     $("ed-service").innerHTML = (p.services || []).map((s) =>
-      `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " — " + esc(s.name) : ""}</option>`).join("");
+      `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("");
     $("ed-code").value = found.d.code; $("ed-name").value = found.d.name;
     $("ed-via").value = found.d.via || ""; $("ed-dest").value = found.d.dest || "";
     $("ed-err").textContent = ""; dlg.dataset.did = did;
@@ -613,14 +613,14 @@ async function refreshUploadStatus() {
       Preview._did = did; Preview._pos = s.pos;
       $("pv-meta").textContent = s.count
         ? `Stop ${s.pos}/${s.count}: ${s.stop.name}${s.stop.is_terminus ? " (terminus)" : ""} · board: "${s.fields.__board_text}"${s.board_override ? ` · override: "${s.board_override}"` : ""}`
-        : "No stops yet — add stops to preview.";
+        : "No stops yet - add stops to preview.";
       $("pv-screens").innerHTML = (s.displays || []).map((dp) => {
         const e = (s.layouts || {})[dp.name] || {};
         return `<div style="flex:1;min-width:180px"><label>${esc(dp.name)} ${esc(dp.width_px)}×${esc(dp.height_px)} <span class=hint>${esc(e.source || "")}</span></label><br><canvas id="pv-cv-${esc(dp.name)}" data-scale="3" style="border:1px solid #444;max-width:100%"></canvas></div>`;
       }).join("") || `<span class=hint>No displays in this program.</span>`;
       const seqHtml = (seq) => seq.length
         ? seq.map((c) => `<button data-pv-clip="${esc(c.sha)}" title="${esc(c.kind)}">${esc(c.label)}</button>`).join("")
-        : `<span class=hint>No clips — silent.</span>`;
+        : `<span class=hint>No clips - silent.</span>`;
       $("pv-next-list").innerHTML = seqHtml(s.next || []);
       $("pv-appr-list").innerHTML = seqHtml(s.approaching || []);
       $("pv-next-list").querySelectorAll("[data-pv-clip]").forEach((b) => b.onclick = () => playClip(b.dataset.pvClip));
@@ -649,7 +649,7 @@ function findDest(did) {
 function editStops(did) {
   const found = findDest(did); if (!found) return;
   const d = found.d;
-  let h = `<h3>Stops — ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio clip</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
+  let h = `<h3>Stops - ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio clip</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
   (d.stops || []).forEach((st, i) => {
     h += `<tr><td>${i + 1}</td>
       <td><input data-f=name value="${esc(st.name)}"></td>
@@ -693,7 +693,7 @@ async function editLayout(did) {
 // ---------- bustimes.org import ----------
 function bustimesVoiceOptions(selected) {
   const vs = S.voices || [];
-  return `<option value="">No voice — stops stay silent</option>` + vs.map((x) =>
+  return `<option value="">No voice - stops stay silent</option>` + vs.map((x) =>
     `<option value="${esc(x.id)}"${x.id === selected ? " selected" : ""}>${esc(x.name)}</option>`).join("");
 }
 function wireBustimesImport(p) {
@@ -709,7 +709,7 @@ function wireBustimesImport(p) {
       const rows = r.results || [];
       box.innerHTML = rows.length ? `<table><thead><tr><th>Service</th><th>Description</th><th>Typical destinations</th><th></th></tr></thead><tbody>` +
         rows.map((s) => `<tr><td><b>${esc(s.line_name)}</b></td><td>${esc(s.description)}</td>` +
-          `<td>${(s.destinations || []).map(esc).join(" · ") || "—"}</td>` +
+          `<td>${(s.destinations || []).map(esc).join(" · ") || "-"}</td>` +
           `<td><button data-bt="${s.id}">Import…</button></td></tr>`).join("") + `</tbody></table>
         <p class=hint>${esc(r.count)} service(s). Typical destinations are the description split on " - ".</p>`
         : `<p class=hint>No services found for that operator/search.</p>`;
@@ -732,23 +732,41 @@ async function showBustimesDetail(p, bustimesId) {
         <td><input data-btd-via="${i}" placeholder="via"></td>
         <td><input data-btd-dest="${i}" value="${esc(s.name)}"></td>
         <td><select data-btd-dir="${i}"><option value="">No stops</option>${dirOpts(s.direction)}</select></td></tr>`).join("");
-    det.innerHTML = `<div class=group><div class=grouptitle>Import ${esc(d.line_name)} — ${esc(d.description)}</div>
+    det.innerHTML = `<div class=group><div class=grouptitle>Import ${esc(d.line_name)} - ${esc(d.description)}</div>
       <div class=row>
       <div style="flex:1"><label for=bt-num>Service number</label><input id=bt-num value="${esc(d.line_name)}"></div>
       <div style="flex:2"><label for=bt-name>Service name</label><input id=bt-name value="${esc(d.description)}"></div></div>
       <div class=row>
       <div style="flex:1"><label for=bt-voice>Voice for stop audio</label><select id=bt-voice>${bustimesVoiceOptions(localStorage.getItem("nsl_voice") || "")}</select></div>
+      <div style="flex:1"><label for=bt-speaker>Speaker</label><select id=bt-speaker></select></div>
       <div style="flex:1"><label for=bt-gen>Stop audio</label><select id=bt-gen><option value="yes">Generate missing stop audio</option><option value="no">Skip audio (silent stops)</option></select></div></div>
-      <p class=hint>${(d.directions || []).map((g) => `Direction ${g.index + 1}: ${esc(g.from)} → ${esc(g.to)} — ${g.count} stops`).join("<br>") || "No timetable directions."}</p>
+      <p class=hint>${(d.directions || []).map((g) => `Direction ${g.index + 1}: ${esc(g.from)} → ${esc(g.to)} - ${g.count} stops`).join("<br>") || "No timetable directions."}</p>
       <table><thead><tr><th>Destination name</th><th>Code</th><th>Via</th><th>Dest board</th><th>Timetable stops</th></tr></thead>
       <tbody>${destRows}</tbody></table>
       <div class=row><button id=bt-confirm class=primary>Import service</button></div>
       <div id=bt-progress></div>
       <div id=bt-result></div>
       <div class=err id=bt-import-err></div></div>`;
+    const syncBtSpeaker = () => {
+      const box = $("bt-speaker");
+      if (!box) return;
+      const v = (S.voices || []).find((x) => x.id === $("bt-voice").value);
+      const list = voiceSpeakers(v);
+      const prev = box.value;
+      if (list.length > 1) {
+        box.innerHTML = list.map((s) => `<option value="${s.id}">${esc(s.name != null ? s.name : s.id)}</option>`).join("");
+        if (list.some((s) => String(s.id) === prev)) box.value = prev;
+        box.disabled = false;
+      } else {
+        box.innerHTML = `<option value="">Default speaker</option>`;
+        box.disabled = true;
+      }
+    };
+    $("bt-voice").addEventListener("change", syncBtSpeaker);
+    syncBtSpeaker();
     const btBar = (done, total, stage) => {
       const pct = total ? Math.round(100 * done / total) : 0;
-      return `<p class=hint>${esc(stage || "working…")} — ${done}/${total}</p>` +
+      return `<p class=hint>${esc(stage || "working…")} - ${done}/${total}</p>` +
         `<div style="border:1px solid #888;background:#fff;height:16px;width:100%">` +
         `<div style="background:#1a5fb4;height:100%;width:${pct}%"></div></div>`;
     };
@@ -759,7 +777,7 @@ async function showBustimesDetail(p, bustimesId) {
       let tick = 0;
       const confirmHtml = (r, audio) => {
         const destLines = (r.destinations || []).map((x) =>
-          `<li><span class=kbd>${esc(x.code)}</span> ${esc(x.name)} — ${x.stops} stop(s)</li>`).join("");
+          `<li><span class=kbd>${esc(x.code)}</span> ${esc(x.name)} - ${x.stops} stop(s)</li>`).join("");
         const warns = (r.warnings || []).filter(Boolean);
         return `<div class=group><div class=grouptitle>Import complete</div>` +
           `<p>Service <b>${esc(r.service_number)}</b>: ${r.destinations.length} destination(s) imported.</p>` +
@@ -789,6 +807,7 @@ async function showBustimesDetail(p, bustimesId) {
           service_number: $("bt-num").value.trim() || d.line_name,
           service_name: $("bt-name").value.trim() || d.description,
           voice_id: $("bt-voice").value || null,
+          speaker_id: selectedSpeaker("bt-speaker"),
           generate_audio: $("bt-gen").value !== "no",
           destinations: dests } });
         if (r.state === "done" || !r.job_id) {
@@ -797,7 +816,7 @@ async function showBustimesDetail(p, bustimesId) {
           openProgram(p.id);
           return;
         }
-        // Audio generates in the background — poll for live progress.
+        // Audio generates in the background - poll for live progress.
         let job = null;
         for (;;) {
           await new Promise((done) => setTimeout(done, 1000));
@@ -816,7 +835,7 @@ async function showBustimesDetail(p, bustimesId) {
           openProgram(p.id);
         } else if (job) {
           ierr.textContent = "Audio generation failed: " + (job.error || "unknown error") +
-            " — the service and stops were still imported; retry audio from the Audio tab.";
+            " - the service and stops were still imported; retry audio from the Audio tab.";
           openProgram(p.id);
         }
       } catch (e) { ierr.textContent = String(e.message || e); }
@@ -843,19 +862,19 @@ async function loadControllers() {
   $("ctlrows").innerHTML = S.controllers.map((c) => {
     const last = c.last_seen_at || "never";
     const status = c.online ? `<b class=ok>ONLINE</b>` : `offline<br><span class=hint>last seen ${esc(last)}</span>`;
-    const handshake = c.awaiting_pi ? ` <span class=err>waiting for Pi — pair done, Pi hasn't collected its token yet</span>` : "";
+    const handshake = c.awaiting_pi ? ` <span class=err>waiting for Pi - pair done, Pi hasn't collected its token yet</span>` : "";
     const progs = (c.programs || []).map((p) => {
-      const bits = [`want v${p.desired_version}`, `bus v${p.installed_version == null ? "—" : p.installed_version}`];
+      const bits = [`want v${p.desired_version}`, `bus v${p.installed_version == null ? "-" : p.installed_version}`];
       if (p.active_version != null) bits.push(`<b class=ok>active v${p.active_version}</b>`);
       if (p.status && p.status !== "installed") bits.push(`(${esc(p.status)})`);
       let warn = "";
       if (p.active_version != null && p.desired_version != null && p.active_version !== p.desired_version)
-        warn = ` <span class=err>bus parked on v${p.active_version} — select a v${p.desired_version} destination to switch</span>`;
+        warn = ` <span class=err>bus parked on v${p.active_version} - select a v${p.desired_version} destination to switch</span>`;
       return `${esc(p.name || p.program_id)}: ${bits.join(" / ")}${warn}`;
-    }).join("<br>") || "—";
+    }).join("<br>") || "-";
     const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
     return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}${handshake}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}" title="Remove this controller entirely — token revoked, disappears from the portal">Remove</button></td></tr>`;
+    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
 }
@@ -881,7 +900,7 @@ $("ctlrows").addEventListener("click", async (e) => {
 });
 function showTokenDialog(name, token) {
   $("token-value").value = token || "";
-  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. The Pi collects this token itself within ~10 s — watch the row flip from “waiting for Pi” to online. Only use the command below as a manual fallback. Lose it and use “Rotate token” for a new one.`;
+  $("token-sub").innerHTML = `Controller “${esc(name || "controller")}” is paired. The Pi collects this token itself within ~10 s - watch the row flip from “waiting for Pi” to online. Only use the command below as a manual fallback. Lose it and use “Rotate token” for a new one.`;
   const base = location.origin + PREFIX;
   $("token-pi").textContent =
     `sudo systemctl edit nsl-agent   # add under [Service]:\nEnvironment="PORTAL_URL=${base}"\nEnvironment="NSL_TOKEN=${token}"\n` +
@@ -895,7 +914,7 @@ $("btn-token-copy").addEventListener("click", async () => {
   catch (e) {
     $("token-value").select();
     try { document.execCommand("copy"); $("btn-token-copy").textContent = "Copied"; }
-    catch (e2) { err("Copy failed — select the token manually (Ctrl+C)."); }
+    catch (e2) { err("Copy failed - select the token manually (Ctrl+C)."); }
   }
   setTimeout(() => { $("btn-token-copy").textContent = "Copy"; }, 2000);
 });
@@ -904,19 +923,19 @@ $("btn-pair").addEventListener("click", async () => {
   try {
     const name = $("pair-name").value;
     const dup = (S.controllers || []).some((c) => (c.name || "").toLowerCase() === name.trim().toLowerCase());
-    if (dup && !confirm(`A controller named “${name.trim()}” already exists (check the table — the other row may be a ghost that never checked in). Pair another one with the same name?`)) return;
+    if (dup && !confirm(`A controller named “${name.trim()}” already exists (check the table - the other row may be a ghost that never checked in). Pair another one with the same name?`)) return;
     const r = await api("/api/controllers/pair", { method: "POST",
       body: formData({ organisation_id: S.org, code: $("pair-code").value.trim().toUpperCase(), name: $("pair-name").value }) });
     $("pair-code").value = ""; $("pair-name").value = ""; loadControllers();
     if (r && r.device_token) showTokenDialog(name || "controller", r.device_token);
-    else err("Paired, but the server did not return a device token — use “Rotate token” to issue one.");
+    else err("Paired, but the server did not return a device token - use “Rotate token” to issue one.");
   } catch (e) { err(String(e.message || e)); }
 });
 $("btn-sim").addEventListener("click", async () => {
   try {
     const r = await api("/api/device/register", { method: "POST", body: {} });
     $("pair-code").value = r.pairing_code;
-    alert("Simulated device registered. Pairing code filled in — enter a name and press Pair controller.");
+    alert("Simulated device registered. Pairing code filled in - enter a name and press Pair controller.");
   } catch (e) { err(String(e.message || e)); }
 });
 
@@ -927,33 +946,69 @@ async function loadAudio() {
   const srcLabel = (a) => a.source === "tts"
     ? (a.placeholder ? "text-to-speech (preview tone)" : "text-to-speech")
     : (a.source || "upload");
-  const durLabel = (a) => (a.duration_ms != null ? (Number(a.duration_ms) / 1000).toFixed(1) + "s" : "—");
+  const durLabel = (a) => (a.duration_ms != null ? (Number(a.duration_ms) / 1000).toFixed(1) + "s" : "-");
   $("audiorows").innerHTML = S.clips.map((a) =>
     `<tr><td><b>${esc(clipLabel(a))}</b>` +
     (a.placeholder ? ` <span class=hint>preview tone</span>` : "") +
-    (a.silent_legacy ? ` <span class=err>silent — regenerate</span>` : "") + `</td>` +
+    (a.silent_legacy ? ` <span class=err>silent - regenerate</span>` : "") + `</td>` +
     `<td>${esc(srcLabel(a))} · ${esc(durLabel(a))}</td>` +
     `<td><button data-play="${esc(a.sha256)}">Play</button></td>` +
     `<td class=row><button data-rename="${esc(a.sha256)}">Rename</button><button data-delclip="${esc(a.sha256)}">Delete</button></td></tr>`).join("") ||
-    `<tr><td colspan=4 class=hint>No clips yet — upload one or generate it from text below.</td></tr>`;
+    `<tr><td colspan=4 class=hint>No clips yet - upload one or generate it from text below.</td></tr>`;
   const v = await api("/api/voices?organisation_id=" + encodeURIComponent(S.org));
   S.voices = v.voices || [];
   S.piper_available = v.piper_available;
-  $("voicerows").innerHTML = (v.voices || []).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.language || "")}</td><td>${esc(x.sample_rate || "")}</td></tr>`).join("") ||
-    `<tr><td colspan=3 class=hint>No voices uploaded yet.</td></tr>`;
+  $("voicerows").innerHTML = (v.voices || []).map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.language || "")}</td><td>${esc(x.sample_rate || "")}</td><td>${esc(speakerLabel(x))}</td></tr>`).join("") ||
+    `<tr><td colspan=4 class=hint>No voices uploaded yet.</td></tr>`;
   if (v.piper_available === false) {
-    err("Piper binary not found on the server — voice generation will fall back to preview tone. Install piper-tts + espeak-ng on the server.");
+    err("Piper binary not found on the server - voice generation will fall back to preview tone. Install piper-tts + espeak-ng on the server.");
   }
   const prevVoice = $("gen-voice").value || localStorage.getItem("nsl_voice") || "";
   const voices = v.voices || [];
   const stillThere = voices.some((x) => x.id === prevVoice);
   const sel = stillThere ? prevVoice : (voices.length === 1 ? voices[0].id : "");
-  const emptyLabel = voices.length ? "Preview tone (no voice) — select a voice for real speech"
+  const emptyLabel = voices.length ? "Preview tone (no voice) - select a voice for real speech"
     : "Preview tone (no voice installed)";
   $("gen-voice").innerHTML = `<option value="">${esc(emptyLabel)}</option>` + voices.map((x) => `<option value="${x.id}"${x.id === sel ? " selected" : ""}>${esc(x.name)}</option>`).join("");
   if (sel) localStorage.setItem("nsl_voice", sel);
+  syncGenSpeaker();
 }
-$("gen-voice").addEventListener("change", () => localStorage.setItem("nsl_voice", $("gen-voice").value || ""));
+function voiceSpeakers(v) {
+  if (!v) return [];
+  try {
+    const list = JSON.parse(v.speakers || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch (e) { return []; }
+}
+function speakerLabel(x) {
+  const list = voiceSpeakers(x);
+  if (!list.length) return "1";
+  return `${list.length} — ` + list.map((s) => s.name != null ? s.name : s.id).join(", ");
+}
+function syncGenSpeaker() {
+  const box = $("gen-speaker");
+  if (!box) return;
+  const v = (S.voices || []).find((x) => x.id === $("gen-voice").value);
+  const list = voiceSpeakers(v);
+  const prev = box.value;
+  if (list.length > 1) {
+    box.innerHTML = list.map((s) => `<option value="${s.id}">${esc(s.name != null ? s.name : s.id)}</option>`).join("");
+    if (list.some((s) => String(s.id) === prev)) box.value = prev;
+    box.disabled = false;
+    box.title = "";
+  } else {
+    box.innerHTML = `<option value="">Default speaker</option>`;
+    box.disabled = true;
+    box.title = "This voice has a single speaker";
+  }
+}
+function selectedSpeaker(boxId) {
+  const box = $(boxId);
+  if (!box || box.disabled || box.value === "") return null;
+  const n = parseInt(box.value, 10);
+  return isNaN(n) ? null : n;
+}
+$("gen-voice").addEventListener("change", () => { localStorage.setItem("nsl_voice", $("gen-voice").value || ""); syncGenSpeaker(); });
 async function loadVoices() { /* folded into loadAudio */ }
 $("audiorows").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -985,7 +1040,7 @@ $("audiorows").addEventListener("click", async (e) => {
           `${s.stop_name} (${s.service_number} · ${s.dest_code} · ${s.program_name})`);
         if (uses.stop_count > stopLines.length) stopLines.push(`…and ${uses.stop_count - stopLines.length} more`);
         const svcLines = (uses.services || []).map((s) =>
-          `${s.field} on service ${s.service_number || "?"}${s.service_name ? " — " + s.service_name : ""} (${s.program_name})`);
+          `${s.field} on service ${s.service_number || "?"}${s.service_name ? " - " + s.service_name : ""} (${s.program_name})`);
         $("cdd-title").textContent = `Delete clip "${clipLabel(delClip)}"?`;
         $("cdd-uses").innerHTML =
           (stopLines.length ? `<div><b>Stops (${uses.stop_count}):</b><br>${stopLines.map(esc).join("<br>")}</div>` : "") +
@@ -1056,9 +1111,10 @@ $("btn-generate").addEventListener("click", async () => {
     if (!s) throw new Error("Give this clip a name, e.g. derby-bus-station.");
     const r = await api("/api/audio/generate", { method: "POST", body: { organisation_id: S.org,
       text: $("gen-text").value, name: s, voice_id: $("gen-voice").value || null,
+      speaker_id: selectedSpeaker("gen-speaker"),
       speed: parseFloat($("gen-speed").value || "1") } });
     alert(r.placeholder
-      ? `Saved as "${r.name}" (preview tone — ${r.note || "upload a Piper voice for real speech"}).`
+      ? `Saved as "${r.name}" (preview tone - ${r.note || "upload a Piper voice for real speech"}).`
       : `Saved as "${r.name}".`);
     loadAudio();
   } catch (e) { err(String(e.message || e)); }
@@ -1074,7 +1130,9 @@ $("btn-voice").addEventListener("click", async () => {
     const r = await fetch(PREFIX + "/api/voices", { method: "POST", headers: apiHeaders(), body: fd }).then(async (x) => {
       if (!x.ok) throw new Error((await x.json()).detail || ("HTTP " + x.status)); return x.json();
     });
-    alert(`Voice "${$("vv-name").value.trim()}" uploaded.`); $("vv-name").value = ""; $("vv-model").value = ""; $("vv-config").value = ""; loadAudio();
+    alert(`Voice "${$("vv-name").value.trim()}" uploaded.` +
+      (r.num_speakers > 1 ? ` ${r.num_speakers} speakers detected - pick one in the Speaker dropdown.` : ""));
+    $("vv-name").value = ""; $("vv-model").value = ""; $("vv-config").value = ""; loadAudio();
   } catch (e) { err(String(e.message || e)); }
 });
 
@@ -1083,10 +1141,10 @@ async function rcSend(body) {
   const cid = $("rc-ctl").value;
   if (!cid) throw new Error("Choose a controller first.");
   const c = S.controllers.find((x) => x.id === cid);
-  if (c && !c.online) throw new Error(`“${c.name}” is offline (last seen ${c.last_seen_at || "never"}) — command refused, nothing was queued.`);
+  if (c && !c.online) throw new Error(`“${c.name}” is offline (last seen ${c.last_seen_at || "never"}) - command refused, nothing was queued.`);
   const r = await api(`/api/controllers/${cid}/command`, { method: "POST", body });
   const when = new Date().toLocaleTimeString();
-  const msg = `Sent to “${c ? c.name : cid}” at ${when} — the bus picks it up within ~10 s.`;
+  const msg = `Sent to “${c ? c.name : cid}” at ${when} - the bus picks it up within ~10 s.`;
   $("rc-state").textContent = msg;
   if ($("rc-result")) $("rc-result").textContent = msg;
   refreshLive();
@@ -1094,16 +1152,16 @@ async function rcSend(body) {
 }
 function rcLiveHtml(l) {
   if (!l) return "Select a controller to see its current stop.";
-  const stale = l.stale ? ` <span class=err>(last known — bus offline, last seen ${esc(l.last_seen_at || "never")})</span>` : "";
-  if (!l.program) return `Idle — no program selected on the bus.${stale}`;
+  const stale = l.stale ? ` <span class=err>(last known - bus offline, last seen ${esc(l.last_seen_at || "never")})</span>` : "";
+  if (!l.program) return `Idle - no program selected on the bus.${stale}`;
   const dest = l.destination
-    ? `<span class=kbd>${esc(l.destination.code || "")}</span> ${esc(l.destination.name || "")}` : "—";
+    ? `<span class=kbd>${esc(l.destination.code || "")}</span> ${esc(l.destination.name || "")}` : "-";
   const svc = l.service ? `Service <b>${esc(l.service.number || "")}</b> · ` : "";
   const stop = l.stop
     ? `<br>Current stop <b>${l.stop.position}/${l.stop.count}: ${esc(l.stop.board_text || l.stop.name)}</b>` +
       (l.stop.is_terminus ? ` <span class=hint>(terminus)</span>` : "") +
-      (l.next_stop ? `<br>Next stop: ${esc(l.next_stop.name)}` : `<br>Next stop: — (end of route)`)
-    : "<br>Current stop: —";
+      (l.next_stop ? `<br>Next stop: ${esc(l.next_stop.name)}` : `<br>Next stop: - (end of route)`)
+    : "<br>Current stop: -";
   const ov = l.override ? `<br>Override: <b>${esc(l.override)}</b>` : "";
   const vol = `<br>Volume: ${l.muted ? "<b>muted</b>" : esc(l.volume)}`;
   return `${svc}${dest}${stop}${ov}${vol}${stale}`;
@@ -1142,7 +1200,7 @@ rc("btn-rc-prog", () => rcSend({ command: "program_select", program_id: $("rc-pr
 $("btn-rc-refresh").addEventListener("click", async () => {
   await loadControllers();
   const c = S.controllers.find((x) => x.id === $("rc-ctl").value);
-  $("rc-state").textContent = c ? `${c.name}: ${c.online ? "ONLINE" : "OFFLINE"} — last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}, ${c.pending_commands || 0} command(s) waiting.` : "Select a controller.";
+  $("rc-state").textContent = c ? `${c.name}: ${c.online ? "ONLINE" : "OFFLINE"} - last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}, ${c.pending_commands || 0} command(s) waiting.` : "Select a controller.";
   refreshLive();
 });
 $("rc-ctl").addEventListener("change", () => refreshLive());
@@ -1154,7 +1212,7 @@ const Tfl = (() => {
   function fmt(s) { return (Number(s) || 0).toFixed(2) + "s"; }
   function syncDur() {
     const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
-    $("tfl-dur").textContent = buf ? `${fmt(a)} → ${fmt(b)} (keeps ${fmt(Math.max(0, b - a))} of ${fmt(buf.duration)})` : "—";
+    $("tfl-dur").textContent = buf ? `${fmt(a)} → ${fmt(b)} (keeps ${fmt(Math.max(0, b - a))} of ${fmt(buf.duration)})` : "-";
   }
   function draw() {
     const cv = $("tfl-wave");
@@ -1212,7 +1270,7 @@ const Tfl = (() => {
       buf = await cx.decodeAudioData(ab.slice(0));
       file = f; label = lab; lib = folder || "";
       $("tfl-editor").style.display = "";
-      $("tfl-title").textContent = "Trim — " + lab + (lib ? ` (${lib})` : "");
+      $("tfl-title").textContent = "Trim - " + lab + (lib ? ` (${lib})` : "");
       $("tfl-start").value = "0.00"; $("tfl-end").value = buf.duration.toFixed(2);
       $("tfl-name").value = slugifyClip(lab);
       $("tfl-err").textContent = "";
@@ -1226,7 +1284,7 @@ const Tfl = (() => {
       const q = $("tfl-q").value.trim();
       const folder = $("tfl-folder") ? $("tfl-folder").value : "";
       const r = await api(`/api/tfl/search?organisation_id=${encodeURIComponent(S.org)}&q=${encodeURIComponent(q)}&limit=100&folder=${encodeURIComponent(folder)}`);
-      $("tfl-count").textContent = r.count ? `${r.count} match(es)${r.count > r.results.length ? ` — showing first ${r.results.length}` : ""}` : "No matches — try a shorter word.";
+      $("tfl-count").textContent = r.count ? `${r.count} match(es)${r.count > r.results.length ? ` - showing first ${r.results.length}` : ""}` : "No matches - try a shorter word.";
       $("tfl-rows").innerHTML = (r.results || []).map((x) =>
         `<tr><td>${esc(x.label)}</td><td class=hint>${esc(x.folder || "")}</td><td class=row><button data-tfl-load="${esc(x.file)}" data-lab="${esc(x.label)}" data-folder="${esc(x.folder || "")}">Load</button><button data-tfl-add="${esc(x.file)}" data-lab="${esc(x.label)}" data-folder="${esc(x.folder || "")}" title="Add the whole file to the merge list">+ Merge</button></td></tr>`).join("")
         || `<tr><td colspan=3 class=hint>Type a word and press Search.</td></tr>`;
@@ -1239,7 +1297,7 @@ const Tfl = (() => {
     terr("");
     if (!buf) { terr("Load a file first."); return; }
     const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
-    if (!(b > a)) { terr("Selection is empty — drag a region on the waveform first."); return; }
+    if (!(b > a)) { terr("Selection is empty - drag a region on the waveform first."); return; }
     try {
       const cx = await ensureCtx();
       stopSrc(); stopMergePlay();
@@ -1259,7 +1317,7 @@ const Tfl = (() => {
       const r = await api("/api/tfl/clip", { method: "POST", body: {
         organisation_id: S.org, source: file,
         start_ms: Math.round(a * 1000), end_ms: Math.round(b * 1000), name: s } });
-      $("tfl-save-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s) — now in your Audio library, pick it in the stops portal.`;
+      $("tfl-save-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s) - now in your Audio library, pick it in the stops portal.`;
       await loadAudio();
       if (S.curProg) openProgram(S.curProg.id);
     } catch (e) { terr(String(e.message || e)); $("tfl-save-msg").textContent = ""; }
@@ -1295,7 +1353,7 @@ const Tfl = (() => {
       const seg = Array.from(slices[i]);
       if (j.xfade > 0) {
         const ov = Math.min(Math.round(j.xfade / 1000 * sr), out.length, seg.length);
-        if (ov < 32) return { error: `crossfade on join ${i} is longer than the words either side — shorten it` };
+        if (ov < 32) return { error: `crossfade on join ${i} is longer than the words either side - shorten it` };
         const mixed = new Array(out.length - ov + seg.length);
         for (let k = 0; k < out.length - ov; k++) mixed[k] = out[k];
         for (let k = 0; k < ov; k++) {
@@ -1348,7 +1406,7 @@ const Tfl = (() => {
       return;
     }
     const m = buildMerged();
-    if (!m) { drawMerged(null); $("tfl-merge-total").textContent = "A part has an empty selection — fix its trim."; return; }
+    if (!m) { drawMerged(null); $("tfl-merge-total").textContent = "A part has an empty selection - fix its trim."; return; }
     if (m.error) { drawMerged(null); $("tfl-merge-total").textContent = m.error; return; }
     drawMerged(m);
     const jd = mergeJoins.map((j) => j.xfade > 0 ? `${Math.round(j.xfade)}ms crossfade` : `${Math.round(j.gap)}ms gap`).join(" + ");
@@ -1358,7 +1416,7 @@ const Tfl = (() => {
     stopMergePlay();
     const box = $("tfl-merge-list");
     if (!mergeParts.length) {
-      box.innerHTML = `No parts yet — add selections with the button above, or “+ Merge” a whole file from the search results.`;
+      box.innerHTML = `No parts yet - add selections with the button above, or “+ Merge” a whole file from the search results.`;
       drawMerged(null);
       $("tfl-merge-total").textContent = "";
       return;
@@ -1442,7 +1500,7 @@ const Tfl = (() => {
     file = p.file; label = p.label; lib = p.folder || ""; buf = p.buf;
     editingIndex = i;
     $("tfl-editor").style.display = "";
-    $("tfl-title").textContent = `Trim — ${p.label} (tweaking part #${i + 1})`;
+    $("tfl-title").textContent = `Trim - ${p.label} (tweaking part #${i + 1})`;
     $("tfl-start").value = p.start.toFixed(2);
     $("tfl-end").value = p.end.toFixed(2);
     $("tfl-name").value = slugifyClip(p.label);
@@ -1457,12 +1515,12 @@ const Tfl = (() => {
     return await (await ensureCtx()).decodeAudioData(ab.slice(0));
   }
   function pushMergePart(f, lab, folder, a, b, decoded) {
-    if (!(b > a)) { merr("Selection is empty — drag a region on the waveform first."); return; }
+    if (!(b > a)) { merr("Selection is empty - drag a region on the waveform first."); return; }
     mergeParts.push({ file: f, label: lab, folder: folder || "", start: a, end: b, buf: decoded });
     mergeJoins.push({ gap: 120, xfade: 0 });
     if (!$("tfl-merge-name").value.trim())
       $("tfl-merge-name").value = slugifyClip(mergeParts.map((p) => p.label).join(" "));
-    merr(""); $("tfl-merge-msg").textContent = `Added “${lab}” (${a.toFixed(2)}–${b.toFixed(2)}s) — ${mergeParts.length} part(s).`;
+    merr(""); $("tfl-merge-msg").textContent = `Added “${lab}” (${a.toFixed(2)}–${b.toFixed(2)}s) - ${mergeParts.length} part(s).`;
     renderMerge();
   }
   async function addCurrentToMerge() {
@@ -1470,12 +1528,12 @@ const Tfl = (() => {
     if (!file || !buf) { merr("Load a file first, then add its selection."); return; }
     const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
     if (editingIndex >= 0 && mergeParts[editingIndex] && mergeParts[editingIndex].file === file) {
-      if (!(b > a)) { merr("Selection is empty — drag a region on the waveform first."); return; }
+      if (!(b > a)) { merr("Selection is empty - drag a region on the waveform first."); return; }
       const p = mergeParts[editingIndex];
       p.start = a; p.end = b; p.buf = buf; p.label = label; p.folder = lib;
-      $("tfl-merge-msg").textContent = `Updated part #${editingIndex + 1} (“${label}”) — preview and re-save below.`;
+      $("tfl-merge-msg").textContent = `Updated part #${editingIndex + 1} (“${label}”) - preview and re-save below.`;
       editingIndex = -1; syncAddBtn();
-      $("tfl-title").textContent = "Trim — " + label + (lib ? ` (${lib})` : "");
+      $("tfl-title").textContent = "Trim - " + label + (lib ? ` (${lib})` : "");
       renderMerge();
       return;
     }
@@ -1498,13 +1556,13 @@ const Tfl = (() => {
       const cx = await ensureCtx();
       stopSrc(); stopMergePlay();
       const m = buildMerged();
-      if (!m || m.error) { merr(m ? m.error : "A part has an empty selection — fix its trim."); return; }
+      if (!m || m.error) { merr(m ? m.error : "A part has an empty selection - fix its trim."); return; }
       const ab = cx.createBuffer(1, m.data.length, m.sr);
       ab.getChannelData(0).set(m.data);
       const s = cx.createBufferSource();
       s.buffer = ab; s.connect(cx.destination); s.start();
       mergePlaySrc = s;
-      $("tfl-merge-msg").textContent = `Playing ${mergeParts.length} words (${m.total.toFixed(2)}s) — exactly what save will produce.`;
+      $("tfl-merge-msg").textContent = `Playing ${mergeParts.length} words (${m.total.toFixed(2)}s) - exactly what save will produce.`;
     } catch (e) { merr(String(e.message || e)); }
   }
   async function saveMerge() {
@@ -1521,7 +1579,7 @@ const Tfl = (() => {
         joins: mergeJoins.map((j) => ({ gap_ms: Math.round(j.gap), xfade_ms: Math.round(j.xfade) })),
         name: s } });
       const jd = (r.joins || []).map((j) => j.xfade_ms > 0 ? `${j.xfade_ms}ms crossfade` : `${j.gap_ms}ms gap`).join(" + ");
-      $("tfl-merge-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s, ${r.parts} parts${jd ? ` · ${jd}` : ""}) — still below, tweak and re-save any time.`;
+      $("tfl-merge-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s, ${r.parts} parts${jd ? ` · ${jd}` : ""}) - still below, tweak and re-save any time.`;
       await loadAudio();
       if (S.curProg) openProgram(S.curProg.id);
     } catch (e) { merr(String(e.message || e)); $("tfl-merge-msg").textContent = ""; }

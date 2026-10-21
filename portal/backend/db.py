@@ -135,7 +135,9 @@ def connect(url: str | None = None) -> sqlite3.Connection:
             pass
         for _ddl in ("ALTER TABLE controllers ADD COLUMN sync_state TEXT DEFAULT NULL",
                        "ALTER TABLE controllers ADD COLUMN pending_token TEXT DEFAULT NULL",
-                       "ALTER TABLE controllers ADD COLUMN live_state TEXT DEFAULT NULL"):
+                       "ALTER TABLE controllers ADD COLUMN live_state TEXT DEFAULT NULL",
+                       "ALTER TABLE voices ADD COLUMN num_speakers INTEGER DEFAULT 1",
+                       "ALTER TABLE voices ADD COLUMN speakers TEXT DEFAULT '[]'"):
             try:
                 con.execute(_ddl)
                 con.commit()
