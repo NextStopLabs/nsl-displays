@@ -238,24 +238,23 @@ const LayoutEditor = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     // One pages system: the destination's board pages rotate every
-    // page_seconds. While editing we freeze the preview on the selected
-    // board tab; scrolling/flashing still animate with time.
+    // page_seconds, exactly like the bus. The edit canvas stays on the
+    // selected board tab; the preview cycles through the pages so you can
+    // see the whole rotation while you edit.
     const slot = slotFor(lay, t);
     let fields = ed.fields;
-    let boardPos = 0;
+    let boardPos = boardPosForSlot(slot);
     let boardLabel = "";
     if (ed.pages && ed.pages.length) {
       const ordered = orderedBoardPages();
-      boardPos = ed.tab || ordered[slot % ordered.length].position;
       const pg = ordered.find((p) => p.position === boardPos) || ordered[0];
       fields = Object.assign({}, ed.fields, { via: pg.via || "", dest: pg.dest || "" });
       boardLabel = ordered.length > 1
         ? `Board P${pg.position} of ${ordered.length}` : "";
-    } else {
-      boardPos = boardPosForSlot(slot);
     }
+    const previewEls = activePageElements(lay, boardPos) || [];
     if (ov.mode === "full" && ovActive) {
-      const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
+      const ovEl = previewEls.find((e) => e.field === (ov.replaces || "dest"));
       const ovHan = ovEl && hanover.isHan(ovEl.font) ? hanGet(ovEl.font) : null;
       if (ovHan) {
         hanDraw(g, ovHan, ovText, 2, Math.floor(lay.height / 2 - ovHan.height / 2), AMBER);
@@ -266,7 +265,7 @@ const LayoutEditor = (() => {
       }
     } else {
       const hide = hideSet(lay, ovActive);
-      for (const el of (lay.elements || [])) {
+      for (const el of previewEls) {
         if (el.field && hide.has(el.field)) continue;
         if (!visible(el, fields, ovActive)) continue;
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
