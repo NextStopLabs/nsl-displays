@@ -175,12 +175,12 @@ const LayoutEditor = (() => {
     for (let x = 0; x <= lay.width; x += 8) { g.beginPath(); g.moveTo(x * scale + .5, 0); g.lineTo(x * scale + .5, cv.height); g.stroke(); }
     for (let y = 0; y <= lay.height; y += 8) { g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cv.width, y * scale + .5); g.stroke(); }
     (lay.elements || []).forEach((el, i) => {
+      if (!elShowsOn(el, ed.tab || 0)) return; // only show the board page being edited
       const sel = i === ed.sel;
-      const onTab = elShowsOn(el, ed.tab || 0);
       const inv = el.invert;
-      g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : (onTab ? "rgba(255,176,0,.12)" : "rgba(255,176,0,.04)"));
+      g.fillStyle = inv ? (el.colour || AMBER) : (sel ? "rgba(255,176,0,.28)" : "rgba(255,176,0,.12)");
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
-      g.strokeStyle = sel ? "#ff4444" : (onTab ? AMBER : "#5a5348"); g.lineWidth = sel ? 2 : 1;
+      g.strokeStyle = sel ? "#ff4444" : AMBER; g.lineWidth = sel ? 2 : 1;
       g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.fillStyle = inv ? "#000" : (sel ? "#fff" : AMBER);
       g.font = `${Math.max(9, 3 * scale)}px monospace`;
@@ -206,17 +206,21 @@ const LayoutEditor = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     // One pages system: the destination's board pages rotate every
-    // page_seconds, exactly like the bus. Each board page shows its own
-    // elements (see element "Show on") with its own via/dest.
+    // page_seconds. While editing we freeze the preview on the selected
+    // board tab; scrolling/flashing still animate with time.
     const slot = slotFor(lay, t);
     let fields = ed.fields;
+    let boardPos = 0;
     let boardLabel = "";
     if (ed.pages && ed.pages.length) {
       const ordered = orderedBoardPages();
-      const pg = ordered[slot % ordered.length];
+      boardPos = ed.tab || ordered[slot % ordered.length].position;
+      const pg = ordered.find((p) => p.position === boardPos) || ordered[0];
       fields = Object.assign({}, ed.fields, { via: pg.via || "", dest: pg.dest || "" });
       boardLabel = ordered.length > 1
         ? `Board P${pg.position} of ${ordered.length}` : "";
+    } else {
+      boardPos = boardPosForSlot(slot);
     }
     if (ov.mode === "full" && ovActive) {
       const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
@@ -230,7 +234,6 @@ const LayoutEditor = (() => {
       }
     } else {
       const hide = hideSet(lay, ovActive);
-      const boardPos = boardPosForSlot(slot);
       for (const el of (lay.elements || [])) {
         if (!elShowsOn(el, boardPos)) continue;
         if (el.field && hide.has(el.field)) continue;
