@@ -456,6 +456,24 @@ journalctl -u nsl-portal -f
 
 The bus brain: core + player + agent + keypad + front HUB75 + AP + bus-LAN server. See `pi/install.sh`, `pi/nsl_pi/service_main.py`, `pi/nsl_pi/agent_main.py`, `pi/nsl_pi/netmode.py`.
 
+**Full bus — 3 copy-pastes (one per flashed Pi, Raspberry Pi OS Lite 64-bit):**
+
+```bash
+# 1) FRONT (Pi 4B) — copy-paste on the flashed front Pi:
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
+  | sudo bash -s -- --unit bus-1
+# 2) SIDE (Pi 3B) — copy-paste on the flashed side Pi:
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
+  | sudo bash -s -- --role side --unit bus-1
+# 3) REAR (Pi 3B) — copy-paste on the flashed rear Pi:
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
+  | sudo bash -s -- --role rear --unit bus-1
+# Add --audio jack to the front command if you use the 3.5mm onboard jack
+# instead of a USB adapter (default is --audio usb).
+```
+
+Then: read the 6-char code off the front board → portal Controllers → Pair controller → enter code + name → Pair. The Pi fetches its token, plays the test chime, and starts syncing. Boards are wired setup (bus LAN `10.9.0.x`), no hotspot credentials needed for install.
+
 **Hardware:** Pi 4B (2 GB+), 32 GB+ SD, buffered HAT (74AHCT245 level shifter, E-line routed), 5 V/3 A Pi tap, USB keypad at cab, USB audio to PA/amp, CAT5e to switch. Panels wired per §4.1, ribbon <50 cm.
 
 **1. Flash OS:** Raspberry Pi OS **Lite 64-bit**, hostname `nsl-front`, user `pi`, SSH on. Boot, `sudo apt-get update && sudo apt-get upgrade -y`.
@@ -477,11 +495,12 @@ registers with the portal and prints the 6-char pairing code. Manual equivalent
 
 What `pi/install.sh` does:
 - `hostnamectl set-hostname nsl-front`.
-- Appends `dtparam=audio=off` to `/boot/firmware/config.txt` (or `/boot/config.txt`) — required, onboard audio clashes with HUB75. USB audio is front-only.
+- Audio: `--audio usb` (default) appends `dtparam=audio=off` to `/boot/firmware/config.txt` (or `/boot/config.txt`) — onboard audio clashes with HUB75, USB adapter is front-only. `--audio jack` keeps the 3.5mm onboard jack (comments out `audio=off`, needs software pulsing + reboot).
+- Sets `gpio=18=op,dh` in `/boot/firmware/config.txt` so panels stay blank (not full-bright) from power-on until the display driver takes over.
 - `apt-get install python3-pip python3-pil python3-fastapi python3-uvicorn sqlite3 flac alsa-utils network-manager evtest watchdog`.
 - `mkdir -p /var/lib/nsl /opt/nsl`, bootstraps `/var/lib/nsl/controller.db` via `pi/nsl_pi/store.py::init_controller_db` (state row, `controller_config`, keypad map, 3 `display_outputs` from `WIRING_PRESETS["bus-10m"]`).
 - Adds wired `bus-lan` connection `10.9.0.1/24` (`ipv4.never-default yes`, no gateway/DNS).
-- Copies `deploy/nsl-*.service` → `/etc/systemd/system`, writes per-service `nsl-path.conf` drop-ins (`NSL_ROLE`/`NSL_UNIT`, `PYTHONPATH=<repo>:<repo>/pi` so `python3 -m nsl_pi.*` resolves), enables `nsl-core nsl-agent nsl-display nsl-local-ui watchdog`.
+- Copies `deploy/nsl-*.service` → `/etc/systemd/system`, writes per-service `nsl-path.conf` drop-ins (`NSL_ROLE`/`NSL_UNIT`, `PYTHONPATH=<repo>:<repo>/pi` so `python3 -m nsl_pi.*` resolves), enables `nsl-core nsl-agent nsl-display nsl-local-ui nsl-player nsl-input nsl-pairing watchdog`.
 
 **3. Install the LED matrix library (once):**
 
