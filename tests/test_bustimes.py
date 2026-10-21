@@ -78,6 +78,23 @@ def test_spoken_stop_name():
     assert s("Glascote Primary Academy (adj)") == "Glascote Primary Academy."
     assert s("Lichfield Bus Station (Stand 2)") == "Lichfield Bus Station (Stand 2)."
     assert s("Foo (Stand 1) (opp)") == "Foo (Stand 1)."
+    # full qualifier family, not just adj/opp (surveyed from bustimes data)
+    assert s("Market Place, at Post Office") == "Post Office."
+    assert s("High Street, opposite Tesco") == "Tesco."
+    assert s("London Road, before Station") == "Station."
+    assert s("London Road, after Station") == "Station."
+    assert s("Station, o/s Entrance") == "Entrance."
+    assert s("X, next to Library") == "Library."
+    assert s("X, for Town Centre") == "Town Centre."
+    assert s("Station, O/S Entrance") == "Entrance."
+    assert s("Foo, OPP Bar") == "Bar."
+    assert s("Foo (at)") == "Foo."
+    assert s("Foo (before Bar)") == "Foo."
+    assert s("Depot (inward)") == "Depot (inward)."
+    # capitalised real words are kept (could be a name)
+    assert s("X, By Station Road") == "By Station Road."
+    # bare qualifier with nothing after: fall back to the head
+    assert s("Foo, opp") == "Foo."
 
 
 def test_parse_timetable_two_directions():

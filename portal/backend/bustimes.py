@@ -129,13 +129,33 @@ def fetch_timetable(service_id: int | str) -> list[dict]:
     return _cached(f"timetable:{service_id}", lambda: parse_timetable_csv(_http_get_text(url)))
 
 
-# Words bustimes puts after the comma that describe the stop position rather
-# than name it ("Tutbury, adj St Christopher Church"). Common-word ones
-# (in, by, ...) only count when lowercase, so a street actually called
-# "By ..." is never mangled.
-_STOP_QUALIFIERS_LOWER = {"adj", "adjacent", "opp", "opposite", "o/s", "os", "outside",
-                          "nr", "near", "by", "in", "at", "on", "cnr", "corner"}
-_STOP_QUALIFIERS_ANY_CASE = {"adj", "opp", "nr", "o/s", "os", "cnr"}
+# Position words bustimes puts after the comma or in trailing parens that
+# describe where the stop is rather than name it
+# ("Tutbury, adj St Christopher Church", "Shobnall Street (opp)").
+# Abbreviations count in any case; full words only when lowercase, so a
+# street actually called "By ..." is never mangled.
+_STOP_ABBR = {"adj", "opp", "nr", "n/r", "o/s", "os", "cnr", "jct", "jnc"}
+_STOP_WORDS = {"adjacent", "opposite", "outside", "near", "by", "in", "at", "on",
+              "before", "after", "beyond", "behind", "beside", "for", "towards"}
+_STOP_TWO_WORD = {"next to"}
+
+
+def _split_qualifier(tail: str) -> str | None:
+    """If `tail` starts with a position qualifier, return the remainder
+    ("" when it is a bare qualifier like "(opp)"). Else None."""
+    words = tail.split()
+    if not words:
+        return None
+    low = words[0].lower().rstrip(".")
+    if low in _STOP_ABBR:
+        return tail[len(words[0]):].strip()
+    if len(words) >= 2:
+        two = (words[0] + " " + words[1]).lower()
+        if two in _STOP_TWO_WORD and (words[0] + " " + words[1]) == two:
+            return tail[len(words[0]) + 1 + len(words[1]):].strip()
+    if words[0] == words[0].lower() and low in _STOP_WORDS:
+        return tail[len(words[0]):].strip()
+    return None
 
 
 def _strip_trailing_qualifier_paren(s: str) -> str:
@@ -149,17 +169,10 @@ def _strip_trailing_qualifier_paren(s: str) -> str:
         if open_i <= 0:
             break
         inner = s[open_i + 1:-1].strip()
-        words = inner.split()
-        if not words:
+        if _split_qualifier(inner) is None:
             break
-        first = words[0]
-        low = first.lower().rstrip(".")
-        if low in _STOP_QUALIFIERS_ANY_CASE or \
-                (first == first.lower() and low in _STOP_QUALIFIERS_LOWER):
-            s = s[:open_i].rstrip()
-            if not s:
-                break
-        else:
+        s = s[:open_i].rstrip()
+        if not s:
             break
     return s
 
@@ -177,15 +190,15 @@ def spoken_stop_name(full_name: str) -> str:
     s = (full_name or "").strip()
     if "," in s:
         head, _, tail = s.partition(",")
-        tail = tail.strip()
+        head, tail = head.strip(), tail.strip()
         if tail:
-            first, _, rest = tail.partition(" ")
-            low = first.lower().rstrip(".")
-            if rest.strip() and (low in _STOP_QUALIFIERS_ANY_CASE or
-                                 (first == low and low in _STOP_QUALIFIERS_LOWER)):
-                s = rest.strip()
+            rest = _split_qualifier(tail)
+            if rest is None:
+                s = tail  # no qualifier: keep everything after the comma
             else:
-                s = tail
+                s = rest or head  # bare qualifier ("Foo, opp"): fall back to the head
+            if not s:
+                s = head or tail
     s = _strip_trailing_qualifier_paren(s.strip())
     if s and s[-1] not in ".!?":
         s += "."
