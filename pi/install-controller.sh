@@ -12,7 +12,7 @@
 #   --repo https://github.com/NextStopLabs/nsl-displays.git
 #   --dir /opt/nsl-displays                  checkout location
 #   --skip-matrix                            skip rpi-rgb-led-matrix build
-#   --audio usb|jack                         usb adapter (default) or 3.5mm onboard jack
+#   --audio jack|usb                         3.5mm onboard jack (default) or USB adapter
 #
 # Flow: install -> reboot if asked -> code shows on the front board AND in
 # the terminal -> portal Controllers -> Pair controller -> enter code + name
@@ -25,7 +25,7 @@ UNIT=""
 REPO="https://github.com/NextStopLabs/nsl-displays.git"
 DIR="/opt/nsl-displays"
 SKIP_MATRIX=0
-AUDIO="usb"
+AUDIO="jack"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,7 +46,7 @@ if [ -z "$UNIT" ]; then
   UNIT="${UNIT:-bus-1}"
 fi
 
-if [ "$AUDIO" != "usb" ] && [ "$AUDIO" != "jack" ]; then echo "--audio must be usb|jack"; exit 1; fi
+if [ "$AUDIO" != "usb" ] && [ "$AUDIO" != "jack" ]; then echo "--audio must be jack|usb"; exit 1; fi
 
 echo "==> NSL controller install: unit=$UNIT portal=$PORTAL dir=$DIR audio=$AUDIO"
 export DEBIAN_FRONTEND=noninteractive

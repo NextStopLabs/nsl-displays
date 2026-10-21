@@ -108,7 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/i
 
 `--unit` must match on all three (AP becomes `NSL-<unit>`).
 Add `--audio jack` to the front command for 3.5mm onboard audio
-(default `--audio usb`). Add `--portal <url>` only for a non-production portal —
+(default `--audio jack`; pass `--audio usb` for a USB adapter). Add `--portal <url>` only for a non-production portal —
 use the exact base your browser uses: if the UI loads at
 `https://nsldisplays.com` with no `/portal` path, pass
 `--portal https://nsldisplays.com`.
@@ -183,7 +183,7 @@ via the local UI (§2) or `sudo nsl-set-unit bus-2`. Boards need nothing further
 
 | Setup | Installer flag | Notes |
 |---|---|---|
-| USB adapter → amp → PA (recommended) | default (`--audio usb`) | No HUB75 tradeoff, best picture |
+| USB adapter → amp → PA | `--audio usb` | No HUB75 tradeoff, best picture (opt-in) |
 | 3.5mm onboard jack → amp → PA | `--audio jack` | Keep software pulsing (default); never enable hardware pulse with the jack; reboot after switching |
 
 Check chain without any program synced:

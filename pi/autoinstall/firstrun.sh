@@ -21,7 +21,7 @@
 # ===== CONFIG — edit these 5 lines per Pi, then copy the file =====
 NSL_ROLE="front"    # front | side | rear  (one front + one side + one rear per bus)
 NSL_UNIT="bus-1"    # must MATCH on all 3 Pis of one bus (AP becomes NSL-<unit>)
-NSL_AUDIO="usb"     # usb (adapter, default) | jack (3.5mm onboard)
+NSL_AUDIO="jack"    # jack (3.5mm onboard, default) | usb (adapter)
 NSL_PORTAL="https://nsldisplays.com/portal"
 NSL_REPO="https://github.com/NextStopLabs/nsl-displays.git"
 # ===== end CONFIG =====

@@ -473,7 +473,7 @@ curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/i
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
   | sudo bash -s -- --role rear --unit bus-1
 # Add --audio jack to the front command if you use the 3.5mm onboard jack
-# instead of a USB adapter (default is --audio usb).
+# 3.5mm onboard jack is the default audio output; pass --audio usb for a USB adapter instead.
 ```
 
 Then: read the 6-char code off the front board → portal Controllers → Pair controller → enter code + name → Pair. The Pi fetches its token, plays the test chime, and starts syncing. Boards are wired setup (bus LAN `10.9.0.x`), no hotspot credentials needed for install.
@@ -488,7 +488,7 @@ Then: read the 6-char code off the front board → portal Controllers → Pair c
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
   | sudo bash -s -- --unit bus-1
 # --portal defaults to https://nsldisplays.com/portal; --unit sets the AP name NSL-<unit>
-# --audio jack keeps the 3.5mm onboard jack (default is --audio usb).
+# 3.5mm onboard jack is the default; pass --audio usb for a USB adapter.
 # Jack mode needs software pulsing (the default) and a reboot after install.
 ```
 

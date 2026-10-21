@@ -3,7 +3,7 @@
 set -euo pipefail
 ROLE="${1:-front}"   # front|side|rear
 UNIT="${2:-bus-1}"
-AUDIO="${3:-${NSL_AUDIO:-usb}}"   # usb|jack — jack keeps the 3.5mm onboard output
+AUDIO="${3:-${NSL_AUDIO:-jack}}"   # jack|usb — jack keeps the 3.5mm onboard output
 if [ "$AUDIO" != "usb" ] && [ "$AUDIO" != "jack" ]; then echo "audio must be usb|jack"; exit 1; fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +13,7 @@ if ! grep -q "nsl-${ROLE}" /etc/hosts 2>/dev/null; then
   echo "127.0.0.1 nsl-${ROLE}" | sudo tee -a /etc/hosts >/dev/null
 fi
 sudo hostnamectl set-hostname "nsl-${ROLE}"
-# audio: USB adapter is the default (onboard off — HUB75 shares PWM hardware).
+# audio: 3.5mm jack is the default (onboard stays on — needs software pulsing).
 # --audio jack keeps the 3.5mm onboard jack: needs software pulsing
 # (the default no-hardware-pulse) and a reboot after install.
 if [ "$AUDIO" = "jack" ]; then
