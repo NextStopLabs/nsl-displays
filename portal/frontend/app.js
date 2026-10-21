@@ -302,6 +302,7 @@ document.querySelectorAll(".nav-item").forEach((t) => t.addEventListener("click"
   showSection(t.dataset.section);
   LayoutEditor.stop();
   Preview.stop();
+  if (t.dataset.section === "remote") refreshUpdateStatus();
 }));
 
 // ---------- programs ----------
@@ -1171,6 +1172,23 @@ async function loadControllers() {
     <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button class=danger data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
+  await loadReleases();
+}
+async function loadReleases() {
+  try {
+    const r = await api("/api/admin/releases?organisation_id=" + encodeURIComponent(S.org));
+    const rows = (r.releases || []).map((rel) => {
+      const bytes = rel.bundle_sha256 ? (rel.bytes ? fmtBytes(rel.bytes) : "-") : "-";
+      return `<tr><td><b>${esc(rel.version)}</b></td><td>${esc(rel.channel)}</td><td>${esc(bytes)}</td><td>${esc(rel.created_at || "")}</td></tr>`;
+    }).join("");
+    $("relrows").innerHTML = rows || `<tr><td colspan=4 class=hint>No releases uploaded yet.</td></tr>`;
+  } catch (e) { $("relrows").innerHTML = `<tr><td colspan=4 class=err>Could not load releases: ${esc(String(e.message || e))}</td></tr>`; }
+}
+function fmtBytes(n) {
+  if (n == null) return "-";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
 }
 $("ctlrows").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1231,6 +1249,24 @@ $("btn-sim").addEventListener("click", async () => {
     $("pair-code").value = r.pairing_code;
     alert("Simulated device registered. Pairing code filled in - enter a name and press Pair controller.");
   } catch (e) { err(String(e.message || e)); }
+});
+$("btn-rel-upload").addEventListener("click", async () => {
+  try {
+    const version = $("rel-version").value.trim();
+    const channel = $("rel-channel").value;
+    const file = $("rel-file").files[0];
+    if (!version || !file) throw new Error("Version and bundle file are required.");
+    const fd = new FormData();
+    fd.append("organisation_id", S.org);
+    fd.append("version", version);
+    fd.append("channel", channel);
+    fd.append("file", file);
+    const r = await api("/api/admin/releases", { method: "POST", body: fd });
+    $("rel-version").value = "";
+    $("rel-file").value = "";
+    $("rel-msg").innerHTML = `Uploaded release <b>${esc(r.version)}</b> (${esc(r.channel)}) - ${fmtBytes(r.bytes)}. Buses on channel ${esc(r.channel)} will pull it on their next sync.`;
+    await loadReleases();
+  } catch (e) { $("rel-msg").innerHTML = `<span class=err>Upload failed: ${esc(String(e.message || e))}</span>`; }
 });
 
 // ---------- audio & voices ----------
@@ -1470,13 +1506,38 @@ async function refreshLive() {
     box.innerHTML = rcLiveHtml(l);
   } catch (e) { box.innerHTML = `<span class=err>Live status unavailable: ${esc(String(e.message || e))}</span>`; }
 }
+async function refreshUpdateStatus() {
+  const box = $("rc-update");
+  if (!box) return;
+  const cid = $("rc-ctl") && $("rc-ctl").value;
+  const btn = $("btn-rc-update");
+  if (!cid) { box.textContent = "Select a controller to see update status."; if (btn) btn.disabled = true; return; }
+  try {
+    const s = await api(`/api/controllers/${encodeURIComponent(cid)}/update`);
+    if (!s.latest_version) {
+      box.innerHTML = `Current version: <b>${esc(s.current_version || "unknown")}</b>. No release published for channel <b>${esc(s.channel)}</b>.`;
+      if (btn) btn.disabled = true;
+    } else if (s.up_to_date) {
+      box.innerHTML = `Up to date on version <b>${esc(s.current_version)}</b> (channel ${esc(s.channel)}).`;
+      if (btn) btn.disabled = true;
+    } else {
+      box.innerHTML = `Current version: <b>${esc(s.current_version || "unknown")}</b>. Latest release: <b>${esc(s.latest_version)}</b> (channel ${esc(s.channel)}).`;
+      if (btn) btn.disabled = !s.can_update;
+    }
+  } catch (e) {
+    box.innerHTML = `<span class=err>Update status unavailable: ${esc(String(e.message || e))}</span>`;
+    if (btn) btn.disabled = true;
+  }
+}
 // Live poll while the remote tab is on screen; the bus reports state on
 // heartbeat, so a sent command appears here once the bus picks it up.
 if (!window._rcLiveTimer) {
   window._rcLiveTimer = setInterval(() => {
     try {
-      if (S.token && $("tab-remote") && $("tab-remote").style.display !== "none" && $("rc-ctl") && $("rc-ctl").value)
+      if (S.token && $("tab-remote") && $("tab-remote").style.display !== "none" && $("rc-ctl") && $("rc-ctl").value) {
         refreshLive();
+        refreshUpdateStatus();
+      }
     } catch (e) { /* keep polling */ }
   }, 5000);
 }
@@ -1496,8 +1557,19 @@ $("btn-rc-refresh").addEventListener("click", async () => {
   const c = S.controllers.find((x) => x.id === $("rc-ctl").value);
   $("rc-state").textContent = c ? `${c.name}: ${c.online ? "ONLINE" : "OFFLINE"} - last seen ${c.last_seen_at || "never"}, app ${c.app_version || "?"}, ${c.pending_commands || 0} command(s) waiting.` : "Select a controller.";
   refreshLive();
+  refreshUpdateStatus();
 });
-$("rc-ctl").addEventListener("change", () => refreshLive());
+$("rc-ctl").addEventListener("change", () => { refreshLive(); refreshUpdateStatus(); });
+rc("btn-rc-update", async () => {
+  const cid = $("rc-ctl").value;
+  const c = S.controllers.find((x) => x.id === cid);
+  if (c && !c.online) throw new Error(`“${c.name}” is offline - update refused.`);
+  const s = await api(`/api/controllers/${encodeURIComponent(cid)}/update`);
+  if (!s.latest_version || s.up_to_date) throw new Error("No update available.");
+  const r = await rcSend({ command: "update_now" });
+  $("rc-update").innerHTML = `Update to <b>${esc(s.latest_version)}</b> queued. The bus will download, verify, and restart automatically. Watch the controller status to see it come back online.`;
+  return r;
+});
 
 // ---------- TfL audio creator (search + trim + save to library) ----------
 const Tfl = (() => {

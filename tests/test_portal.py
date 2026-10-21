@@ -383,3 +383,9 @@ def test_release_upload_and_device_download(tmp_path, monkeypatch):
     assert dl.content == bundle_bytes
     # Missing release returns 404
     assert c.get("/api/device/release/bundle", params={"v": "9.9.9"}, headers=DH).status_code == 404
+    # Portal update-status endpoint shows current vs latest
+    st = c.get(f"/api/controllers/{dev['controller_id']}/update", headers=H).json()
+    assert st["current_version"] == ""
+    assert st["latest_version"] == "2.0.0"
+    assert st["can_update"] is False  # bus never heartbeated, so offline
+    assert st["up_to_date"] is False

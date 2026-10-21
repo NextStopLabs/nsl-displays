@@ -115,6 +115,17 @@
             </div>
             <table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Programs</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
           </div>
+          <div class=group><div class=grouptitle>Software releases</div>
+            <p class=hint>Upload a signed .tar.gz bundle to make it available for over-the-air updates. Generate a key pair with <code>python3 tools/generate-release-key.py</code> and set <code>NSL_RELEASE_PRIVATE_KEY</code> on the portal host so bundles are signed automatically.</p>
+            <div class=row>
+              <div style="flex:0 0 140px"><label for=rel-version>Version</label><input id=rel-version placeholder="e.g. 1.1.0"></div>
+              <div style="flex:0 0 140px"><label for=rel-channel>Channel</label><select id=rel-channel><option value=stable>stable</option><option value=beta>beta</option><option value=dev>dev</option></select></div>
+              <div class=col><label for=rel-file>Bundle (.tar.gz)</label><input id=rel-file type=file accept=".tar.gz,.tgz,application/gzip"></div>
+              <div style="align-self:end"><button id=btn-rel-upload class=primary>Upload release</button></div>
+            </div>
+            <div id=rel-msg class=hint></div>
+            <table><thead><tr><th>Version</th><th>Channel</th><th>Size</th><th>Uploaded</th></tr></thead><tbody id=relrows></tbody></table>
+          </div>
           <dialog id=token-dialog>
             <div class=grouptitle>Device token - copy it now</div>
             <p class=hint id=token-sub>This token is shown <b>once</b>. The Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.</p>
@@ -211,6 +222,10 @@
             <div class=row><div class=col><label for=rc-ctl>Controller</label><select id=rc-ctl></select></div>
               <div style="align-self:end"><button id=btn-rc-refresh>Refresh</button></div></div>
             <div id=rc-state class=hint>Select a controller.</div>
+            <div class=group><div class=grouptitle>Software update</div>
+              <div id=rc-update class=hint>Select a controller to see update status.</div>
+              <div class=row><button id=btn-rc-update>Update now</button></div>
+            </div>
             <div class=group><div class=grouptitle>Now on the bus</div>
               <div id=rc-live class=hint>Select a controller to see its current stop.</div>
             </div>

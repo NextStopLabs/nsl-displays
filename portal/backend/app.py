@@ -1805,6 +1805,29 @@ def admin_upload_release(
 # remote command fan-out: portal persists, Pi picks up on next heartbeat (<=60 s).
 # Offline buses are refused up front - a command that can't reach a bus is an
 # error here, not a silent "queued".
+@app.get("/api/controllers/{cid}/update")
+def controller_update_status(cid: str, u: dict = Depends(current_user)):
+    """Latest software update status for a controller: current app_version vs
+    newest release on its channel."""
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
+    channel = c["channel"] or "stable"
+    rel = con.execute(
+        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC LIMIT 1",
+        (c["organisation_id"], channel)).fetchone()
+    current = c["app_version"] if "app_version" in c.keys() else ""
+    latest = rel["version"] if rel else None
+    return {
+        "controller_id": cid,
+        "channel": channel,
+        "current_version": current,
+        "latest_version": latest,
+        "up_to_date": bool(current and latest and current == latest),
+        "can_update": bool(_controller_online(c) and latest and current != latest),
+    }
 @app.get("/api/controllers/{cid}/live")
 def controller_live(cid: str, u: dict = Depends(current_user)):
     """What the bus is doing right now: program, service, destination,
