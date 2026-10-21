@@ -18,7 +18,11 @@ const LayoutEditor = (() => {
     return r;
   }
   function hanGet(id) {
-    if (!hanCache[id]) { hanFetch(id).catch(() => {}); return null; }
+    if (hanCache[id] === "failed") return null;
+    if (!hanCache[id]) {
+      hanFetch(id).catch(() => { hanCache[id] = "failed"; });
+      return null;
+    }
     return hanCache[id];
   }
   function hanWidth(f, text, spacing) {
@@ -352,7 +356,7 @@ const LayoutEditor = (() => {
     if (FONTS.includes(size)) {
       return `<option value="${esc(size)}" selected>${esc(size)}</option>`;
     }
-    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size + "-"));
+    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
     const m = (selectedFont || "").match(/^han-\d{2}(.+)$/);
     const currentStyle = m ? m[1] : "";
     return han.map((f) => {
@@ -363,7 +367,7 @@ const LayoutEditor = (() => {
   }
   function stylesForSize(size) {
     if (FONTS.includes(size)) return [size];
-    return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size + "-"));
+    return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
   }
   function renderProps() {
     const box = document.getElementById("lay-props");
@@ -419,8 +423,11 @@ const LayoutEditor = (() => {
           : Math.max(k === "w" || k === "h" ? 1 : 0, parseInt(v || "0", 10));
       if (k === "font-size") {
         const styles = stylesForSize(v);
-        el.font = styles[0] || v;
+        const newFont = styles[0] || v;
+        if (el.font === newFont) return;
+        el.font = newFont;
       } else if (k === "font-style") {
+        if (el.font === v) return;
         el.font = v;
       } else {
         el[k] = v;
