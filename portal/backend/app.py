@@ -849,6 +849,29 @@ def _wav_bytes_from_pcm(pcm: bytes, rate: int = _CANON_RATE) -> bytes:
     return buf.getvalue()
 
 
+def _resample_linear(samples: list[int], src_rate: int, dst_rate: int = _CANON_RATE) -> list[int]:
+    """Pure-Python resample (linear interpolation) — no ffmpeg needed.
+
+    Piper voices ship at 16/22.05/24 kHz and XTTS at 24 kHz; resampling the
+    already-parsed samples also handles files whose headers ffmpeg chokes on.
+    """
+    if src_rate == dst_rate or not samples:
+        return samples
+    ratio = src_rate / dst_rate
+    n_out = int(len(samples) / ratio)
+    last = len(samples) - 1
+    out = [0] * n_out
+    for i in range(n_out):
+        pos = i * ratio
+        j = int(pos)
+        if j >= last:
+            out[i] = samples[last]
+            continue
+        frac = pos - j
+        out[i] = int(samples[j] + (samples[j + 1] - samples[j]) * frac)
+    return out
+
+
 def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, int]:
     """Decode arbitrary audio bytes -> (pcm mono s16 @22050, duration_ms).
 
@@ -870,11 +893,21 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
                 frames = w.readframes(n)
             if n == 0:
                 raise HTTPException(400, "that WAV contains no audio frames")
-            # bytes -> samples, downmix + resample handling
+            # bytes -> samples, downmix + resample handling (stdlib only, no ffmpeg)
             if sw == 1:  # 8-bit unsigned
                 samples = [(b - 128) * 256 for b in frames]
-            elif sw == 2:
+            elif sw == 2:  # 16-bit signed
                 samples = list(_st.unpack(f"<{len(frames)//2}h", frames))
+            elif sw == 3:  # 24-bit signed (DAW exports)
+                samples = [int.from_bytes(frames[i:i + 3], "little", signed=True) >> 8
+                           for i in range(0, len(frames) - len(frames) % 3, 3)]
+            elif sw == 4:  # 32-bit: float (-1..1) or int — sniff it
+                n4 = len(frames) // 4
+                as_float = list(_st.unpack(f"<{n4}f", frames[:n4 * 4]))
+                if as_float and max(abs(v) for v in as_float) <= 4.0:
+                    samples = [max(-32768, min(32767, int(v * 32768))) for v in as_float]
+                else:
+                    samples = [v >> 16 for v in _st.unpack(f"<{n4}i", frames[:n4 * 4])]
             else:
                 raise ValueError(f"unsupported WAV depth {sw*8}-bit")
             if ch == 2:
@@ -882,25 +915,8 @@ def _decode_to_mono22050(raw: bytes, hint_name: str = "upload") -> tuple[bytes, 
             elif ch > 2:
                 raise HTTPException(400, f"that WAV has {ch} channels — export mono or stereo")
             if sr != _CANON_RATE:
-                ff = _sh.which("ffmpeg")
-                if not ff:
-                    raise HTTPException(400, f"that WAV is {sr} Hz — export 22050 Hz mono WAV (or install ffmpeg)")
-                with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as t:
-                    t.write(raw)
-                    tmp = t.name
-                try:
-                    p = _sp.run([ff, "-v", "error", "-i", tmp, "-ac", "1", "-ar", str(_CANON_RATE),
-                                 "-f", "s16le", "-"], capture_output=True)
-                finally:
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
-                if not p.stdout:
-                    raise HTTPException(400, "could not resample that WAV to 22050 Hz")
-                pcm = p.stdout
-            else:
-                pcm = _st.pack(f"<{len(samples)}h", *[max(-32768, min(32767, s)) for s in samples])
+                samples = _resample_linear(samples, sr, _CANON_RATE)
+            pcm = _st.pack(f"<{len(samples)}h", *[max(-32768, min(32767, s)) for s in samples])
             peak = max((abs(s) for s in _st.unpack(f"<{len(pcm)//2}h", pcm)), default=0) if pcm else 0
             if peak < 100:
                 raise HTTPException(400, "that file is digital silence — nothing would play")
@@ -1875,6 +1891,302 @@ def update_service(sid: str, body: dict, u: dict = Depends(current_user)):
                 (_utcnow(), u["id"], s["program_id"]))
     con.commit()
     return {"ok": True}
+
+
+# ---------- TfL iBus audio creator (search + trim local announcement library) ----------
+# Source files live in the repo at tfl-ibus-announcements/Renamed/{Stops,Destinations,Routes}/*.mp3
+# (Stops = "X" stop names, Destinations = terminus boards, Routes = route numbers)
+# plus tfl-ibus-announcements/Original/*.mp3 (raw S_<NAME>_001 recordings + messages).
+# Library root override: TFL_LIBRARY_DIR (the Renamed folder). The older
+# TFL_STOPS_DIR override (the Stops folder itself) is still honoured for stops.
+# Identifiers are folder-qualified ("Stops/x.mp3"); a bare "x.mp3" still
+# resolves to Stops for backwards compatibility. Trimmed/merged clips land in
+# the org audio library (selectable in the stops portal).
+_TFL_FOLDERS = ("Stops", "Destinations", "Routes", "Original")
+
+
+def _tfl_root() -> str | None:
+    root = os.environ.get("TFL_LIBRARY_DIR") or os.path.join(
+        _REPO_ROOT, "tfl-ibus-announcements", "Renamed")
+    return root if os.path.isdir(root) else None
+
+
+def _tfl_stops_dir() -> str | None:
+    override = os.environ.get("TFL_STOPS_DIR")
+    if override and os.path.isdir(override):
+        return override
+    root = _tfl_root()
+    if root:
+        d = os.path.join(root, "Stops")
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+def _tfl_folder_dir(folder: str) -> str | None:
+    if folder not in _TFL_FOLDERS:
+        return None
+    if folder == "Stops":
+        return _tfl_stops_dir()
+    if folder == "Original":
+        o = os.environ.get("TFL_ORIGINAL_DIR") or os.path.join(
+            _REPO_ROOT, "tfl-ibus-announcements", "Original")
+        return o if os.path.isdir(o) else None
+    root = _tfl_root()
+    if root:
+        d = os.path.join(root, folder)
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+def _tfl_safe_path(source: str) -> str:
+    folder, rest = "Stops", (source or "")
+    if "/" in rest:
+        first, tail = rest.split("/", 1)
+        if first in _TFL_FOLDERS:
+            folder, rest = first, tail
+    base = os.path.basename(rest)
+    if not base or base in (".", "..") or not base.lower().endswith(".mp3"):
+        raise HTTPException(400, "bad file")
+    d = _tfl_folder_dir(folder)
+    if not d:
+        raise HTTPException(404, "TfL announcement library not found on this server")
+    p = os.path.realpath(os.path.join(d, base))
+    if not p.startswith(os.path.realpath(d) + os.sep) or not os.path.isfile(p):
+        raise HTTPException(404, "no such announcement")
+    return p
+
+
+@app.get("/api/tfl/search")
+def tfl_search(q: str = "", limit: int = 100, organisation_id: str = "",
+               folder: str = "", u: dict = Depends(current_user)):
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    folders = [folder] if folder in _TFL_FOLDERS else list(_TFL_FOLDERS)
+    needle = (q or "").strip().lower()
+    hits = []
+    for f in folders:
+        d = _tfl_folder_dir(f)
+        if not d:
+            continue
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for fn in names:
+            if not fn.lower().endswith(".mp3"):
+                continue
+            stem = fn[:-4]
+            if needle and needle not in stem.lower():
+                continue
+            hits.append({"file": f"{f}/{fn}", "label": stem, "folder": f})
+    hits.sort(key=lambda r: (r["label"].lower(), r["folder"]))
+    total = len(hits)
+    hits = hits[: max(1, min(limit or 100, 200))]
+    return {"count": total, "results": hits}
+
+
+@app.get("/api/tfl/file")
+def tfl_file(file: str, organisation_id: str, u: dict = Depends(current_user)):
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    path = _tfl_safe_path(file)
+    return FileResponse(path, media_type="audio/mpeg", filename=os.path.basename(path))
+
+
+@app.post("/api/tfl/clip")
+def tfl_clip(body: dict, u: dict = Depends(current_user)):
+    org = body.get("organisation_id", "")
+    require_role(u["id"], org, "owner", "editor")
+    src = _tfl_safe_path(body.get("source") or "")
+    try:
+        start_ms = int(body.get("start_ms", 0) or 0)
+        end_ms = int(body.get("end_ms", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "start/end must be milliseconds")
+    with open(src, "rb") as f:
+        raw = f.read()
+    pcm, full_ms = _decode_to_mono22050(raw, os.path.basename(src))
+    total = len(pcm) // 2
+    if end_ms <= 0:
+        end_ms = full_ms
+    start_ms, end_ms = max(0, start_ms), min(full_ms, end_ms)
+    if start_ms >= end_ms:
+        raise HTTPException(400, "selection is empty — drag a region on the waveform first")
+    if end_ms - start_ms < 50:
+        raise HTTPException(400, "selection too short (min 50 ms)")
+    import struct as _st
+    s0 = int(start_ms / 1000 * _CANON_RATE)
+    s1 = int(end_ms / 1000 * _CANON_RATE)
+    s0, s1 = max(0, min(s0, total)), max(0, min(s1, total))
+    samples = list(_st.unpack(f"<{s1 - s0}h", pcm[s0 * 2: s1 * 2]))
+    # 8 ms linear fades at both edges so cuts don't click on the bus.
+    fade = min(len(samples) // 4, int(_CANON_RATE * 0.008))
+    for i in range(fade):
+        g = i / fade
+        samples[i] = int(samples[i] * g)
+        samples[-(i + 1)] = int(samples[-(i + 1)] * g)
+    peak = max((abs(s) for s in samples), default=0)
+    if peak < 100:
+        raise HTTPException(400, "that selection is silence — widen the region")
+    cut = _st.pack(f"<{len(samples)}h", *samples)
+    wav = _wav_bytes_from_pcm(cut)
+    duration_ms = int(len(cut) / 2 / _CANON_RATE * 1000)
+    want = _slugify_clip(body.get("name") or "")
+    if not want:
+        want = _slugify_clip(os.path.splitext(os.path.basename(src))[0])
+    if not want or len(want) < 2:
+        raise HTTPException(400, "give this clip a name, e.g. morrisons-wood-lane")
+    h = hashlib.sha256(wav).hexdigest()
+    os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
+    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
+    if not os.path.exists(sp):
+        with open(sp, "wb") as f:
+            f.write(wav)
+    con = db()
+    friendly = _unique_clip_name(con, org, want, h)
+    con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), org, h, friendly, f"audio/{h[:2]}/{h}.wav",
+                 duration_ms, "tfl-cut", os.path.splitext(os.path.basename(src))[0],
+                 None, json.dumps({"start_ms": start_ms, "end_ms": end_ms}), _utcnow()))
+    con.commit()
+    row = con.execute("SELECT filename, duration_ms FROM audio_files WHERE organisation_id=? AND sha256=?",
+                      (org, h)).fetchone()
+    final = row[0] if row else friendly
+    dur = row[1] if row else duration_ms
+    return {"sha256": h, "name": final, "filename": final, "duration_ms": dur,
+            "start_ms": start_ms, "end_ms": end_ms, "source_duration_ms": full_ms}
+
+
+@app.post("/api/tfl/merge")
+def tfl_merge(body: dict, u: dict = Depends(current_user)):
+    """Join 2–20 trimmed announcement parts into one clip.
+
+    Body: {organisation_id, parts: [{source, start_ms, end_ms}], gap_ms, name}.
+    Each part is trimmed exactly like /api/tfl/clip, joined with `gap_ms` of
+    silence between words, then saved to the org audio library.
+    """
+    org = body.get("organisation_id", "")
+    require_role(u["id"], org, "owner", "editor")
+    parts = body.get("parts") or []
+    if not isinstance(parts, list) or not (2 <= len(parts) <= 20):
+        raise HTTPException(400, "add 2–20 parts to merge (use “Add selection to merge” on each word)")
+    try:
+        gap_ms = int(body.get("gap_ms", 120) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "gap must be milliseconds")
+    gap_ms = max(0, min(gap_ms, 2000))
+    # Per-boundary transitions: [{gap_ms, xfade_ms}]. xfade_ms > 0 overlaps the
+    # two words with an equal-power crossfade (gap ignored on that join).
+    raw_joins = body.get("joins")
+    joins: list[dict] = []
+    if raw_joins is not None:
+        if not isinstance(raw_joins, list) or len(raw_joins) != len(parts) - 1:
+            raise HTTPException(400, "joins must have one entry per boundary between parts")
+        for j in raw_joins:
+            if not isinstance(j, dict):
+                raise HTTPException(400, "bad join")
+            try:
+                jgap = int(j.get("gap_ms", gap_ms) or 0)
+                jx = int(j.get("xfade_ms", 0) or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "join gap/crossfade must be milliseconds")
+            joins.append({"gap_ms": max(0, min(jgap, 2000)), "xfade_ms": max(0, min(jx, 2000))})
+    else:
+        joins = [{"gap_ms": gap_ms, "xfade_ms": 0} for _ in range(len(parts) - 1)]
+    import struct as _st
+    segs: list[list[int]] = []
+    stems: list[str] = []
+    meta_parts: list[dict] = []
+    for p in parts:
+        if not isinstance(p, dict):
+            raise HTTPException(400, "bad part")
+        src = _tfl_safe_path(p.get("source") or "")
+        try:
+            start_ms = int(p.get("start_ms", 0) or 0)
+            end_ms = int(p.get("end_ms", 0) or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "part start/end must be milliseconds")
+        with open(src, "rb") as f:
+            raw = f.read()
+        pcm, full_ms = _decode_to_mono22050(raw, os.path.basename(src))
+        total = len(pcm) // 2
+        if end_ms <= 0:
+            end_ms = full_ms
+        start_ms, end_ms = max(0, start_ms), min(full_ms, end_ms)
+        if start_ms >= end_ms or end_ms - start_ms < 50:
+            raise HTTPException(400, f"part {os.path.basename(src)} is empty/too short — check its selection")
+        s0 = int(start_ms / 1000 * _CANON_RATE)
+        s1 = int(end_ms / 1000 * _CANON_RATE)
+        s0, s1 = max(0, min(s0, total)), max(0, min(s1, total))
+        seg = list(_st.unpack(f"<{s1 - s0}h", pcm[s0 * 2: s1 * 2]))
+        segs.append(seg)
+        stems.append(os.path.splitext(os.path.basename(src))[0])
+        meta_parts.append({"source": os.path.basename(src), "start_ms": start_ms, "end_ms": end_ms})
+    import math as _m
+    MICRO = int(_CANON_RATE * 0.005)  # anti-click micro-fade for hard (gap) joins
+    out: list[float] = [float(v) for v in segs[0]]
+    applied: list[dict] = []
+    for i in range(1, len(segs)):
+        j = joins[i - 1]
+        seg = [float(v) for v in segs[i]]
+        if j["xfade_ms"] > 0:
+            ov = min(int(j["xfade_ms"] / 1000 * _CANON_RATE), len(out), len(seg))
+            if ov < 32:
+                raise HTTPException(400,
+                    f"crossfade on join {i} is longer than the words either side — shorten it")
+            # equal-power crossfade: constant loudness through the overlap.
+            denom = max(1, ov - 1)
+            mixed = [out[len(out) - ov + k] * _m.cos(k / denom * _m.pi / 2)
+                     + seg[k] * _m.sin(k / denom * _m.pi / 2) for k in range(ov)]
+            out = out[: len(out) - ov] + mixed + seg[ov:]
+            applied.append({"gap_ms": 0, "xfade_ms": int(ov / _CANON_RATE * 1000)})
+        else:
+            # hard join: micro-fade both sides so there's no click, then silence gap.
+            f = min(MICRO, len(out) // 2, len(seg) // 2)
+            for k in range(f):
+                out[len(out) - f + k] *= (f - k) / f
+                seg[k] *= (k + 1) / f
+            out.extend([0.0] * int(j["gap_ms"] / 1000 * _CANON_RATE))
+            out.extend(seg)
+            applied.append({"gap_ms": j["gap_ms"], "xfade_ms": 0})
+    if len(out) / _CANON_RATE > 60:
+        raise HTTPException(400, "merged clip would be over 60 s — shorten the parts")
+    peak = max((abs(s) for s in out), default=0)
+    if peak < 100:
+        raise HTTPException(400, "merged audio is silence — widen the selections")
+    # outer-edge fade so the clip starts/ends cleanly on the bus.
+    edge = min(len(out) // 4, int(_CANON_RATE * 0.008))
+    for i in range(edge):
+        g = i / edge
+        out[i] = int(out[i] * g)
+        out[-(i + 1)] = int(out[-(i + 1)] * g)
+    merged = _st.pack(f"<{len(out)}h", *[max(-32768, min(32767, int(round(v)))) for v in out])
+    wav = _wav_bytes_from_pcm(merged)
+    duration_ms = int(len(merged) / 2 / _CANON_RATE * 1000)
+    want = _slugify_clip(body.get("name") or "")
+    if not want:
+        want = _slugify_clip(" ".join(stems))
+    if not want or len(want) < 2:
+        raise HTTPException(400, "give this clip a name, e.g. bloomfield-crescent")
+    h = hashlib.sha256(wav).hexdigest()
+    os.makedirs(os.path.join(STORAGE_DIR, "audio", h[:2]), exist_ok=True)
+    sp = os.path.join(STORAGE_DIR, "audio", h[:2], h + ".wav")
+    if not os.path.exists(sp):
+        with open(sp, "wb") as f:
+            f.write(wav)
+    con = db()
+    friendly = _unique_clip_name(con, org, want, h)
+    con.execute("INSERT OR IGNORE INTO audio_files VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), org, h, friendly, f"audio/{h[:2]}/{h}.wav",
+                 duration_ms, "tfl-merge", " + ".join(stems),
+                 None, json.dumps({"parts": meta_parts, "joins": applied}), _utcnow()))
+    con.commit()
+    row = con.execute("SELECT filename, duration_ms FROM audio_files WHERE organisation_id=? AND sha256=?",
+                      (org, h)).fetchone()
+    final = row[0] if row else friendly
+    dur = row[1] if row else duration_ms
+    return {"sha256": h, "name": final, "filename": final, "duration_ms": dur,
+            "parts": len(segs), "joins": applied}
 
 
 # ---------- bustimes.org import (services -> destinations + stops + stop audio) ----------

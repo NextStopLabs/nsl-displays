@@ -285,7 +285,7 @@ async function doCreate() {
 document.querySelectorAll("#tabs .tab").forEach((t) => t.addEventListener("click", () => {
   document.querySelectorAll("#tabs .tab").forEach((x) => x.classList.remove("on"));
   t.classList.add("on");
-  ["programs", "codes", "controllers", "audio", "remote"].forEach((n) => { $("tab-" + n).style.display = (n === t.dataset.tab) ? "" : "none"; });
+  ["programs", "codes", "controllers", "audio", "tfl", "remote"].forEach((n) => { $("tab-" + n).style.display = (n === t.dataset.tab) ? "" : "none"; });
 }));
 
 // ---------- programs ----------
@@ -1102,6 +1102,421 @@ $("btn-rc-refresh").addEventListener("click", async () => {
 });
 $("rc-ctl").addEventListener("change", () => refreshLive());
 
+// ---------- TfL audio creator (search + trim + save to library) ----------
+const Tfl = (() => {
+  let file = "", label = "", lib = "", buf = null, objUrl = "", actx = null, src = null;
+  const terr = (m) => { $("tfl-err").textContent = m || ""; };
+  function fmt(s) { return (Number(s) || 0).toFixed(2) + "s"; }
+  function syncDur() {
+    const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
+    $("tfl-dur").textContent = buf ? `${fmt(a)} → ${fmt(b)} (keeps ${fmt(Math.max(0, b - a))} of ${fmt(buf.duration)})` : "—";
+  }
+  function draw() {
+    const cv = $("tfl-wave");
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth || 600, H = 110;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext("2d");
+    g.scale(dpr, dpr);
+    g.fillStyle = "#111"; g.fillRect(0, 0, W, H);
+    if (!buf) return;
+    const ch = buf.getChannelData(0);
+    const a = Math.max(0, parseFloat($("tfl-start").value || "0")), b = Math.min(buf.duration, parseFloat($("tfl-end").value || "0"));
+    const peak = (x0, x1) => {
+      const i0 = Math.floor(x0 / buf.duration * ch.length), i1 = Math.max(i0 + 1, Math.floor(x1 / buf.duration * ch.length));
+      let m = 0;
+      for (let i = i0; i < i1; i += Math.max(1, Math.floor((i1 - i0) / 40))) m = Math.max(m, Math.abs(ch[i]));
+      return m;
+    };
+    const step = buf.duration / W;
+    for (let x = 0; x < W; x++) {
+      const t0 = x * step, m = peak(t0, t0 + step);
+      const h = Math.max(1, m * H * 0.95);
+      const sel = t0 >= a && t0 <= b;
+      g.fillStyle = sel ? "#FFB000" : "#666";
+      g.fillRect(x, (H - h) / 2, 1, h);
+    }
+    g.fillStyle = "rgba(255,255,255,.6)";
+    g.fillRect(a / buf.duration * W - 1, 0, 2, H);
+    g.fillRect(b / buf.duration * W - 1, 0, 2, H);
+  }
+  function setRange(a, b) {
+    if (!buf) return;
+    a = Math.max(0, Math.min(buf.duration, a)); b = Math.max(0, Math.min(buf.duration, b));
+    if (b < a) [a, b] = [b, a];
+    $("tfl-start").value = a.toFixed(2); $("tfl-end").value = b.toFixed(2);
+    $("tfl-start").max = buf.duration.toFixed(2); $("tfl-end").max = buf.duration.toFixed(2);
+    syncDur(); draw();
+  }
+  async function ensureCtx() {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") await actx.resume();
+    return actx;
+  }
+  async function load(f, lab, folder) {
+    terr(""); $("tfl-save-msg").textContent = "";
+    try {
+      const r = await fetch(PREFIX + `/api/tfl/file?organisation_id=${encodeURIComponent(S.org)}&file=${encodeURIComponent(f)}`, { headers: apiHeaders() });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || ("HTTP " + r.status));
+      const blob = await r.blob();
+      if (objUrl) URL.revokeObjectURL(objUrl);
+      objUrl = URL.createObjectURL(blob);
+      $("tfl-audio").src = objUrl;
+      const ab = await blob.arrayBuffer();
+      const cx = await ensureCtx();
+      buf = await cx.decodeAudioData(ab.slice(0));
+      file = f; label = lab; lib = folder || "";
+      $("tfl-editor").style.display = "";
+      $("tfl-title").textContent = "Trim — " + lab + (lib ? ` (${lib})` : "");
+      $("tfl-start").value = "0.00"; $("tfl-end").value = buf.duration.toFixed(2);
+      $("tfl-name").value = slugifyClip(lab);
+      $("tfl-err").textContent = "";
+      syncDur(); draw();
+      $("tfl-editor").scrollIntoView();
+    } catch (e) { terr(String(e.message || e)); }
+  }
+  async function search() {
+    terr(""); $("tfl-save-msg").textContent = "";
+    try {
+      const q = $("tfl-q").value.trim();
+      const folder = $("tfl-folder") ? $("tfl-folder").value : "";
+      const r = await api(`/api/tfl/search?organisation_id=${encodeURIComponent(S.org)}&q=${encodeURIComponent(q)}&limit=100&folder=${encodeURIComponent(folder)}`);
+      $("tfl-count").textContent = r.count ? `${r.count} match(es)${r.count > r.results.length ? ` — showing first ${r.results.length}` : ""}` : "No matches — try a shorter word.";
+      $("tfl-rows").innerHTML = (r.results || []).map((x) =>
+        `<tr><td>${esc(x.label)}</td><td class=hint>${esc(x.folder || "")}</td><td class=row><button data-tfl-load="${esc(x.file)}" data-lab="${esc(x.label)}" data-folder="${esc(x.folder || "")}">Load</button><button data-tfl-add="${esc(x.file)}" data-lab="${esc(x.label)}" data-folder="${esc(x.folder || "")}" title="Add the whole file to the merge list">+ Merge</button></td></tr>`).join("")
+        || `<tr><td colspan=3 class=hint>Type a word and press Search.</td></tr>`;
+      $("tfl-rows").querySelectorAll("[data-tfl-load]").forEach((b) => b.onclick = () => load(b.dataset.tflLoad, b.dataset.lab, b.dataset.folder));
+      $("tfl-rows").querySelectorAll("[data-tfl-add]").forEach((b) => b.onclick = () => addFullToMerge(b.dataset.tflAdd, b.dataset.lab, b.dataset.folder));
+    } catch (e) { terr(String(e.message || e)); }
+  }
+  function stopSrc() { try { src && src.stop(); } catch (e) { /* already stopped */ } src = null; }
+  async function playSel() {
+    terr("");
+    if (!buf) { terr("Load a file first."); return; }
+    const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
+    if (!(b > a)) { terr("Selection is empty — drag a region on the waveform first."); return; }
+    try {
+      const cx = await ensureCtx();
+      stopSrc(); stopMergePlay();
+      src = cx.createBufferSource(); src.buffer = buf;
+      src.connect(cx.destination);
+      src.start(0, a, Math.min(b - a, buf.duration - a));
+    } catch (e) { terr(String(e.message || e)); }
+  }
+  async function save() {
+    terr(""); $("tfl-save-msg").textContent = "";
+    if (!file || !buf) { terr("Load a file first."); return; }
+    const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
+    const s = assertClipName($("tfl-name").value, $("tfl-name-err"));
+    if (!s) { terr("Give this clip a name, e.g. morrisons-wood-lane."); return; }
+    try {
+      $("tfl-save-msg").textContent = "Cutting & uploading…";
+      const r = await api("/api/tfl/clip", { method: "POST", body: {
+        organisation_id: S.org, source: file,
+        start_ms: Math.round(a * 1000), end_ms: Math.round(b * 1000), name: s } });
+      $("tfl-save-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s) — now in your Audio library, pick it in the stops portal.`;
+      await loadAudio();
+      if (S.curProg) openProgram(S.curProg.id);
+    } catch (e) { terr(String(e.message || e)); $("tfl-save-msg").textContent = ""; }
+  }
+  // ---------- merge timeline (tweakable parts + per-join crossfades) ----------
+  let mergeParts = [];   // [{file, label, start, end, buf}]
+  let mergeJoins = [];   // one per boundary: {gap (ms silence), xfade (ms overlap)}
+  let editingIndex = -1; // part currently loaded back in the trimmer for tweaking
+  let mergePlaySrc = null;
+  const merr = (m) => { $("tfl-merge-err").textContent = m || ""; };
+  function stopMergePlay() { try { mergePlaySrc && mergePlaySrc.stop(); } catch (e) { /* already stopped */ } mergePlaySrc = null; }
+  function syncAddBtn() {
+    const b = $("btn-tfl-add-merge");
+    if (b) b.textContent = editingIndex >= 0 ? `Update part #${editingIndex + 1}` : "Add selection to merge";
+  }
+  function slicePart(p) {
+    const ch = p.buf.getChannelData(0), sr = p.buf.sampleRate;
+    const s0 = Math.max(0, Math.floor(p.start * sr)), s1 = Math.min(ch.length, Math.ceil(p.end * sr));
+    if (s1 - s0 < 32) return null;
+    return ch.slice(s0, s1);
+  }
+  // Mirror of the server mix (equal-power crossfades, gap silence, edge fades)
+  // so the preview is exactly what save will produce.
+  function buildMerged() {
+    if (mergeParts.length < 2) return null;
+    const sr = mergeParts[0].buf.sampleRate, micro = Math.floor(sr * 0.005);
+    const slices = mergeParts.map(slicePart);
+    if (slices.some((s) => !s)) return null;
+    let out = Array.from(slices[0]);
+    const ticks = [];
+    for (let i = 1; i < slices.length; i++) {
+      const j = mergeJoins[i - 1] || { gap: 120, xfade: 0 };
+      const seg = Array.from(slices[i]);
+      if (j.xfade > 0) {
+        const ov = Math.min(Math.round(j.xfade / 1000 * sr), out.length, seg.length);
+        if (ov < 32) return { error: `crossfade on join ${i} is longer than the words either side — shorten it` };
+        const mixed = new Array(out.length - ov + seg.length);
+        for (let k = 0; k < out.length - ov; k++) mixed[k] = out[k];
+        for (let k = 0; k < ov; k++) {
+          const t = k / Math.max(1, ov - 1);
+          mixed[out.length - ov + k] = out[out.length - ov + k] * Math.cos(t * Math.PI / 2) + seg[k] * Math.sin(t * Math.PI / 2);
+        }
+        for (let k = ov; k < seg.length; k++) mixed[out.length - ov + k] = seg[k];
+        ticks.push(out.length - ov / 2);
+        out = mixed;
+      } else {
+        const f = Math.min(micro, out.length >> 1, seg.length >> 1);
+        for (let k = 0; k < f; k++) { out[out.length - f + k] *= (f - k) / f; seg[k] *= (k + 1) / f; }
+        const g = Math.round(Math.max(0, Math.min(2000, j.gap)) / 1000 * sr);
+        ticks.push(out.length + g / 2);
+        out = out.concat(new Array(g).fill(0), seg);
+      }
+    }
+    const edge = Math.min(Math.floor(out.length / 4), Math.floor(sr * 0.008));
+    for (let k = 0; k < edge; k++) { out[k] *= k / edge; out[out.length - 1 - k] *= k / edge; }
+    return { data: out, sr, ticks, total: out.length / sr };
+  }
+  function drawMerged(m) {
+    const cv = $("tfl-merge-wave");
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth || 600, H = 70;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext("2d");
+    g.scale(dpr, dpr);
+    g.fillStyle = "#111"; g.fillRect(0, 0, W, H);
+    if (!m || !m.data || !m.data.length) return;
+    const n = m.data.length;
+    let peak = 0;
+    for (let i = 0; i < n; i += 7) peak = Math.max(peak, Math.abs(m.data[i]));
+    if (!peak) return;
+    for (let x = 0; x < W; x++) {
+      const i = Math.floor(x / W * n);
+      const hgt = Math.max(1, Math.abs(m.data[i]) / peak * H * 0.95);
+      g.fillStyle = "#FFB000";
+      g.fillRect(x, (H - hgt) / 2, 1, hgt);
+    }
+    g.fillStyle = "rgba(255,255,255,.7)";
+    for (const t of (m.ticks || [])) g.fillRect(t / n * W - 1, 0, 2, H);
+  }
+  function rebuildMergePreview() {
+    merr("");
+    if (mergeParts.length < 2) {
+      drawMerged(null);
+      $("tfl-merge-total").textContent = mergeParts.length ? "Add at least 2 parts to merge." : "";
+      return;
+    }
+    const m = buildMerged();
+    if (!m) { drawMerged(null); $("tfl-merge-total").textContent = "A part has an empty selection — fix its trim."; return; }
+    if (m.error) { drawMerged(null); $("tfl-merge-total").textContent = m.error; return; }
+    drawMerged(m);
+    const jd = mergeJoins.map((j) => j.xfade > 0 ? `${Math.round(j.xfade)}ms crossfade` : `${Math.round(j.gap)}ms gap`).join(" + ");
+    $("tfl-merge-total").textContent = `${mergeParts.length} parts · ${m.total.toFixed(2)}s total · ${jd}`;
+  }
+  function renderMerge() {
+    stopMergePlay();
+    const box = $("tfl-merge-list");
+    if (!mergeParts.length) {
+      box.innerHTML = `No parts yet — add selections with the button above, or “+ Merge” a whole file from the search results.`;
+      drawMerged(null);
+      $("tfl-merge-total").textContent = "";
+      return;
+    }
+    let h = `<table><thead><tr><th>#</th><th>Word</th><th>Trim (tweak me)</th><th></th></tr></thead><tbody>`;
+    mergeParts.forEach((p, i) => {
+      const j = mergeJoins[i];
+      h += `<tr${editingIndex === i ? ` class=editing` : ""}><td>${i + 1}</td><td>${esc(p.label)} <span class=hint>${esc(p.folder || "")}</span></td>` +
+        `<td><input type=number step=0.01 min=0 max=${p.buf.duration.toFixed(2)} value=${p.start.toFixed(2)} data-mstart="${i}" style="width:64px" title="Part start (s)">–` +
+        `<input type=number step=0.01 min=0 max=${p.buf.duration.toFixed(2)} value=${p.end.toFixed(2)} data-mend="${i}" style="width:64px" title="Part end (s)">s</td>` +
+        `<td class=row><button data-msolo="${i}" title="Play just this part">▶</button>` +
+        `<button data-mtrim="${i}" title="Load back into the trimmer for visual tweaking">${editingIndex === i ? "Cancel" : "Trim"}</button>` +
+        `<button data-mup="${i}"${i === 0 ? " disabled" : ""} title="Move up">↑</button>` +
+        `<button data-mdown="${i}"${i === mergeParts.length - 1 ? " disabled" : ""} title="Move down">↓</button>` +
+        `<button data-mdel="${i}" title="Remove">✕</button></td></tr>`;
+      if (j) {
+        h += `<tr><td></td><td colspan=2><span class=hint>transition →</span> ` +
+          `gap <input type=number min=0 max=2000 step=10 value=${Math.round(j.gap)} data-jgap="${i}" style="width:60px" title="Silence between these words in ms (ignored when crossfade > 0)">ms ` +
+          `<span class=hint>or crossfade</span> ` +
+          `<input type=number min=0 max=2000 step=10 value=${Math.round(j.xfade)} data-jxfade="${i}" style="width:60px" title="Overlap the words with an equal-power crossfade in ms">ms</td><td></td></tr>`;
+      }
+    });
+    box.innerHTML = h + `</tbody></table>`;
+    box.querySelectorAll("[data-mstart]").forEach((el) => el.addEventListener("input", () => {
+      const p = mergeParts[+el.dataset.mstart];
+      p.start = Math.max(0, Math.min(p.buf.duration, parseFloat(el.value || "0")));
+      rebuildMergePreview();
+    }));
+    box.querySelectorAll("[data-mend]").forEach((el) => el.addEventListener("input", () => {
+      const p = mergeParts[+el.dataset.mend];
+      p.end = Math.max(0, Math.min(p.buf.duration, parseFloat(el.value || "0")));
+      rebuildMergePreview();
+    }));
+    box.querySelectorAll("[data-msolo]").forEach((b) => b.onclick = () => soloPart(+b.dataset.msolo));
+    box.querySelectorAll("[data-mtrim]").forEach((b) => b.onclick = () => trimPart(+b.dataset.mtrim));
+    box.querySelectorAll("[data-mup]").forEach((b) => b.onclick = () => {
+      const i = +b.dataset.mup;
+      [mergeParts[i - 1], mergeParts[i]] = [mergeParts[i], mergeParts[i - 1]];
+      editingIndex = -1; syncAddBtn(); renderMerge(); // joins stay positional
+    });
+    box.querySelectorAll("[data-mdown]").forEach((b) => b.onclick = () => {
+      const i = +b.dataset.mdown;
+      [mergeParts[i + 1], mergeParts[i]] = [mergeParts[i], mergeParts[i + 1]];
+      editingIndex = -1; syncAddBtn(); renderMerge();
+    });
+    box.querySelectorAll("[data-mdel]").forEach((b) => b.onclick = () => {
+      const i = +b.dataset.mdel;
+      mergeParts.splice(i, 1);
+      if (i < mergeJoins.length) mergeJoins.splice(i, 1); else mergeJoins.splice(i - 1, 1);
+      if (editingIndex === i) editingIndex = -1; else if (editingIndex > i) editingIndex--;
+      syncAddBtn(); renderMerge();
+    });
+    box.querySelectorAll("[data-jgap]").forEach((el) => el.addEventListener("input", () => {
+      mergeJoins[+el.dataset.jgap].gap = Math.max(0, Math.min(2000, parseFloat(el.value || "0") || 0));
+      rebuildMergePreview();
+    }));
+    box.querySelectorAll("[data-jxfade]").forEach((el) => el.addEventListener("input", () => {
+      mergeJoins[+el.dataset.jxfade].xfade = Math.max(0, Math.min(2000, parseFloat(el.value || "0") || 0));
+      rebuildMergePreview();
+    }));
+    rebuildMergePreview();
+  }
+  async function soloPart(i) {
+    merr("");
+    const p = mergeParts[i];
+    if (!p) return;
+    try {
+      const cx = await ensureCtx();
+      stopSrc(); stopMergePlay();
+      const s = cx.createBufferSource();
+      s.buffer = p.buf; s.connect(cx.destination);
+      s.start(0, p.start, Math.max(0.05, Math.min(p.end - p.start, p.buf.duration - p.start)));
+      mergePlaySrc = s;
+    } catch (e) { merr(String(e.message || e)); }
+  }
+  function trimPart(i) {
+    merr("");
+    if (editingIndex === i) { editingIndex = -1; syncAddBtn(); renderMerge(); return; }
+    const p = mergeParts[i];
+    if (!p) return;
+    file = p.file; label = p.label; lib = p.folder || ""; buf = p.buf;
+    editingIndex = i;
+    $("tfl-editor").style.display = "";
+    $("tfl-title").textContent = `Trim — ${p.label} (tweaking part #${i + 1})`;
+    $("tfl-start").value = p.start.toFixed(2);
+    $("tfl-end").value = p.end.toFixed(2);
+    $("tfl-name").value = slugifyClip(p.label);
+    syncDur(); draw(); syncAddBtn();
+    $("tfl-editor").scrollIntoView();
+    renderMerge();
+  }
+  async function fetchDecode(f) {
+    const r = await fetch(PREFIX + `/api/tfl/file?organisation_id=${encodeURIComponent(S.org)}&file=${encodeURIComponent(f)}`, { headers: apiHeaders() });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || ("HTTP " + r.status));
+    const ab = await (await r.blob()).arrayBuffer();
+    return await (await ensureCtx()).decodeAudioData(ab.slice(0));
+  }
+  function pushMergePart(f, lab, folder, a, b, decoded) {
+    if (!(b > a)) { merr("Selection is empty — drag a region on the waveform first."); return; }
+    mergeParts.push({ file: f, label: lab, folder: folder || "", start: a, end: b, buf: decoded });
+    mergeJoins.push({ gap: 120, xfade: 0 });
+    if (!$("tfl-merge-name").value.trim())
+      $("tfl-merge-name").value = slugifyClip(mergeParts.map((p) => p.label).join(" "));
+    merr(""); $("tfl-merge-msg").textContent = `Added “${lab}” (${a.toFixed(2)}–${b.toFixed(2)}s) — ${mergeParts.length} part(s).`;
+    renderMerge();
+  }
+  async function addCurrentToMerge() {
+    merr("");
+    if (!file || !buf) { merr("Load a file first, then add its selection."); return; }
+    const a = parseFloat($("tfl-start").value || "0"), b = parseFloat($("tfl-end").value || "0");
+    if (editingIndex >= 0 && mergeParts[editingIndex] && mergeParts[editingIndex].file === file) {
+      if (!(b > a)) { merr("Selection is empty — drag a region on the waveform first."); return; }
+      const p = mergeParts[editingIndex];
+      p.start = a; p.end = b; p.buf = buf; p.label = label; p.folder = lib;
+      $("tfl-merge-msg").textContent = `Updated part #${editingIndex + 1} (“${label}”) — preview and re-save below.`;
+      editingIndex = -1; syncAddBtn();
+      $("tfl-title").textContent = "Trim — " + label + (lib ? ` (${lib})` : "");
+      renderMerge();
+      return;
+    }
+    editingIndex = -1; syncAddBtn();
+    pushMergePart(file, label, lib, a, b, buf);
+  }
+  async function addFullToMerge(f, lab, folder) {
+    merr("");
+    editingIndex = -1; syncAddBtn();
+    try {
+      $("tfl-merge-msg").textContent = `Loading “${lab}”…`;
+      const decoded = await fetchDecode(f);
+      pushMergePart(f, lab, folder, 0, decoded.duration, decoded);
+    } catch (e) { merr(String(e.message || e)); $("tfl-merge-msg").textContent = ""; }
+  }
+  async function playMerge() {
+    merr("");
+    if (mergeParts.length < 2) { merr("Add at least 2 parts first (e.g. Bloomfield + Crescent)."); return; }
+    try {
+      const cx = await ensureCtx();
+      stopSrc(); stopMergePlay();
+      const m = buildMerged();
+      if (!m || m.error) { merr(m ? m.error : "A part has an empty selection — fix its trim."); return; }
+      const ab = cx.createBuffer(1, m.data.length, m.sr);
+      ab.getChannelData(0).set(m.data);
+      const s = cx.createBufferSource();
+      s.buffer = ab; s.connect(cx.destination); s.start();
+      mergePlaySrc = s;
+      $("tfl-merge-msg").textContent = `Playing ${mergeParts.length} words (${m.total.toFixed(2)}s) — exactly what save will produce.`;
+    } catch (e) { merr(String(e.message || e)); }
+  }
+  async function saveMerge() {
+    merr(""); $("tfl-merge-msg").textContent = "";
+    if (mergeParts.length < 2) { merr("Add at least 2 parts first (e.g. Bloomfield + Crescent)."); return; }
+    const s = assertClipName($("tfl-merge-name").value, $("tfl-merge-name-err"));
+    if (!s) { merr("Give the merged clip a name, e.g. bloomfield-crescent."); return; }
+    try {
+      $("tfl-merge-msg").textContent = "Merging & uploading…";
+      const r = await api("/api/tfl/merge", { method: "POST", body: {
+        organisation_id: S.org,
+        parts: mergeParts.map((p) => ({ source: p.file,
+          start_ms: Math.round(p.start * 1000), end_ms: Math.round(p.end * 1000) })),
+        joins: mergeJoins.map((j) => ({ gap_ms: Math.round(j.gap), xfade_ms: Math.round(j.xfade) })),
+        name: s } });
+      const jd = (r.joins || []).map((j) => j.xfade_ms > 0 ? `${j.xfade_ms}ms crossfade` : `${j.gap_ms}ms gap`).join(" + ");
+      $("tfl-merge-msg").textContent = `Saved as "${r.name}" (${(r.duration_ms / 1000).toFixed(1)}s, ${r.parts} parts${jd ? ` · ${jd}` : ""}) — still below, tweak and re-save any time.`;
+      await loadAudio();
+      if (S.curProg) openProgram(S.curProg.id);
+    } catch (e) { merr(String(e.message || e)); $("tfl-merge-msg").textContent = ""; }
+  }
+  function clearMerge() {
+    stopMergePlay();
+    mergeParts = []; mergeJoins = []; editingIndex = -1;
+    syncAddBtn(); renderMerge();
+    $("tfl-merge-msg").textContent = ""; merr("");
+  }
+  function wire() {
+    if (!($("btn-tfl-search"))) return;
+    $("btn-tfl-search").onclick = search;
+    $("tfl-q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); search(); } });
+    $("tfl-start").addEventListener("input", () => { syncDur(); draw(); });
+    $("tfl-end").addEventListener("input", () => { syncDur(); draw(); });
+    $("btn-tfl-play-sel").onclick = playSel;
+    $("btn-tfl-save").onclick = save;
+    $("btn-tfl-add-merge").onclick = addCurrentToMerge;
+    $("btn-tfl-play-merge").onclick = playMerge;
+    $("btn-tfl-merge-save").onclick = saveMerge;
+    $("btn-tfl-merge-clear").onclick = clearMerge;
+    window.addEventListener("resize", () => { if (buf) draw(); });
+    const cv = $("tfl-wave");
+    let dragging = false;
+    const pos = (e) => {
+      const r = cv.getBoundingClientRect();
+      const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+      return Math.max(0, Math.min(1, x / r.width)) * (buf ? buf.duration : 0);
+    };
+    cv.addEventListener("mousedown", (e) => { if (!buf) return; dragging = true; const t = pos(e); setRange(t, t); });
+    cv.addEventListener("mousemove", (e) => { if (!dragging || !buf) return; setRange(parseFloat($("tfl-start").value), pos(e)); });
+    window.addEventListener("mouseup", () => dragging = false);
+    cv.addEventListener("touchstart", (e) => { if (!buf) return; dragging = true; const t = pos(e); setRange(t, t); e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchmove", (e) => { if (!dragging || !buf) return; setRange(parseFloat($("tfl-start").value), pos(e)); e.preventDefault(); }, { passive: false });
+    cv.addEventListener("touchend", () => dragging = false);
+  }
+  return { wire };
+})();
+
 // ---------- boot ----------
 $("form-login").addEventListener("submit", (e) => { e.preventDefault(); doLogin(); });
 $("form-signup").addEventListener("submit", (e) => { e.preventDefault(); doCreate(); });
@@ -1114,4 +1529,5 @@ $("orgsel").addEventListener("change", () => {
   S.org = $("orgsel").value; localStorage.setItem("nsl_org", S.org); loadAll();
 });
 document.querySelector('#tabs .tab').classList.add("on");
+Tfl.wire();
 refreshMe();

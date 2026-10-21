@@ -42,6 +42,7 @@
 <button class=tab data-tab=codes>Codes</button>
 <button class=tab data-tab=controllers>Controllers</button>
 <button class=tab data-tab=audio>Audio &amp; Voices</button>
+<button class=tab data-tab=tfl>Audio creator</button>
 <button class=tab data-tab=remote>Remote control</button>
 </div>
 <div class=err id=err></div>
@@ -112,6 +113,46 @@
 <div style="flex:2"><label for=vv-config>Config file (.onnx.json) <span class=req>(required)</span></label><input id=vv-config type=file accept=".json"></div>
 <div style="align-self:end"><button id=btn-voice>Upload voice</button></div>
 </div>
+</div>
+</section>
+<section id=tab-tfl style="display:none">
+<div class=group><div class=grouptitle>Audio creator — cut TfL announcements</div>
+<p class=hint>Search the iBus library — <b>Stops</b>, <b>Destinations</b>, <b>Routes</b> and <b>Originals</b> (e.g. <b>Morrisons</b>, a terminus, a route number, or S_WESTCOMBE…). Load a file, drag a region on the waveform, then save. The trimmed clip uploads straight to your Audio library so you can pick it in the stops portal.</p>
+<div class=row>
+<div style="flex:2;min-width:200px"><label for=tfl-q>Search announcements</label><input id=tfl-q placeholder="e.g. Morrisons"></div>
+<div style="flex:1;min-width:160px"><label for=tfl-folder>Library</label><select id=tfl-folder><option value="">All libraries</option><option value="Stops">Stops</option><option value="Destinations">Destinations</option><option value="Routes">Routes</option><option value="Original">Originals</option></select></div>
+<div style="align-self:end" class=row><button id=btn-tfl-search class=primary>Search</button></div>
+</div>
+<div id=tfl-count class=hint></div>
+<table><thead><tr><th>Announcement</th><th>Library</th><th></th></tr></thead><tbody id=tfl-rows></tbody></table>
+</div>
+<div class=group id=tfl-editor style="display:none"><div class=grouptitle id=tfl-title>Trim</div>
+<audio id=tfl-audio controls style="width:100%"></audio>
+<div><label>Waveform — drag to select the bit to keep</label><canvas id=tfl-wave style="width:100%;height:110px;border:1px solid #888;background:#111;display:block"></canvas></div>
+<div class=row>
+<div style="flex:1"><label for=tfl-start>Start (s)</label><input id=tfl-start type=number step=0.01 min=0 value=0></div>
+<div style="flex:1"><label for=tfl-end>End (s)</label><input id=tfl-end type=number step=0.01 min=0 value=0></div>
+<div style="flex:1"><label>Length</label><div id=tfl-dur class=hint>—</div></div>
+<div style="align-self:end" class=row><button id=btn-tfl-play-sel class=primary>Play selection</button></div>
+</div>
+<div class=row>
+<div style="flex:2;min-width:200px"><label for=tfl-name>Clip name <span class=req>(required)</span></label><input id=tfl-name><div class=hint>Lowercase, numbers and dashes. Auto-filled from the file — edit before saving.</div><div class=err id=tfl-name-err></div></div>
+<div style="align-self:end" class=row><button id=btn-tfl-save class=primary>Cut &amp; save to library</button><button id=btn-tfl-add-merge>Add selection to merge</button></div>
+</div>
+<div id=tfl-save-msg class=hint></div>
+<div class=err id=tfl-err></div>
+</div>
+<div class=group><div class=grouptitle>Merge timeline — join words into one clip</div>
+<p class=hint>Example: load <b>Bloomfield Road…</b>, trim to just “Bloomfield”, press “Add selection to merge”. Then load a <b>Crescent</b> file, trim to “Crescent”, add it too. Tweak each part's trim inline (or press <b>Trim</b> to load it back into the waveform editor), set the gap or crossfade on each transition, preview the exact result, then save — and come back to tweak and re-save any time.</p>
+<div id=tfl-merge-list class=hint>No parts yet — add selections with the button above, or “+ Merge” a whole file from the search results.</div>
+<div><label>Merged preview (exactly what save will produce)</label><canvas id=tfl-merge-wave style="width:100%;height:70px;border:1px solid #888;background:#111;display:block"></canvas></div>
+<div id=tfl-merge-total class=hint></div>
+<div class=row>
+<div style="flex:2;min-width:200px"><label for=tfl-merge-name>Merged clip name <span class=req>(required)</span></label><input id=tfl-merge-name><div class=err id=tfl-merge-name-err></div></div>
+<div style="align-self:end" class=row><button id=btn-tfl-play-merge>Play merged</button><button id=btn-tfl-merge-save class=primary>Merge &amp; save</button><button id=btn-tfl-merge-clear>Clear</button></div>
+</div>
+<div id=tfl-merge-msg class=hint></div>
+<div class=err id=tfl-merge-err></div>
 </div>
 </section>
 <section id=tab-remote style="display:none">
