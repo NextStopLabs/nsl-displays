@@ -1,0 +1,11 @@
+[Unit]
+Description=NSL pairing handshake (register, show code, claim token)
+After=network.target
+Wants=network.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m nsl_pi.pairing_main
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

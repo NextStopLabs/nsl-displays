@@ -16,6 +16,42 @@ RENDER_HZ = 10.0
 STATE_REFRESH_S = 0.5
 
 
+def pairing_frame(out: dict, code: str, portal_host: str = ""):
+    """Unpaired boards show the pairing code big instead of blank.
+
+    One frame per local output so 240x40, 160x40 and 80x40 all stay legible:
+    line 1 "PAIR", line 2 the code, line 3 the portal host (if it fits).
+    Pure Pillow, no layout JSON needed.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    w, h = int(out["width_px"]), int(out["height_px"])
+    img = Image.new("RGB", (w, h), "#000000")
+    dr = ImageDraw.Draw(img)
+    try:
+        f_big = ImageFont.load_default(size=min(h - 4, 28))
+        f_small = ImageFont.load_default(size=10)
+    except TypeError:
+        f_big = ImageFont.load_default()
+        f_small = f_big
+    code = (code or "------").strip()
+    dr.text((w // 2, h // 2 - 4), code, fill="#FFB000", font=f_big, anchor="mm")
+    dr.text((w // 2, 6), "PAIR", fill="#FFB000", font=f_small, anchor="mt")
+    if portal_host and w >= 120 and h >= 28:
+        host = portal_host.replace("https://", "").replace("http://", "")
+        dr.text((w // 2, h - 2), host[: 28], fill="#FFB000", font=f_small, anchor="mb")
+    return img
+
+
+def pairing_status():
+    """(code, portal_url) when this front Pi is unpaired, else (None, portal)."""
+    from nsl_pi import pairing as _P
+    if _P.is_paired():
+        return None, _P.get_portal_url()
+    doc = _P.load_pairing() or {}
+    code = doc.get("pairing_code")
+    return (code, doc.get("portal_url") or _P.get_portal_url())
+
+
 def main():
     from nsl_pi.store import init_controller_db
     from nsl_pi.display_driver import DisplayDriver
@@ -79,6 +115,23 @@ def main():
                 if fetch_fails == 1:
                     print("".join(_tb.format_exception(type(e), e, e.__traceback__)), flush=True)
             last_fetch = now
+        code, portal = pairing_status()
+        if code and ROLE == "front":
+            try:
+                from urllib.parse import urlparse as _up
+                host = _up(portal).netloc or portal
+                for out in drv.outputs:
+                    if not out.get("enabled", 1):
+                        continue
+                    if (out.get("transport") or "local") != "local":
+                        continue
+                    drv.last_frames[out["display_name"]] = pairing_frame(out, code, host)
+                    drv._draw(out, drv.last_frames[out["display_name"]])
+                drv.present()
+            except Exception as e:
+                print(f"display: pairing frame failed ({e})", flush=True)
+            time.sleep(1.0)
+            continue
         if snap:
             st = snap.get("state", {})
             if not st.get("program_id") and not st.get("override_text"):

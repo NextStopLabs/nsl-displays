@@ -460,13 +460,20 @@ The bus brain: core + player + agent + keypad + front HUB75 + AP + bus-LAN serve
 
 **1. Flash OS:** Raspberry Pi OS **Lite 64-bit**, hostname `nsl-front`, user `pi`, SSH on. Boot, `sudo apt-get update && sudo apt-get upgrade -y`.
 
-**2. Clone + install:**
+**2. Install (one command — copy-paste on the flashed Pi):**
 
 ```bash
-git clone <repo> ~/nsl-displays && cd ~/nsl-displays
-sudo bash pi/install.sh front bus-1
-# args: role front|side|rear, unit name (used for AP name NSL-<unit>)
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
+  | sudo bash -s -- --unit bus-1
+# --portal defaults to https://nslboards.com/portal; --unit sets the AP name NSL-<unit>
+# --audio jack keeps the 3.5mm onboard jack (default is --audio usb).
+# Jack mode needs software pulsing (the default) and a reboot after install.
 ```
+
+That script clones/updates `/opt/nsl-displays`, runs the base install below,
+builds the LED matrix library, enables `nsl-core/agent/display/local-ui/player/input/pairing`,
+registers with the portal and prints the 6-char pairing code. Manual equivalent
+(`git clone` + `sudo bash pi/install.sh front bus-1`) still works; the script wraps it.
 
 What `pi/install.sh` does:
 - `hostnamectl set-hostname nsl-front`.
@@ -524,11 +531,12 @@ Render-only: poll front state @10 Hz, render with the same Pillow renderer, hold
 **Setup (repeat per sign, only the role/IP differs):**
 
 ```bash
-# side:
-git clone <repo> ~/nsl-displays && cd ~/nsl-displays
-sudo bash pi/install.sh side bus-1   # → hostname nsl-side, bus-lan 10.9.0.2/24
-# rear:
-sudo bash pi/install.sh rear bus-1   # → hostname nsl-rear, bus-lan 10.9.0.3/24
+# side (copy-paste on the flashed side Pi):
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
+  | sudo bash -s -- --role side --unit bus-1   # → hostname nsl-side, bus-lan 10.9.0.2/24
+# rear (copy-paste on the flashed rear Pi):
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
+  | sudo bash -s -- --role rear --unit bus-1   # → hostname nsl-rear, bus-lan 10.9.0.3/24
 # same matrix library build as front (bindings/python → pip install .), then smoke-test the local chain:
 sudo ~/rpi-rgb-led-matrix/bindings/python/samples/runtext.py --led-rows=40 --led-cols=80 \
   --led-chain=2 --led-parallel=1 --led-gpio-mapping=regular --led-slowdown-gpio=4 \
@@ -578,9 +586,9 @@ Do this on a bench before touching the bus.
 
 ## 15. Power-on, pairing, first program
 
-1. Power all three Pis. Front boards light; if unpaired they show a 6-char **pairing code** (also on `192.168.4.1`).
-2. Turn on phone hotspot. Front Pi joins (or trigger update mode), registers with portal, holds pending record for 15 min.
-3. Portal → Controllers → Pair controller → enter code + name. Long-lived device token issued (stored hashed), front Pi saves it and starts syncing.
+1. Power all three Pis. The installer already registered the front Pi: its boards show the 6-char **pairing code** (also in `journalctl -u nsl-pairing -f` and on `192.168.4.1`).
+2. Join the phone hotspot so the front Pi reaches the portal (pairing record holds 15 min; `nsl-pairing` re-registers automatically if it lapses).
+3. Portal → Controllers → Pair controller → enter code + name, click Pair. The Pi polls `POST /api/device/claim`, fetches its device token itself, saves it (`/var/lib/nsl/device-token` 0600 + agent drop-in), restarts `nsl-agent` and starts syncing — no token copy-paste.
 4. Build a program in the portal (General → Services/Destinations/Stops → Display layouts → Preview). Publish → Upload to the bus. Note the total download size.
 5. Next hotspot session the bus pulls it. Select a destination by code from keypad, portal, or local UI. Check all three signs + announcement chain.
 6. Management: rename, online/last-seen/version, installed vs desired per program, manual sync trigger, unpair (revokes token).
@@ -647,6 +655,8 @@ Pi 4 tuning: watch `led-show-refresh`, lower `pwm-bits` / raise `pwm-lsb-nanosec
   sudo systemctl restart nsl-player
   ```
   Announcements auto-play on stop change; keypad/portal/local-UI announce buttons play immediately. No clips uploaded = silence (check the portal preview lists clips first).
+
+  **Test audio (no program needed):** the controller installer plays a local two-tone chime at setup so you can verify the USB adapter → amp → PA chain before anything has synced. The same chime plays automatically once when pairing completes (`nsl-pairing`, after the token is saved). Re-play any time with `curl -X POST http://192.168.4.1/api/audio-test` (front Pi, AP or bus LAN). If the chime is silent, check `aplay -l`, the USB adapter seating, amp volume, and `audio_device` in `controller.db` — portal clips can only work once this local tone is heard.
 
 ---
 

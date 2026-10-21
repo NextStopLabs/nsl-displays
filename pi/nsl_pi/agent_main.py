@@ -27,8 +27,9 @@ def main():
     from .core import Core
     db = os.path.join(BASE, "controller.db")
     init_controller_db(db)
-    portal = os.environ.get("PORTAL_URL", "https://nslboards.com/portal")
-    token = os.environ.get("NSL_TOKEN")
+    from . import pairing as _P
+    portal = os.environ.get("PORTAL_URL") or _P.get_portal_url()
+    token = os.environ.get("NSL_TOKEN") or _P.get_token()
     ag = Agent(portal, BASE, token)
     core = Core(db, os.path.join(BASE, "programs"))
     interval = _poll_interval()

@@ -124,3 +124,46 @@ def play_announcement(hashes: list[str], base_dir: str) -> dict:
     rep = announce(hashes, audio_dir, device)
     rep["device"] = device
     return rep
+
+
+TEST_TONE_RATE = 22050
+
+
+def test_tone_pcm(secs: float = 1.5) -> tuple[bytes, int]:
+    """Local PA check chime: 660 Hz then 880 Hz, no portal clips needed.
+
+    Used at install time and right after pairing so the operator hears the
+    PA chain works before any program/audio has synced.
+    """
+    import math as _m
+    import struct as _st
+    n = int(TEST_TONE_RATE * secs)
+    out = []
+    for i in range(n):
+        t = i / TEST_TONE_RATE
+        f = 660.0 if t < secs / 2 else 880.0
+        env = 0.6 + 0.4 * _m.sin(_m.pi * t / secs)
+        out.append(int(12000 * env * _m.sin(2 * _m.pi * f * t)))
+    return _st.pack(f"<{n}h", *out), TEST_TONE_RATE
+
+
+def play_test_tone(base_dir: str, out_wav: str | None = None) -> dict:
+    """Play the local test chime through the configured ALSA device.
+
+    Always writes out_wav when given (diagnostics), plays via aplay when
+    present. Returns {played, device, bytes} — played=False with a reason
+    when there is nothing to play through (dev machine, no PA yet).
+    """
+    device = configured_device(base_dir)
+    pcm, rate = test_tone_pcm()
+    if out_wav:
+        with wave.open(out_wav, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(pcm)
+    played = play_pcm(pcm, rate, device)
+    rep: dict = {"played": played, "device": device, "bytes": len(pcm), "rate": rate}
+    if not played:
+        rep["reason"] = f"no sound via {device} (no aplay/PA? check USB audio + volume)"
+    return rep

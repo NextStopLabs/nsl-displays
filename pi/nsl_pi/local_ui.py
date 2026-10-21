@@ -172,6 +172,15 @@ def api_import_pack(file: UploadFile = File(...)):
     return {"ok": True, "program_id": pid, "version": ver}
 
 
+@app.post("/api/audio-test")
+def api_audio_test():
+    """Play the local PA check chime (no portal clips needed)."""
+    from .player import play_test_tone
+    import os as _os
+    rep = play_test_tone(_os.environ.get("NSL_BASE", "/var/lib/nsl"))
+    return rep
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return INDEX_HTML
