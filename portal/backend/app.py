@@ -332,6 +332,64 @@ def get_program(pid: str, u: dict = Depends(current_user)):
     return p
 
 
+@app.post("/api/programs/{pid}/displays")
+def add_program_display(pid: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "display name is required")
+    con = db()
+    if con.execute("SELECT 1 FROM program_displays WHERE program_id=? AND name=?", (pid, name)).fetchone():
+        raise HTTPException(400, "a display with that name already exists")
+    pos = con.execute("SELECT COUNT(*) FROM program_displays WHERE program_id=?", (pid,)).fetchone()[0]
+    did = str(uuid.uuid4())
+    con.execute("INSERT INTO program_displays VALUES (?,?,?,?,?,?,?)",
+                (did, org, pid, name, int(body.get("width_px", 240)), int(body.get("height_px", 40)), pos))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"display_id": did}
+
+
+@app.put("/api/programs/{pid}/displays/{did}")
+def update_program_display(pid: str, did: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    d = con.execute("SELECT * FROM program_displays WHERE id=? AND program_id=?", (did, pid)).fetchone()
+    if not d:
+        raise HTTPException(404, "no display")
+    name = (body.get("name") or d["name"]).strip()
+    if name != d["name"] and con.execute("SELECT 1 FROM program_displays WHERE program_id=? AND name=? AND id<>?", (pid, name, did)).fetchone():
+        raise HTTPException(400, "a display with that name already exists")
+
+    con.execute("UPDATE program_displays SET name=?, width_px=?, height_px=? WHERE id=?",
+                (name, int(body.get("width_px", d["width_px"])), int(body.get("height_px", d["height_px"])), did))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/programs/{pid}/displays/{did}")
+def delete_program_display(pid: str, did: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    d = con.execute("SELECT * FROM program_displays WHERE id=? AND program_id=?", (did, pid)).fetchone()
+    if not d:
+        raise HTTPException(404, "no display")
+    con.execute("DELETE FROM p_layouts WHERE program_id=? AND display_id=?", (pid, did))
+    con.execute("DELETE FROM program_displays WHERE id=?", (did,))
+    # if this was the default display, clear default or pick first remaining
+    prog = con.execute("SELECT * FROM programs WHERE id=?", (pid,)).fetchone()
+    if prog and prog["default_display"] == did:
+        first = con.execute("SELECT id FROM program_displays WHERE program_id=? ORDER BY position LIMIT 1", (pid,)).fetchone()
+        con.execute("UPDATE programs SET default_display=? WHERE id=?", ((first or {})["id"] or "", pid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
 @app.post("/api/programs/{pid}/services")
 def add_service(pid: str, body: dict, u: dict = Depends(current_user)):
     org = _org_of_program(pid)

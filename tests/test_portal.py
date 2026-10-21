@@ -264,3 +264,40 @@ def test_multi_speaker_voice_upload_and_choice(tmp_path, monkeypatch):
                  json={"organisation_id": org, "text": "hello", "name": "hello-x",
                        "voice_id": up["voice_id"], "speaker_id": 5}, headers=H)
     assert bad.status_code == 400, bad.text
+
+
+def test_program_display_crud(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "d@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "D"}, headers=H).json()["program_id"]
+    # default displays created
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert len(prog["displays"]) == 3
+    # add custom display
+    resp = c.post(f"/api/programs/{pid}/displays",
+                  json={"name": "side2", "width_px": 160, "height_px": 40}, headers=H)
+    assert resp.status_code == 200, resp.text
+    did = resp.json()["display_id"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert any(d["id"] == did and d["name"] == "side2" for d in prog["displays"])
+    # duplicate name rejected
+    dup = c.post(f"/api/programs/{pid}/displays",
+                 json={"name": "side2", "width_px": 100, "height_px": 40}, headers=H)
+    assert dup.status_code == 400
+    # update size
+    r = c.put(f"/api/programs/{pid}/displays/{did}", json={"name": "side2", "width_px": 180, "height_px": 48}, headers=H)
+    assert r.status_code == 200
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    side = [d for d in prog["displays"] if d["id"] == did][0]
+    assert side["width_px"] == 180 and side["height_px"] == 48
+    # rename display
+    r = c.put(f"/api/programs/{pid}/displays/{did}", json={"name": "side-board", "width_px": 180, "height_px": 48}, headers=H)
+    assert r.status_code == 200
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert [d["name"] for d in prog["displays"] if d["id"] == did] == ["side-board"]
+    # delete display
+    r = c.delete(f"/api/programs/{pid}/displays/{did}", headers=H)
+    assert r.status_code == 200
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    assert not any(d["id"] == did for d in prog["displays"])
