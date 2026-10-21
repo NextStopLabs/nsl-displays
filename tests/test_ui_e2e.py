@@ -140,14 +140,14 @@ def test_full_user_journey(server, tmp_path):
         pg.select_option("#lay-disp", index=1)
         pg.select_option("#lay-disp", index=0)
         pg.locator("#lay-status").get_by_text("3 element(s)").wait_for()
-        # 9. publish (assert it really published — no silent validation failure)
+        # 9. publish (assert it really published - no silent validation failure)
         pg.fill("#pd-notes", "first version")
         pg.click("#pd-publish")  # alert auto-accepted
         pg.locator("#pd-versions").get_by_text("v1").wait_for()
         pg.screenshot(path=f"{shot}/04-published.png")
 
         # 10. simulate device + pair
-        pg.click("#tabs .tab[data-tab=controllers]")
+        pg.click(".nav-item[data-section=controllers]")
         pg.click("#btn-sim")
         pg.fill("#pair-name", "bus-1")
         pg.click("#btn-pair")
@@ -158,9 +158,9 @@ def test_full_user_journey(server, tmp_path):
         pg.locator("#ctlrows").get_by_text("bus-1").wait_for()
 
         # 11. queue upload (reopen program so controller checkbox exists)
-        pg.click("#tabs .tab[data-tab=programs]")
+        pg.click(".nav-item[data-section=programs]")
         pg.locator("[data-open]").first.click()
-        pg.locator("#up-details > summary").click()
+        pg.click("#pd-tabs .tab[data-pdtab=publish]")
         pg.locator("#pd-ctls input").first.check()
         pg.click("#pd-upload")  # alert auto-accepted
 
@@ -171,12 +171,12 @@ def test_full_user_journey(server, tmp_path):
         assert os.path.getsize(path) > 1000
 
         # 13. codes tab
-        pg.click("#tabs .tab[data-tab=codes]")
+        pg.click(".nav-item[data-section=codes]")
         pg.click("#btn-codes")
         expect(pg.locator("#coderows tr")).to_have_count(2, timeout=10000)
 
         # 14. audio: generate without a voice fails loudly (by design); upload works
-        pg.click("#tabs .tab[data-tab=audio]")
+        pg.click(".nav-item[data-section=audio]")
         pg.fill("#gen-text", "The next stop is Depot")
         pg.fill("#gen-name", "next-depot")
         pg.click("#btn-generate")
@@ -195,7 +195,7 @@ def test_full_user_journey(server, tmp_path):
         pg.screenshot(path=f"{shot}/05-audio.png")
 
         # 15. remote control
-        pg.click("#tabs .tab[data-tab=remote]")
+        pg.click(".nav-item[data-section=remote]")
         pg.select_option("#rc-ctl", index=0)
         pg.click("#btn-rc-refresh")
         pg.locator("#rc-state:not(:empty)").wait_for()

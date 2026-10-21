@@ -1,204 +1,250 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>NSL Portal</title><link rel=icon href=data:,><link rel=stylesheet href="styles.css">
 </head><body>
-<div class=window><div class=titlebar>NSL Boards - Portal</div>
-<div class=body>
-<div id=authbar class=row style="justify-content:space-between;align-items:center">
-<span id=who>Not signed in</span>
-<span class=row><select id=orgsel aria-label="Organisation"></select>
-<button id=btn-logout>Sign out</button></span>
+<div class=app>
+  <div class=titlebar>
+    <span class=logo>NSL Boards</span>
+    <span class=subtitle>Portal</span>
+    <span class=spacer></span>
+    <button id=theme-toggle title="Toggle dark mode" class=icon-btn>
+      <svg class="icon moon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      <svg class="icon sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      <span class=label>Dark</span>
+    </button>
+    <span id=who style="display:none">Not signed in</span>
+    <select id=orgsel aria-label="Organisation" style="display:none"></select>
+    <button id=btn-logout style="display:none">Sign out</button>
+  </div>
+
+  <div id=authview>
+    <div class=window>
+      <div id=auth-signin class=group>
+        <div class=grouptitle>Sign in</div>
+        <form id=form-login>
+          <div class=row>
+            <div class=col><label for=si-email>Email <span class=req>(required)</span></label><input id=si-email type=email autocomplete=username></div>
+            <div class=col><label for=si-pass>Password <span class=req>(required)</span></label><input id=si-pass type=password autocomplete=current-password></div>
+          </div>
+          <div class=row><button type=submit class=primary>Sign in</button>
+            <span class=hint>New here? <a href="#" id=link-signup>Create an account</a></span></div>
+          <div class=err id=si-err></div>
+        </form>
+      </div>
+      <div id=auth-signup class=group style="display:none">
+        <div class=grouptitle>Create account</div>
+        <form id=form-signup>
+          <p class=hint>Creates your login <b>and</b> a new organisation. You become its owner and can invite others later.</p>
+          <div class=row>
+            <div class=col><label for=su-name>Your name</label><input id=su-name autocomplete=name></div>
+            <div class=col><label for=su-org>Organisation name <span class=req>(required)</span></label><input id=su-org></div>
+          </div>
+          <div class=row>
+            <div class=col><label for=su-email>Email <span class=req>(required)</span></label><input id=su-email type=email autocomplete=email></div>
+            <div class=col><label for=su-pass>Password <span class=req>(required, min 8 characters)</span></label><input id=su-pass type=password autocomplete=new-password></div>
+          </div>
+          <div class=row>
+            <div class=col><label for=su-pass2>Confirm password <span class=req>(required)</span></label><input id=su-pass2 type=password autocomplete=new-password></div>
+          </div>
+          <div class=row><button type=submit class=primary>Create account &amp; organisation</button>
+            <span class=hint>Already have an account? <a href="#" id=link-signin>Sign in</a></span></div>
+          <div class=err id=su-err></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class=workspace id=mainview style="display:none">
+    <aside class=sidebar>
+      <div class=section>
+        <h2>Build</h2>
+        <nav class=nav id=main-nav>
+          <button class="nav-item on" data-section=programs>Programs</button>
+          <button class=nav-item data-section=codes>Codes</button>
+          <button class=nav-item data-section=audio>Audio &amp; Voices</button>
+          <button class=nav-item data-section=tfl>Audio creator</button>
+        </nav>
+      </div>
+      <div class=section>
+        <h2>Deploy</h2>
+        <nav class=nav>
+          <button class=nav-item data-section=controllers>Controllers</button>
+          <button class=nav-item data-section=remote>Remote control</button>
+        </nav>
+      </div>
+    </aside>
+
+    <main class=main>
+      <div class=window>
+        <div class=err id=err></div>
+
+        <section id=tab-programs>
+          <div class=group>
+            <div class=grouptitle>Programs</div>
+            <div class=row>
+              <div class=col><label for=np-name>New program name <span class=req>(required)</span></label><input id=np-name></div>
+              <div style="flex:0 0 140px"><label for=np-width>Logical width (px)</label><input id=np-width type=number value=240></div>
+              <div style="align-self:end"><button id=btn-newprog class=primary>New program</button></div>
+            </div>
+            <div class=prog-list>
+              <table><thead><tr><th>Program</th><th>Published</th><th>Actions</th></tr></thead><tbody id=progrows></tbody></table>
+            </div>
+          </div>
+          <div class=group id=progdetail style="display:none"><div class=grouptitle>Program detail</div>
+            <div id=pd-body></div>
+          </div>
+        </section>
+
+        <section id=tab-codes style="display:none">
+          <div class=group><div class=grouptitle>Destination codes</div>
+            <p class=hint>Every destination has an 8-digit code, unique within the program.</p>
+            <div class=row><div class=col><label for=codes-prog>Program</label><select id=codes-prog></select></div>
+              <div style="align-self:end"><button id=btn-codes class=primary>Load codes</button></div></div>
+            <div class=dest-list>
+              <table><thead><tr><th>Code</th><th>Service</th><th>Destination</th></tr></thead><tbody id=coderows></tbody></table>
+            </div>
+          </div>
+        </section>
+
+        <section id=tab-controllers style="display:none">
+          <div class=group><div class=grouptitle>Controllers</div>
+            <div class=row>
+              <div style="flex:0 0 140px"><label for=pair-code>Pairing code</label><input id=pair-code maxlength=6></div>
+              <div class=col><label for=pair-name>Controller name <span class=req>(required)</span></label><input id=pair-name></div>
+              <div style="align-self:end" class=row><button id=btn-pair class=primary>Pair controller</button>
+                <button id=btn-sim title="Register a fake device to get a code for testing">Simulate device</button></div>
+            </div>
+            <table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Programs</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
+          </div>
+          <dialog id=token-dialog>
+            <div class=grouptitle>Device token - copy it now</div>
+            <p class=hint id=token-sub>This token is shown <b>once</b>. The Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.</p>
+            <div class=row><div class=col><label for=token-value>Device token</label><input id=token-value readonly></div>
+              <div style="align-self:end"><button id=btn-token-copy>Copy</button></div></div>
+            <div><label for=token-pi>On the Pi (replace the NSL_TOKEN line, keep PORTAL_URL)</label><pre id=token-pi></pre></div>
+            <div class=row style="justify-content:flex-end"><button id=btn-token-close class=primary>Done</button></div>
+          </dialog>
+        </section>
+
+        <section id=tab-audio style="display:none">
+          <div class=group><div class=grouptitle>Audio clips</div>
+            <p class=hint>Clips are picked by name everywhere - stops, services and announcements. Names use lowercase letters, numbers and dashes.</p>
+            <div class=row>
+              <div class=col><label for=au-name>Clip name <span class=req>(required)</span></label><input id=au-name><div class=hint>e.g. derby-bus-station. Auto-filled from the file - edit before uploading.</div><div class=err id=au-name-err></div></div>
+              <div class=col><label for=au-file>Audio file (MP3/WAV/OGG/M4A/FLAC, max 50 MB) <span class=req>(required)</span></label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
+              <div style="align-self:end"><button id=btn-upload class=primary>Upload</button></div>
+            </div>
+            <table><thead><tr><th>Clip name</th><th>Source</th><th>Preview</th><th>Actions</th></tr></thead><tbody id=audiorows></tbody></table>
+          </div>
+          <dialog id=clip-del-dialog>
+            <div class=grouptitle id=cdd-title>Delete clip</div>
+            <div id=cdd-uses class=hint></div>
+            <div><label for=cdd-replace>Replace all uses with</label><select id=cdd-replace></select>
+              <div class=hint>Pick another clip, or Silent to leave those stops and announcements with no audio.</div></div>
+            <div class=err id=cdd-err></div>
+            <div class=row style="justify-content:flex-end"><button id=cdd-cancel>Cancel</button><button id=cdd-confirm class=primary>Replace &amp; delete</button></div>
+          </dialog>
+          <div class=group><div class=grouptitle>Generate with Piper</div>
+            <p class=hint>Without an uploaded voice this saves an audible preview tone (not silence) so you can test playback. Upload a voice below for real speech.</p>
+            <div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
+            <div class=row>
+              <div class=col><label for=gen-name>Clip name <span class=req>(required)</span></label><input id=gen-name><div class=hint>e.g. derby-bus-station. Auto-suggested from the text - edit before generating.</div><div class=err id=gen-name-err></div></div>
+              <div style="flex:0 0 160px"><label for=gen-voice>Voice</label><select id=gen-voice></select></div>
+              <div style="flex:0 0 140px"><label for=gen-speaker>Speaker</label><select id=gen-speaker></select></div>
+              <div style="flex:0 0 100px"><label for=gen-speed>Speed</label><input id=gen-speed type=number step=0.1 value=1.0></div>
+              <div style="align-self:end"><button id=btn-generate class=primary>Generate</button></div>
+            </div>
+          </div>
+          <div class=group><div class=grouptitle>Voices</div>
+            <table><thead><tr><th>Name</th><th>Language</th><th>Sample rate</th><th>Speakers</th></tr></thead><tbody id=voicerows></tbody></table>
+            <div class=row>
+              <div style="flex:0 0 160px"><label for=vv-name>Voice name <span class=req>(required)</span></label><input id=vv-name></div>
+              <div class=col><label for=vv-model>Model file (.onnx) <span class=req>(required)</span></label><input id=vv-model type=file accept=".onnx"></div>
+              <div class=col><label for=vv-config>Config file (.onnx.json) <span class=req>(required)</span></label><input id=vv-config type=file accept=".json"></div>
+              <div style="align-self:end"><button id=btn-voice class=primary>Upload voice</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section id=tab-tfl style="display:none">
+          <div class=group><div class=grouptitle>Audio creator - cut TfL announcements</div>
+            <p class=hint>Search the iBus library - <b>Stops</b>, <b>Destinations</b>, <b>Routes</b> and <b>Originals</b> (e.g. <b>Morrisons</b>, a terminus, a route number, or S_WESTCOMBE…). Load a file, drag a region on the waveform, then save. The trimmed clip uploads straight to your Audio library so you can pick it in the stops portal.</p>
+            <div class=row>
+              <div class=col><label for=tfl-q>Search announcements</label><input id=tfl-q placeholder="e.g. Morrisons"></div>
+              <div style="flex:0 0 180px"><label for=tfl-folder>Library</label><select id=tfl-folder><option value="">All libraries</option><option value=Stops>Stops</option><option value=Destinations>Destinations</option><option value=Routes>Routes</option><option value=Original>Originals</option></select></div>
+              <div style="align-self:end" class=row><button id=btn-tfl-search class=primary>Search</button></div>
+            </div>
+            <div id=tfl-count class=hint></div>
+            <div class=dest-list><table><thead><tr><th>Announcement</th><th>Library</th><th></th></tr></thead><tbody id=tfl-rows></tbody></table></div>
+          </div>
+          <div class=group id=tfl-editor style="display:none"><div class=grouptitle id=tfl-title>Trim</div>
+            <audio id=tfl-audio controls style="width:100%"></audio>
+            <div><label>Waveform - drag to select the bit to keep</label><canvas id=tfl-wave style="width:100%;height:110px;border:1px solid #888;background:#111;display:block"></canvas></div>
+            <div class=row>
+              <div style="flex:0 0 120px"><label for=tfl-start>Start (s)</label><input id=tfl-start type=number step=0.01 min=0 value=0></div>
+              <div style="flex:0 0 120px"><label for=tfl-end>End (s)</label><input id=tfl-end type=number step=0.01 min=0 value=0></div>
+              <div style="flex:0 0 120px"><label>Length</label><div id=tfl-dur class=hint>-</div></div>
+              <div style="align-self:end" class=row><button id=btn-tfl-play-sel class=primary>Play selection</button></div>
+            </div>
+            <div class=row>
+              <div class=col><label for=tfl-name>Clip name <span class=req>(required)</span></label><input id=tfl-name><div class=hint>Lowercase, numbers and dashes. Auto-filled from the file - edit before saving.</div><div class=err id=tfl-name-err></div></div>
+              <div style="align-self:end" class=row><button id=btn-tfl-save class=primary>Cut &amp; save to library</button><button id=btn-tfl-add-merge>Add selection to merge</button></div>
+            </div>
+            <div id=tfl-save-msg class=hint></div>
+            <div class=err id=tfl-err></div>
+          </div>
+          <div class=group><div class=grouptitle>Merge timeline - join words into one clip</div>
+            <p class=hint>Example: load <b>Bloomfield Road…</b>, trim to just “Bloomfield”, press “Add selection to merge”. Then load a <b>Crescent</b> file, trim to “Crescent”, add it too. Tweak each part's trim inline (or press <b>Trim</b> to load it back into the waveform editor), set the gap or crossfade on each transition, preview the exact result, then save - and come back to tweak and re-save any time.</p>
+            <div id=tfl-merge-list class=hint>No parts yet - add selections with the button above, or “+ Merge” a whole file from the search results.</div>
+            <div><label>Merged preview (exactly what save will produce)</label><canvas id=tfl-merge-wave style="width:100%;height:70px;border:1px solid #888;background:#111;display:block"></canvas></div>
+            <div id=tfl-merge-total class=hint></div>
+            <div class=row>
+              <div class=col><label for=tfl-merge-name>Merged clip name <span class=req>(required)</span></label><input id=tfl-merge-name><div class=err id=tfl-merge-name-err></div></div>
+              <div style="align-self:end" class=row><button id=btn-tfl-play-merge>Play merged</button><button id=btn-tfl-merge-save class=primary>Merge &amp; save</button><button id=btn-tfl-merge-clear>Clear</button></div>
+            </div>
+            <div id=tfl-merge-msg class=hint></div>
+            <div class=err id=tfl-merge-err></div>
+          </div>
+        </section>
+
+        <section id=tab-remote style="display:none">
+          <div class=group><div class=grouptitle>Remote control (device must be online)</div>
+            <div class=row><div class=col><label for=rc-ctl>Controller</label><select id=rc-ctl></select></div>
+              <div style="align-self:end"><button id=btn-rc-refresh>Refresh</button></div></div>
+            <div id=rc-state class=hint>Select a controller.</div>
+            <div class=group><div class=grouptitle>Now on the bus</div>
+              <div id=rc-live class=hint>Select a controller to see its current stop.</div>
+            </div>
+            <div class=row>
+              <div class=col><label for=rc-code>8-digit code</label><input id=rc-code maxlength=8 inputmode=numeric></div>
+              <div style="align-self:end"><button id=btn-rc-code class=primary>Select destination</button></div>
+            </div>
+            <div id=rc-result class=hint></div>
+            <details><summary>More controls (stops, announcements, override, volume, program)</summary>
+              <div class=row>
+                <button id=btn-prev>Prev stop</button><button id=btn-next>Next stop</button>
+                <button id=btn-an>Announce next</button><button id=btn-aa>Announce approaching</button>
+              </div>
+              <div class=row>
+                <div class=col><label for=rc-ov>Override text</label><input id=rc-ov></div>
+                <div style="align-self:end" class=row><button id=btn-ov>Apply override</button><button id=btn-ovc>Clear override</button></div>
+              </div>
+              <div class=row>
+                <div style="flex:0 0 140px"><label for=rc-vol>Volume (0–100)</label><input id=rc-vol type=number min=0 max=100 value=80></div>
+                <div style="align-self:end" class=row><button id=btn-vol>Set volume</button><button id=btn-mute>Mute</button></div>
+              </div>
+              <div class=row>
+                <div class=col><label for=rc-prog>Program</label><select id=rc-prog></select></div>
+                <div style="align-self:end"><button id=btn-rc-prog>Select program</button></div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
 </div>
-<div id=authview>
-<div id=auth-signin class=group><div class=grouptitle>Sign in</div>
-<form id=form-login>
-<div class=row>
-<div style="flex:1;min-width:220px"><label for=si-email>Email <span class=req>(required)</span></label><input id=si-email type=email autocomplete=username></div>
-<div style="flex:1;min-width:220px"><label for=si-pass>Password <span class=req>(required)</span></label><input id=si-pass type=password autocomplete=current-password></div>
-</div>
-<div class=row><button type=submit class=primary>Sign in</button>
-<span class=hint>New here? <a href="#" id=link-signup>Create an account</a></span></div>
-<div class=err id=si-err></div>
-</form>
-</div>
-<div id=auth-signup class=group style="display:none"><div class=grouptitle>Create account</div>
-<form id=form-signup>
-<p class=hint>Creates your login <b>and</b> a new organisation. You become its owner and can invite others later.</p>
-<div><label for=su-name>Your name</label><input id=su-name autocomplete=name></div>
-<div><label for=su-org>Organisation name <span class=req>(required)</span></label><input id=su-org></div>
-<div class=row>
-<div style="flex:1;min-width:220px"><label for=su-email>Email <span class=req>(required)</span></label><input id=su-email type=email autocomplete=email></div>
-<div style="flex:1;min-width:220px"><label for=su-pass>Password <span class=req>(required, min 8 characters)</span></label><input id=su-pass type=password autocomplete=new-password></div>
-</div>
-<div><label for=su-pass2>Confirm password <span class=req>(required)</span></label><input id=su-pass2 type=password autocomplete=new-password></div>
-<div class=row><button type=submit class=primary>Create account &amp; organisation</button>
-<span class=hint>Already have an account? <a href="#" id=link-signin>Sign in</a></span></div>
-<div class=err id=su-err></div>
-</form>
-</div>
-</div>
-<div id=mainview style="display:none">
-<div class=tabs id=tabs>
-<button class=tab data-tab=programs>Programs</button>
-<button class=tab data-tab=codes>Codes</button>
-<button class=tab data-tab=controllers>Controllers</button>
-<button class=tab data-tab=audio>Audio &amp; Voices</button>
-<button class=tab data-tab=tfl>Audio creator</button>
-<button class=tab data-tab=remote>Remote control</button>
-</div>
-<div class=err id=err></div>
-<section id=tab-programs>
-<div class=group><div class=grouptitle>Programs</div>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=np-name>New program name <span class=req>(required)</span></label><input id=np-name></div>
-<div style="flex:1;min-width:120px"><label for=np-width>Logical width (px)</label><input id=np-width type=number value=240></div>
-<div style="align-self:end"><button id=btn-newprog class=primary>New program</button></div>
-</div>
-<table><thead><tr><th>Program</th><th>Services</th><th>Published</th><th>Actions</th></tr></thead><tbody id=progrows></tbody></table>
-</div>
-<div class=group id=progdetail style="display:none"><div class=grouptitle>Program detail</div>
-<div id=pd-body></div>
-</div>
-</section>
-<section id=tab-codes style="display:none">
-<div class=group><div class=grouptitle>Destination codes (8 digits, unique per program)</div>
-<div class=row><div style="flex:1"><label for=codes-prog>Program</label><select id=codes-prog></select></div>
-<div style="align-self:end"><button id=btn-codes>Load codes</button></div></div>
-<table><thead><tr><th>Code</th><th>Service</th><th>Destination</th></tr></thead><tbody id=coderows></tbody></table>
-</div>
-</section>
-<section id=tab-controllers style="display:none">
-<div class=group><div class=grouptitle>Controllers</div>
-<div class=row>
-<div style="flex:1;min-width:140px"><label for=pair-code>Pairing code</label><input id=pair-code maxlength=6></div>
-<div style="flex:2;min-width:160px"><label for=pair-name>Controller name <span class=req>(required)</span></label><input id=pair-name></div>
-<div style="align-self:end" class=row><button id=btn-pair class=primary>Pair controller</button>
-<button id=btn-sim title="Register a fake device to get a code for testing">Simulate device</button></div>
-</div>
-<table><thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th>App</th><th>Programs (want / on bus)</th><th>Actions</th></tr></thead><tbody id=ctlrows></tbody></table>
-</div>
-<dialog id=token-dialog>
-<div class=grouptitle>Device token - copy it now</div>
-<p class=hint id=token-sub>This token is shown <b>once</b>. The Pi needs it to talk to the portal. Lose it and use “Rotate token” on the controller row for a new one.</p>
-<div class=row><div style="flex:1"><label for=token-value>Device token</label><input id=token-value readonly></div>
-<div style="align-self:end"><button id=btn-token-copy>Copy</button></div></div>
-<div><label for=token-pi>On the Pi (replace the NSL_TOKEN line, keep PORTAL_URL)</label><pre id=token-pi></pre></div>
-<div class=row style="justify-content:flex-end"><button id=btn-token-close class=primary>Done</button></div>
-</dialog>
-</section>
-<section id=tab-audio style="display:none">
-<div class=group><div class=grouptitle>Audio clips</div>
-<p class=hint>Clips are picked by name everywhere - stops, services and announcements. Names use lowercase letters, numbers and dashes.</p>
-<table><thead><tr><th>Clip name</th><th>Source</th><th>Preview</th><th>Actions</th></tr></thead><tbody id=audiorows></tbody></table>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=au-name>Clip name <span class=req>(required)</span></label><input id=au-name><div class=hint>e.g. derby-bus-station. Auto-filled from the file - edit before uploading.</div><div class=err id=au-name-err></div></div>
-<div style="flex:2"><label for=au-file>Audio file (MP3/WAV/OGG/M4A/FLAC, max 50 MB) <span class=req>(required)</span></label><input id=au-file type=file accept="audio/*,.flac,.wav,.mp3,.ogg,.m4a"></div>
-<div style="align-self:end"><button id=btn-upload>Upload</button></div>
-</div>
-</div>
-<dialog id=clip-del-dialog>
-<div class=grouptitle id=cdd-title>Delete clip</div>
-<div id=cdd-uses class=hint></div>
-<div><label for=cdd-replace>Replace all uses with</label><select id=cdd-replace></select>
-<div class=hint>Pick another clip, or Silent to leave those stops and announcements with no audio.</div></div>
-<div class=err id=cdd-err></div>
-<div class=row style="justify-content:flex-end"><button id=cdd-cancel>Cancel</button><button id=cdd-confirm class=primary>Replace &amp; delete</button></div>
-</dialog>
-<div class=group><div class=grouptitle>Generate with Piper</div>
-<p class=hint>Without an uploaded voice this saves an audible preview tone (not silence) so you can test playback. Upload a voice below for real speech.</p>
-<div><label for=gen-text>Text to speak <span class=req>(required)</span></label><textarea id=gen-text rows=2></textarea></div>
-<div class=row>
-<div style="flex:2"><label for=gen-name>Clip name <span class=req>(required)</span></label><input id=gen-name><div class=hint>e.g. derby-bus-station. Auto-suggested from the text - edit before generating.</div><div class=err id=gen-name-err></div></div>
-<div style="flex:1"><label for=gen-voice>Voice</label><select id=gen-voice></select></div>
-<div style="flex:1"><label for=gen-speaker>Speaker</label><select id=gen-speaker></select></div>
-<div style="flex:1"><label for=gen-speed>Speed</label><input id=gen-speed type=number step=0.1 value=1.0></div>
-<div style="align-self:end"><button id=btn-generate class=primary>Generate</button></div>
-</div>
-</div>
-<div class=group><div class=grouptitle>Voices</div>
-<table><thead><tr><th>Name</th><th>Language</th><th>Sample rate</th><th>Speakers</th></tr></thead><tbody id=voicerows></tbody></table>
-<div class=row>
-<div style="flex:1"><label for=vv-name>Voice name <span class=req>(required)</span></label><input id=vv-name></div>
-<div style="flex:2"><label for=vv-model>Model file (.onnx) <span class=req>(required)</span></label><input id=vv-model type=file accept=".onnx"></div>
-<div style="flex:2"><label for=vv-config>Config file (.onnx.json) <span class=req>(required)</span></label><input id=vv-config type=file accept=".json"></div>
-<div style="align-self:end"><button id=btn-voice>Upload voice</button></div>
-</div>
-</div>
-</section>
-<section id=tab-tfl style="display:none">
-<div class=group><div class=grouptitle>Audio creator - cut TfL announcements</div>
-<p class=hint>Search the iBus library - <b>Stops</b>, <b>Destinations</b>, <b>Routes</b> and <b>Originals</b> (e.g. <b>Morrisons</b>, a terminus, a route number, or S_WESTCOMBE…). Load a file, drag a region on the waveform, then save. The trimmed clip uploads straight to your Audio library so you can pick it in the stops portal.</p>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=tfl-q>Search announcements</label><input id=tfl-q placeholder="e.g. Morrisons"></div>
-<div style="flex:1;min-width:160px"><label for=tfl-folder>Library</label><select id=tfl-folder><option value="">All libraries</option><option value="Stops">Stops</option><option value="Destinations">Destinations</option><option value="Routes">Routes</option><option value="Original">Originals</option></select></div>
-<div style="align-self:end" class=row><button id=btn-tfl-search class=primary>Search</button></div>
-</div>
-<div id=tfl-count class=hint></div>
-<table><thead><tr><th>Announcement</th><th>Library</th><th></th></tr></thead><tbody id=tfl-rows></tbody></table>
-</div>
-<div class=group id=tfl-editor style="display:none"><div class=grouptitle id=tfl-title>Trim</div>
-<audio id=tfl-audio controls style="width:100%"></audio>
-<div><label>Waveform - drag to select the bit to keep</label><canvas id=tfl-wave style="width:100%;height:110px;border:1px solid #888;background:#111;display:block"></canvas></div>
-<div class=row>
-<div style="flex:1"><label for=tfl-start>Start (s)</label><input id=tfl-start type=number step=0.01 min=0 value=0></div>
-<div style="flex:1"><label for=tfl-end>End (s)</label><input id=tfl-end type=number step=0.01 min=0 value=0></div>
-<div style="flex:1"><label>Length</label><div id=tfl-dur class=hint>-</div></div>
-<div style="align-self:end" class=row><button id=btn-tfl-play-sel class=primary>Play selection</button></div>
-</div>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=tfl-name>Clip name <span class=req>(required)</span></label><input id=tfl-name><div class=hint>Lowercase, numbers and dashes. Auto-filled from the file - edit before saving.</div><div class=err id=tfl-name-err></div></div>
-<div style="align-self:end" class=row><button id=btn-tfl-save class=primary>Cut &amp; save to library</button><button id=btn-tfl-add-merge>Add selection to merge</button></div>
-</div>
-<div id=tfl-save-msg class=hint></div>
-<div class=err id=tfl-err></div>
-</div>
-<div class=group><div class=grouptitle>Merge timeline - join words into one clip</div>
-<p class=hint>Example: load <b>Bloomfield Road…</b>, trim to just “Bloomfield”, press “Add selection to merge”. Then load a <b>Crescent</b> file, trim to “Crescent”, add it too. Tweak each part's trim inline (or press <b>Trim</b> to load it back into the waveform editor), set the gap or crossfade on each transition, preview the exact result, then save - and come back to tweak and re-save any time.</p>
-<div id=tfl-merge-list class=hint>No parts yet - add selections with the button above, or “+ Merge” a whole file from the search results.</div>
-<div><label>Merged preview (exactly what save will produce)</label><canvas id=tfl-merge-wave style="width:100%;height:70px;border:1px solid #888;background:#111;display:block"></canvas></div>
-<div id=tfl-merge-total class=hint></div>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=tfl-merge-name>Merged clip name <span class=req>(required)</span></label><input id=tfl-merge-name><div class=err id=tfl-merge-name-err></div></div>
-<div style="align-self:end" class=row><button id=btn-tfl-play-merge>Play merged</button><button id=btn-tfl-merge-save class=primary>Merge &amp; save</button><button id=btn-tfl-merge-clear>Clear</button></div>
-</div>
-<div id=tfl-merge-msg class=hint></div>
-<div class=err id=tfl-merge-err></div>
-</div>
-</section>
-<section id=tab-remote style="display:none">
-<div class=group><div class=grouptitle>Remote control (device must be online)</div>
-<div class=row><div style="flex:1"><label for=rc-ctl>Controller</label><select id=rc-ctl></select></div>
-<div style="align-self:end"><button id=btn-rc-refresh>Refresh</button></div></div>
-<div id=rc-state class=hint>Select a controller.</div>
-<div class=group><div class=grouptitle>Now on the bus</div>
-<div id=rc-live class=hint>Select a controller to see its current stop.</div>
-</div>
-<div class=row>
-<div style="flex:2;min-width:200px"><label for=rc-code>8-digit code</label><input id=rc-code maxlength=8 inputmode=numeric></div>
-<div style="align-self:end"><button id=btn-rc-code class=primary>Select destination</button></div>
-</div>
-<div id=rc-result class=hint></div>
-<details><summary>More controls (stops, announcements, override, volume, program)</summary>
-<div class=row>
-<button id=btn-prev>Prev stop</button><button id=btn-next>Next stop</button>
-<button id=btn-an>Announce next</button><button id=btn-aa>Announce approaching</button>
-</div>
-<div class=row>
-<div style="flex:2"><label for=rc-ov>Override text</label><input id=rc-ov></div>
-<div style="align-self:end" class=row><button id=btn-ov>Apply override</button><button id=btn-ovc>Clear override</button></div>
-</div>
-<div class=row>
-<div style="flex:1"><label for=rc-vol>Volume (0–100)</label><input id=rc-vol type=number min=0 max=100 value=80></div>
-<div style="align-self:end" class=row><button id=btn-vol>Set volume</button><button id=btn-mute>Mute</button></div>
-</div>
-<div class=row>
-<div style="flex:1"><label for=rc-prog>Program</label><select id=rc-prog></select></div>
-<div style="align-self:end"><button id=btn-rc-prog>Select program</button></div>
-</div>
-</details>
-</div>
-</section>
-</div>
-</div></div>
+
 <script src="layout.js"></script>
 <script src="app.js"></script>
 </body></html>

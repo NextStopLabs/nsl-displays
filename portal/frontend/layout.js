@@ -100,24 +100,52 @@ const LayoutEditor = (() => {
     return pages[Math.floor(t / (parseFloat(lay.page_seconds) || 3)) % pages.length];
   }
 
-  // ---------- page tabs: jump the preview to a page, new elements land there ----------
+  // ---------- page manager ----------
+  function maxPage(lay) {
+    const pages = pagesUsed(lay);
+    return pages.length ? Math.max(...pages) : 1;
+  }
   function renderPageTabs() {
-    const box = document.getElementById("lay-pagetabs");
+    const box = document.getElementById("lay-pages");
     if (!box || !ed || !ed.lay) return;
     const pages = pagesUsed(ed.lay);
-    const max = Math.max(ed.pageLock || 0, ...pages, 1);
+    const current = ed.pageLock || 1;
     let h = "";
-    for (let p = 1; p <= max; p++) {
+    const showUpTo = Math.max(maxPage(ed.lay), ed.pageLock || 0);
+    for (let p = 1; p <= showUpTo; p++) {
       const n = (ed.lay.elements || []).filter((e) => parseInt(e.page || 1, 10) === p).length;
-      h += `<button data-pg="${p}"${ed.pageLock === p ? " class=primary" : ""} title="${n} element(s)">p${p}</button>`;
+      const exists = pages.includes(p);
+      h += `<button class="${current === p ? "on" : ""}${exists ? "" : " empty"}" data-pg="${p}" title="${exists ? n + " element(s)" : "empty page"}">p${p}</button>`;
     }
-    h += `<button data-pg="${max + 1}" title="New empty page">+</button>`;
     box.innerHTML = h;
     box.querySelectorAll("[data-pg]").forEach((b) => b.onclick = () => {
-      const p = parseInt(b.dataset.pg, 10);
-      ed.pageLock = (ed.pageLock === p) ? null : p;  // click active tab to release
-      renderPageTabs();
+      ed.pageLock = parseInt(b.dataset.pg, 10);
+      document.getElementById("lay-showall").checked = false;
+      renderPageTabs(); drawEditor(); renderProps(); updateStatus();
     });
+  }
+  function addPage() {
+    if (!ed || !ed.lay) return;
+    const next = maxPage(ed.lay) + 1;
+    ed.pageLock = next;
+    document.getElementById("lay-showall").checked = false;
+    renderPageTabs(); drawEditor(); updateStatus();
+  }
+  function deletePage() {
+    if (!ed || !ed.lay) return;
+    const p = ed.pageLock || 1;
+    if (!confirm(`Delete page ${p} and all ${(ed.lay.elements || []).filter((e) => parseInt(e.page || 1, 10) === p).length} element(s) on it?`)) return;
+    ed.lay.elements = (ed.lay.elements || []).filter((e) => parseInt(e.page || 1, 10) !== p);
+    // renumber higher pages down
+    ed.lay.elements.forEach((e) => { const ep = parseInt(e.page || 1, 10); if (ep > p) e.page = ep - 1; });
+    ed.pageLock = Math.max(1, p - 1);
+    ed.sel = Math.max(0, (ed.lay.elements || []).length - 1);
+    document.getElementById("lay-showall").checked = false;
+    renderPageTabs(); drawEditor(); renderProps(); updateStatus();
+  }
+  function syncPageSeconds() {
+    const box = document.getElementById("lay-seconds");
+    if (box && ed && ed.lay) ed.lay.page_seconds = Math.max(1, parseInt(box.value || "3", 10));
   }
   function visible(el, fields, ovActive) {
     const sh = el.show_if || "always";
@@ -164,9 +192,11 @@ const LayoutEditor = (() => {
     g.strokeStyle = "#2c2c2c"; g.lineWidth = 1;
     for (let x = 0; x <= lay.width; x += 8) { g.beginPath(); g.moveTo(x * scale + .5, 0); g.lineTo(x * scale + .5, cv.height); g.stroke(); }
     for (let y = 0; y <= lay.height; y += 8) { g.beginPath(); g.moveTo(0, y * scale + .5); g.lineTo(cv.width, y * scale + .5); g.stroke(); }
+    const showAll = document.getElementById("lay-showall") && document.getElementById("lay-showall").checked;
     (lay.elements || []).forEach((el, i) => {
       const sel = i === ed.sel;
-      const other = ed.pageLock && parseInt(el.page || 1, 10) !== ed.pageLock;
+      const onPage = parseInt(el.page || 1, 10) === (ed.pageLock || 1);
+      const other = !showAll && ed.pageLock && !onPage;
       g.fillStyle = sel ? "rgba(255,176,0,.28)" : (other ? "rgba(255,176,0,.04)" : "rgba(255,176,0,.12)");
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.strokeStyle = sel ? "#ff4444" : (other ? "#5a5348" : AMBER); g.lineWidth = sel ? 2 : 1;
@@ -194,7 +224,8 @@ const LayoutEditor = (() => {
     g.fillRect(0, 0, off.width, off.height);
     const ovActive = !!ovText;
     const ov = lay.override || {};
-    const page = ed.pageLock || curPage(lay, t);
+    const cycle = document.getElementById("lay-cycle") && document.getElementById("lay-cycle").checked;
+    const page = cycle ? curPage(lay, t) : (ed.pageLock || curPage(lay, t));
     if (ov.mode === "full" && ovActive) {
       const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
       const ovHan = ovEl && hanover.isHan(ovEl.font) ? hanGet(ovEl.font) : null;
@@ -279,7 +310,7 @@ const LayoutEditor = (() => {
     for (let y = 0; y < cv.height; y += pscale) p.fillRect(0, y, cv.width, 1);
     const pg = document.getElementById("lay-page");
     if (pg) pg.textContent = "Page " + page + " of " + Math.max(pagesUsed(lay).length, ed.pageLock || 0) +
-      (ed.pageLock ? " (locked — click the tab again to release)" : "");
+      (ed.pageLock ? " (locked - click the tab again to release)" : "");
   }
 
   function loop(t) {
@@ -298,29 +329,30 @@ const LayoutEditor = (() => {
       `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")} · p${e.page || 1}</option>`).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
-    const num = (k, label) => `<div style="flex:1;min-width:70px"><label>${label}</label><input data-p=${k} type=number value="${el[k] ?? 0}"></div>`;
+    const num = (k, label) => `<div><label>${label}</label><input data-p=${k} type=number value="${el[k] ?? 0}"></div>`;
+    const fieldSelect = el.type === "field"
+      ? `<select data-p=field>${["num", "via", "dest", ...ed.extraKeys].map((f) => `<option${f === el.field ? " selected" : ""}>${f}</option>`).join("")}</select>`
+      : `<input data-p=text value="${esc(el.text || "")}">`;
     box.innerHTML = `<div class=row>${num("x", "X")}${num("y", "Y")}${num("w", "Width")}${num("h", "Height")}</div>
       <div class=row>
-      <div style="flex:1"><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
-      <div style="flex:1"><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${el.type === "field"
-        ? `<select data-p=field>${["num", "via", "dest", ...ed.extraKeys].map((f) => `<option${f === el.field ? " selected" : ""}>${f}</option>`).join("")}</select>`
-        : `<input data-p=text value="${esc(el.text || "")}">`}</div>
+        <div><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
+        <div><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${fieldSelect}</div>
       </div>
       <div class=row>
-      <div style="flex:1"><label>Font</label><select data-p=font>${[...FONTS, ...(ed.hanIds || [])].map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
-      <div style="flex:1"><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
-      <div style="flex:1"><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-      <div style="flex:1"><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        <div><label>Font</label><select data-p=font>${[...FONTS, ...(ed.hanIds || [])].map((f) => `<option${f === el.font ? " selected" : ""}>${f}</option>`).join("")}</select></div>
+        <div><label>Colour</label><input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></div>
+        <div><label>Align</label><select data-p=align>${["left", "centre", "right"].map((a) => `<option${a === el.align ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        <div><label>Valign</label><select data-p=valign>${["top", "middle", "bottom"].map((a) => `<option${a === el.valign ? " selected" : ""}>${a}</option>`).join("")}</select></div>
       </div>
       <div class=row>
-      <div style="flex:1"><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-      <div style="flex:1"><label>Flash ms (0 = steady)</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
-      <div style="flex:1"><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
-      <div style="flex:1"><label>Scale ×1–8 (Hanover fonts)</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
-      <div style="flex:1"><label>Letter spacing px (Hanover)</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
-      <div style="flex:1"><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        <div><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        <div><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
+        <div><label>Page</label><input data-p=page type=number min=1 value="${el.page || 1}"></div>
+        <div><label>Scale</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
+        <div><label>Spacing</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
       </div>
-      <div class=row><button id=lay-del>Delete element</button></div>`;
+      <div class="row full"><div><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div></div>
+      <div class="row actions" style="margin-top:12px"><button id=lay-del class=danger>Delete element</button></div>`;
     box.querySelectorAll("[data-p]").forEach((inp) => inp.addEventListener("change", () => {
       const k = inp.dataset.p;
       let v = inp.value;
@@ -329,7 +361,8 @@ const LayoutEditor = (() => {
           : k === "spacing" ? Math.min(16, Math.max(-8, parseInt(v || "0", 10) || 0))
           : Math.max(k === "w" || k === "h" ? 1 : 0, parseInt(v || "0", 10));
       el[k] = v;
-      updateStatus(); drawEditor(); renderProps();
+      if (k === "page") ed.pageLock = parseInt(v || "1", 10);
+      updateStatus(); drawEditor(); renderProps(); renderPageTabs();
     }));
     const del = document.getElementById("lay-del");
     if (del) del.onclick = () => { els.splice(ed.sel, 1); ed.sel = Math.max(0, els.length - 1); updateStatus(); drawEditor(); renderProps(); };
@@ -337,7 +370,10 @@ const LayoutEditor = (() => {
 
   function updateStatus() {
     const s = document.getElementById("lay-status");
-    if (s) s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height} · source: ${ed.src}`;
+    if (s) {
+      const onPage = (ed.lay.elements || []).filter((e) => parseInt(e.page || 1, 10) === (ed.pageLock || 1)).length;
+      s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height} · page ${ed.pageLock || 1} has ${onPage} element(s) · source: ${ed.src}`;
+    }
     renderPageTabs();
   }
 
@@ -347,10 +383,12 @@ const LayoutEditor = (() => {
     const ov = ed.lay.override || (ed.lay.override = { mode: "replace", replaces: "dest", hide: [] });
     const fields = ["num", "via", "dest", ...ed.extraKeys];
     box.innerHTML = `<div class=row>
-      <div style="flex:1"><label>While override active</label><select id=lay-ovmode>${["replace", "hide_others", "full"].map((m) => `<option${ov.mode === m ? " selected" : ""}>${m}</option>`).join("")}</select></div>
-      <div style="flex:1"><label>Override replaces</label><select id=lay-ovrep>${fields.map((f) => `<option${ov.replaces === f ? " selected" : ""}>${f}</option>`).join("")}</select></div>
-      <div style="flex:2"><label>Hide while override active</label><div>${fields.map((f) => `<label style="font-weight:normal"><input type=checkbox data-hide="${f}"${(ov.hide || []).includes(f) ? " checked" : ""}> ${f}</label>`).join(" ")}</div></div>
-      </div>`;
+      <div><label>While override active</label><select id=lay-ovmode>${["replace", "hide_others", "full"].map((m) => `<option${ov.mode === m ? " selected" : ""}>${m}</option>`).join("")}</select></div>
+      <div><label>Override replaces</label><select id=lay-ovrep>${fields.map((f) => `<option${ov.replaces === f ? " selected" : ""}>${f}</option>`).join("")}</select></div>
+    </div>
+    <div class=row>
+      <div><label>Hide while override active</label><div>${fields.map((f) => `<label><input type=checkbox data-hide="${f}"${(ov.hide || []).includes(f) ? " checked" : ""}> ${f}</label>`).join(" ")}</div></div>
+    </div>`;
     document.getElementById("lay-ovmode").onchange = (e) => { ov.mode = e.target.value; };
     document.getElementById("lay-ovrep").onchange = (e) => { ov.replaces = e.target.value; };
     box.querySelectorAll("[data-hide]").forEach((c) => c.onchange = () => {
@@ -390,7 +428,11 @@ const LayoutEditor = (() => {
       } else {
         const i = hitTest(p);
         ed.sel = i;
-        renderProps(); drawEditor();
+        if (i >= 0) {
+          ed.pageLock = parseInt(ed.lay.elements[i].page || 1, 10);
+          document.getElementById("lay-showall").checked = false;
+        }
+        renderProps(); drawEditor(); renderPageTabs();
         if (i < 0) return;
         const el = ed.lay.elements[i];
         drag = { mode: "move", dx: p.x - el.x, dy: p.y - el.y };
@@ -434,40 +476,73 @@ const LayoutEditor = (() => {
     const { did, dest, serviceNumber, displays, apiFn, errFn } = ctx;
     let extraKeys = [];
     try { extraKeys = Object.keys(JSON.parse(dest.extra_fields || "{}")); } catch (e) { /* ignore */ }
-    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: null, hanIds: [],
+    ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: 1, hanIds: [],
            fields: { num: dest.num || serviceNumber || "", via: dest.via || "", dest: dest.dest || "" },
            ovText: "", extraKeys, displays, apiFn, errFn };
     apiFn("/api/fonts").then((r) => { if (ed) { ed.hanIds = (r.fonts || []).map((f) => f.id); renderProps(); } })
       .catch(() => { if (ed) ed.hanIds = []; });
     for (const k of extraKeys) { try { ed.fields[k] = JSON.parse(dest.extra_fields)[k]; } catch (e) { /* ignore */ } }
-    mount.innerHTML = `<h3>Board layout — ${esc(dest.name)} (${esc(dest.code)})</h3>
-      <div class=row>
-      <div style="flex:1;min-width:140px"><label for=lay-disp>Display</label><select id=lay-disp>${displays.map((d) => `<option value="${esc(d.id)}">${esc(d.name)} ${esc(d.width_px)}×${esc(d.height_px)}</option>`).join("")}</select></div>
-      <div style="align-self:end" class=row><button id=lay-load>Load</button><button id=lay-autofit>Auto-fit starter</button><button id=lay-save class=primary>Save layout</button></div>
+    mount.innerHTML = `
+      <div class=prog-header>
+        <div class=col><h2 style="margin:0">Display layout</h2><div class=meta>${esc(dest.name)} · code <span class=kbd>${esc(dest.code)}</span> · service ${esc(serviceNumber || "")}</div></div>
+        <div style="align-self:end" class=row>
+          <div style="flex:0 0 180px"><label for=lay-disp>Display</label><select id=lay-disp>${displays.map((d) => `<option value="${esc(d.id)}">${esc(d.name)} ${esc(d.width_px)}×${esc(d.height_px)}</option>`).join("")}</select></div>
+          <div style="align-self:end" class=row><button id=lay-load>Load</button><button id=lay-autofit>Auto-fit</button><button id=lay-save class=primary>Save layout</button><button id=lay-close>Close</button></div>
+        </div>
       </div>
       <div class=hint id=lay-status></div>
-      <div class=row>
-      <div class=group style="flex:1"><div class=grouptitle>Edit (click selects, drag moves, red corner resizes)</div>
-        <canvas id=lay-canvas style="max-width:100%;cursor:crosshair"></canvas>
-        <div class=row><div style="flex:1"><label>Pages (click to preview, + for new — new elements land on the shown page)</label><div id=lay-pagetabs class=row style="margin-top:0"></div></div></div>
-      <div class=row><button id=lay-addfield>Add field</button><button id=lay-addtext>Add fixed text</button>
-        <div style="flex:1;min-width:120px"><label for=lay-ellist>Element</label><select id=lay-ellist></select></div></div>
-      </div>
-      <div class=group style="flex:1"><div class=grouptitle>Live LED preview <span id=lay-page class=hint></span></div>
-        <canvas id=lay-preview class=led style="max-width:100%"></canvas>
-        <div class=row>
-        <div style="flex:1"><label for=lay-fnum>num</label><input id=lay-fnum></div>
-        <div style="flex:1"><label for=lay-fvia>via</label><input id=lay-fvia></div>
-        <div style="flex:1"><label for=lay-fdest>dest</label><input id=lay-fdest></div>
+
+      <div class=lay-shell>
+        <!-- LEFT: tools -->
+        <div class=lay-tools>
+          <div class=group style="margin-top:0"><div class=grouptitle>Tools</div>
+            <div class=row><button id=lay-addfield class=primary style="flex:1">Add field</button></div>
+            <div class=row><button id=lay-addtext style="flex:1">Add fixed text</button></div>
+          </div>
+          <div class=group><div class=grouptitle>Elements</div>
+            <select id=lay-ellist size=8 style="min-height:120px"></select>
+            <div class=hint>Click an element to select it.</div>
+          </div>
+          <div class=group><div class=grouptitle>Pages</div>
+            <div class=hint>Click a page to edit it. New elements land on the selected page.</div>
+            <div id=lay-pages class=page-list></div>
+            <div class=row>
+              <button id=lay-addpage class=tool>Add page</button>
+              <button id=lay-delpage class="tool danger">Delete page</button>
+              <div style="flex:0 0 80px"><label>Seconds</label><input id=lay-seconds class=page-seconds type=number min=1 step=1 value=3></div>
+            </div>
+            <div class=row><label style="font-weight:normal"><input type=checkbox id=lay-showall> Show all pages on canvas</label></div>
+            <div class=row><label style="font-weight:normal"><input type=checkbox id=lay-cycle> Cycle pages in preview</label></div>
+          </div>
+          <div class=group><div class=grouptitle>Preview inputs</div>
+            <div style="flex:1"><label for=lay-fnum>num</label><input id=lay-fnum></div>
+            <div style="flex:1"><label for=lay-fvia>via</label><input id=lay-fvia></div>
+            <div style="flex:1"><label for=lay-fdest>dest</label><input id=lay-fdest></div>
+            <div><label for=lay-fov>Override text (empty = inactive)</label><input id=lay-fov></div>
+          </div>
         </div>
-        <div><label for=lay-fov>Override text (empty = inactive)</label><input id=lay-fov></div>
+
+        <!-- CENTER: canvas + preview -->
+        <div class=lay-canvas>
+          <div class=group style="margin-top:0"><div class=grouptitle>Edit canvas <span class=hint>click selects, drag moves, corner resizes</span></div>
+            <canvas id=lay-canvas style="cursor:crosshair"></canvas>
+          </div>
+          <div class=group><div class=grouptitle>Live LED preview <span id=lay-page class=hint></span></div>
+            <div class=lay-preview><canvas id=lay-preview></canvas></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: properties -->
+        <div class=lay-props>
+          <div class=group style="margin-top:0"><div class=grouptitle>Selected element</div><div id=lay-props></div></div>
+          <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
+          <div class=group><div class=grouptitle>Advanced</div>
+            <button id=lay-jsonbtn>Edit JSON</button>
+            <div id=lay-jsonbox style="display:none;margin-top:8px"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=8></textarea>
+            <div class=row><button id=lay-jsonapply>Apply JSON</button></div></div>
+          </div>
+        </div>
       </div>
-      </div>
-      <div class=group><div class=grouptitle>Selected element</div><div id=lay-props></div></div>
-      <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
-      <div class=row><button id=lay-jsonbtn>Advanced: edit JSON</button></div>
-      <div id=lay-jsonbox style="display:none"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=10></textarea>
-      <div class=row><button id=lay-jsonapply>Apply JSON to editor</button></div></div>
       <div class=err id=lay-err></div>`;
     mount.scrollIntoView();
     const disp = () => displays.find((d) => d.id === document.getElementById("lay-disp").value) || displays[0];
@@ -498,22 +573,40 @@ const LayoutEditor = (() => {
         if (r.layout) { ed.lay = r.layout; ed.src = r.source; }
         else { ed.lay = blank(d.width_px, d.height_px); ed.src = "none yet (blank canvas)"; }
         ed.sel = (ed.lay.elements || []).length ? 0 : -1;
-        ed.pageLock = null;
+        ed.pageLock = 1;
+        document.getElementById("lay-showall").checked = false;
+        document.getElementById("lay-cycle").checked = false;
+        document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
         loadFields(); readFields();
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = String(e.message || e); }
     };
     document.getElementById("lay-load").onclick = doLoad;
     document.getElementById("lay-disp").onchange = doLoad;
+    document.getElementById("lay-close").onclick = () => { stop(); mount.innerHTML = ""; };
     document.getElementById("lay-autofit").onclick = () => {
       const d = disp(); fitScales();
       ed.lay = autofit(d.width_px, d.height_px); ed.src = "auto-fit starter (unsaved)"; ed.sel = 0;
-      ed.pageLock = null;
+      ed.pageLock = 1;
+      document.getElementById("lay-showall").checked = false;
+      document.getElementById("lay-cycle").checked = false;
       updateStatus(); drawEditor(); renderProps(); renderOverride();
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
     document.getElementById("lay-addtext").onclick = () => addElement("text");
-    document.getElementById("lay-ellist").onchange = (e) => { ed.sel = parseInt(e.target.value, 10); drawEditor(); renderProps(); };
+    document.getElementById("lay-ellist").onchange = (e) => {
+      ed.sel = parseInt(e.target.value, 10);
+      if (ed.sel >= 0) {
+        ed.pageLock = parseInt(ed.lay.elements[ed.sel].page || 1, 10);
+        document.getElementById("lay-showall").checked = false;
+      }
+      drawEditor(); renderProps(); renderPageTabs();
+    };
+    document.getElementById("lay-addpage").onclick = addPage;
+    document.getElementById("lay-delpage").onclick = deletePage;
+    document.getElementById("lay-seconds").addEventListener("input", syncPageSeconds);
+    document.getElementById("lay-showall").addEventListener("change", () => { drawEditor(); });
+    document.getElementById("lay-cycle").addEventListener("change", () => { /* drawPreview picks it up in loop */ });
     document.getElementById("lay-jsonbtn").onclick = () => {
       const box = document.getElementById("lay-jsonbox");
       box.style.display = box.style.display === "none" ? "" : "none";
@@ -523,7 +616,9 @@ const LayoutEditor = (() => {
       try {
         const lj = JSON.parse(document.getElementById("lay-json").value);
         ed.lay = lj; ed.src = "from JSON (unsaved)"; ed.sel = (lj.elements || []).length ? 0 : -1;
-        ed.pageLock = null;
+        ed.pageLock = 1;
+        document.getElementById("lay-showall").checked = false;
+        document.getElementById("lay-cycle").checked = false;
         document.getElementById("lay-err").textContent = "";
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = "Invalid JSON: " + e.message; }
@@ -537,7 +632,7 @@ const LayoutEditor = (() => {
           throw new Error(`Layout is ${ed.lay.width}×${ed.lay.height} but display ${d.name} is ${d.width_px}×${d.height_px}.`);
         for (const [i, e] of (ed.lay.elements || []).entries()) {
           if (e.x < 0 || e.y < 0 || e.w <= 0 || e.h <= 0 || e.x + e.w > d.width_px || e.y + e.h > d.height_px)
-            throw new Error(`Element #${i + 1} lies outside the display — move or resize it.`);
+            throw new Error(`Element #${i + 1} lies outside the display - move or resize it.`);
         }
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
         box.textContent = ""; ed.src = "destination (saved)";

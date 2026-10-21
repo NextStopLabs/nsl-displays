@@ -251,7 +251,10 @@ async function refreshMe() {
 function showAuth(on) {
   $("authview").style.display = on ? "none" : "";
   $("mainview").style.display = on ? "" : "none";
-  $("authbar").style.display = on ? "" : "none";
+  const vis = on ? "" : "none";
+  $("who").style.display = vis;
+  $("orgsel").style.display = vis;
+  $("btn-logout").style.display = vis;
 }
 function showAuthPage(which) {
   $("auth-signin").style.display = which === "signin" ? "" : "none";
@@ -281,11 +284,15 @@ async function doCreate() {
   } catch (e) { $("su-err").textContent = String(e.message || e); }
 }
 
-// ---------- tabs ----------
-document.querySelectorAll("#tabs .tab").forEach((t) => t.addEventListener("click", () => {
-  document.querySelectorAll("#tabs .tab").forEach((x) => x.classList.remove("on"));
-  t.classList.add("on");
-  ["programs", "codes", "controllers", "audio", "tfl", "remote"].forEach((n) => { $("tab-" + n).style.display = (n === t.dataset.tab) ? "" : "none"; });
+// ---------- sidebar navigation ----------
+function showSection(name) {
+  ["programs", "codes", "controllers", "audio", "tfl", "remote"].forEach((n) => { $("tab-" + n).style.display = (n === name) ? "" : "none"; });
+  document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("on", b.dataset.section === name));
+}
+document.querySelectorAll(".nav-item").forEach((t) => t.addEventListener("click", () => {
+  showSection(t.dataset.section);
+  LayoutEditor.stop();
+  Preview.stop();
 }));
 
 // ---------- programs ----------
@@ -296,10 +303,17 @@ async function loadAll() {
 async function loadPrograms() {
   const r = await api("/api/programs?organisation_id=" + encodeURIComponent(S.org));
   S.programs = r.programs || [];
-  $("progrows").innerHTML = S.programs.map((p) =>
-    `<tr><td>${esc(p.name)}</td><td>${esc(p.published_version || 0)}</td><td>${esc(p.published_version || 0)}</td><td class=row>` +
-    `<button data-open="${p.id}">Open</button><button data-dup="${p.id}">Duplicate</button>` +
-    `<button data-exp="${p.id}">Export</button><button data-del="${p.id}">Delete</button></td></tr>`).join("");
+  $("progrows").innerHTML = S.programs.map((p) => {
+    const svcCount = (p.services || []).length;
+    const destCount = (p.services || []).reduce((n, s) => n + (s.destinations || []).length, 0);
+    return `<tr><td><b>${esc(p.name)}</b><div class=hint>${svcCount} service(s) · ${destCount} destination(s)</div></td>` +
+      `<td>v${esc(p.published_version || 0)}</td>` +
+      `<td class=row>` +
+      `<button class=primary data-open="${p.id}">Open</button>` +
+      `<button data-dup="${p.id}">Duplicate</button>` +
+      `<button data-exp="${p.id}">Export</button>` +
+      `<button class=danger data-del="${p.id}">Delete</button></td></tr>`;
+  }).join("") || `<tr><td colspan=3 class=hint>No programs yet. Create one above.</td></tr>`;
   $("codes-prog").innerHTML = S.programs.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
   $("rc-prog").innerHTML = S.programs.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
 }
@@ -345,110 +359,212 @@ function renderProgram() {
   flat.sort((a, b) => (a.d.code < b.d.code ? -1 : 1));
   const dispName = (d, s) => [d.num || s.number, d.via, d.dest].filter(Boolean).join(" · ") || d.name;
 
-  let h = `<p class=hint>${esc(p.name)} · width ${esc(p.px_width)} · published v${esc(p.published_version || 0)}</p>`;
-  h += `<div class=row><div style="flex:2"><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
-    <div style="align-self:end" class=row><button id=pd-publish class=primary>Publish new version</button></div></div>`;
-  h += `<div id=pd-versions><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version} (${esc(v.content_hash || "").slice(0, 8)}…)`.replace("…", "")).join(", ") + `</div>`;
-  h += `<details id=up-details><summary>Upload to controllers</summary><div class=row><div style="flex:1"><label>Controllers</label><div id=pd-ctls>` +
-    S.controllers.map((c) => {
-      const act = (c.programs || []).find((x) => x.active_version != null);
-      const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
-      const ghost = !c.last_seen_at ? ` <span class=err>never checked in - probably a duplicate row, delete it in the Controllers tab</span>` : "";
-      return `<div class=row data-ctlrow="${c.id}" style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} (${c.online ? "online" : "offline"}${run})${ghost}</label>` +
-        `<span class=hint data-upstat="${c.id}"></span>` +
-        `<button data-up-latest="${c.id}" title="Publish (if changed) and upload the latest version to ${esc(c.name)}">Send latest</button></div>`;
-    }).join("") +
-    `</div></div></div><div class=row><div style="flex:1;min-width:120px"><label for=pd-ver>Advanced: exact version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
-    <div style="align-self:end"><button id=pd-upload>Queue exact version to ticked</button></div></div></details>`;
+  const svcCount = (p.services || []).length;
+  const destCount = flat.length;
 
-  // ---- HELEN-style destination list: one table, one add form ----
-  h += `<h3>Destinations (${flat.length})</h3>`;
-  h += `<div class=row><div style="flex:1"><label for=dest-filter>Filter</label><input id=dest-filter></div></div>`;
-  h += `<table><thead><tr><th>Code</th><th>Service</th><th>Destination</th><th>Stops</th><th>Actions</th></tr></thead><tbody id=destrows>`;
+  // ---- HELEN-style program header with sub-tabs ----
+  let h = `<div class=prog-header>`;
+  h += `<div class=col><h2 style="margin:0">${esc(p.name)}</h2><div class=meta>width ${esc(p.px_width)} px · published v${esc(p.published_version || 0)} · ${svcCount} service(s) · ${destCount} destination(s)</div></div>`;
+  h += `<div style="align-self:end" class=row><button id=pd-close class=tool>Close program</button></div>`;
+  h += `</div>`;
+
+  h += `<div class=tabs id=pd-tabs>`;
+  h += `<button class="tab on" data-pdtab=destinations>Destinations</button>`;
+  h += `<button class=tab data-pdtab=displays>Displays</button>`;
+  h += `<button class=tab data-pdtab=services>Services</button>`;
+  h += `<button class=tab data-pdtab=preview>Preview</button>`;
+  h += `<button class=tab data-pdtab=publish>Publish &amp; Upload</button>`;
+  h += `</div>`;
+
+  // ---- Destinations tab ----
+  h += `<section id=pdtab-destinations>`;
+  h += `<div class=group><div class=grouptitle>Destinations (${destCount})</div>`;
+  h += `<div class=row><div class=col><label for=dest-filter>Filter</label><input id=dest-filter placeholder="code, service or destination"></div></div>`;
+  h += `<div class=dest-list><table><thead><tr><th>Code</th><th>Service</th><th>Destination</th><th>Stops</th><th>Actions</th></tr></thead><tbody id=destrows>`;
   for (const { s, d } of flat) {
     h += `<tr data-code="${esc(d.code)}" data-name="${esc((d.name + " " + (d.via || "") + " " + (d.dest || "")).toLowerCase())}">` +
       `<td class=kbd>${esc(d.code)}</td><td>${esc(s.number)}</td><td>${esc(dispName(d, s))}</td>` +
       `<td>${(d.stops || []).length}</td>` +
-      `<td class=row><button data-edit="${d.id}">Edit</button><button data-stops="${d.id}">Stops</button><button data-layout="${d.id}">Display</button><button data-del="${d.id}">Delete</button></td></tr>`;
+      `<td class=row>` +
+      `<button class=primary data-layout="${d.id}">Display</button>` +
+      `<button data-stops="${d.id}">Stops</button>` +
+      `<button data-edit="${d.id}">Edit</button>` +
+      `<button class=danger data-del="${d.id}">Delete</button></td></tr>`;
   }
-  h += `</tbody></table>`;
-  h += `<div class=group><div class=grouptitle>New destination</div><div class=row>
-    <div style="flex:1;min-width:140px"><label for=nd-service>Service</label><select id=nd-service>` +
+  h += `</tbody></table></div></div>`;
+
+  h += `<div class=group><div class=grouptitle>New destination</div>`;
+  h += `<div class=row>
+    <div style="flex:0 0 180px"><label for=nd-service>Service</label><select id=nd-service>` +
     (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("") +
     `<option value="__new__">New service…</option></select></div>
-    <div style="flex:1;min-width:120px"><label for=nd-code>Code (8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
-    <div style="align-self:end" class=row><button id=nd-suggest type=button>Suggest</button></div></div>
-    <div class=row id=nd-newsvc style="display:none">
-      <div style="flex:1"><label for=nd-newsvc-num>New service number <span class=req>(required)</span></label><input id=nd-newsvc-num></div>
-      <div style="flex:2"><label for=nd-newsvc-name>New service name</label><input id=nd-newsvc-name></div></div>
-    <div class=row>
-      <div style="flex:2"><label for=nd-name>Name <span class=req>(required)</span></label><input id=nd-name></div>
-      <div style="flex:1"><label for=nd-via>Via</label><input id=nd-via></div>
-      <div style="flex:1"><label for=nd-dest>Dest</label><input id=nd-dest></div>
-      <div style="align-self:end"><button id=nd-add class=primary>Add destination</button></div></div>
-    <div class=err id=nd-err></div></div>`;
+    <div style="flex:0 0 140px"><label for=nd-code>Code (8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
+    <div style="align-self:end"><button id=nd-suggest type=button>Suggest</button></div></div>`;
+  h += `<div class=row id=nd-newsvc style="display:none">
+    <div style="flex:0 0 120px"><label for=nd-newsvc-num>New service number <span class=req>(required)</span></label><input id=nd-newsvc-num></div>
+    <div class=col><label for=nd-newsvc-name>New service name</label><input id=nd-newsvc-name></div></div>`;
+  h += `<div class=row>
+    <div class=col><label for=nd-name>Name <span class=req>(required)</span></label><input id=nd-name></div>
+    <div style="flex:0 0 160px"><label for=nd-via>Via</label><input id=nd-via></div>
+    <div style="flex:0 0 160px"><label for=nd-dest>Dest board</label><input id=nd-dest></div>
+    <div style="align-self:end"><button id=nd-add class=primary>Add destination</button></div></div>
+  <div class=err id=nd-err></div></div>`;
 
-  // ---- bustimes.org import ----
   h += `<div class=group><div class=grouptitle>Import from bustimes.org</div>
-    <p class=hint>Live lookup at bustimes.org. Typical destinations come from the description split on " - "
-    (one part for circulars like "Lichfield City Circular", more for "Tamworth - Lichfield - St. Francis of Assisi").
-    Stops come from the service timetable; stop audio is generated with Piper when a voice is picked.</p>
+    <p class=hint>Live lookup at bustimes.org. Typical destinations come from the description split on " - ". Stops come from the service timetable; stop audio is generated with Piper when a voice is picked.</p>
     <div class=row>
-    <div style="flex:1;min-width:120px"><label for=bt-operator>Operator code</label><input id=bt-operator value="BULI"></div>
-    <div style="flex:2;min-width:160px"><label for=bt-search>Search (number or place)</label><input id=bt-search></div>
+    <div style="flex:0 0 120px"><label for=bt-operator>Operator code</label><input id=bt-operator value="BULI"></div>
+    <div class=col><label for=bt-search>Search (number or place)</label><input id=bt-search></div>
     <div style="align-self:end"><button id=bt-find>Search bustimes.org</button></div></div>
     <div class=err id=bt-err></div><div id=bt-results></div><div id=bt-detail></div></div>`;
+  h += `</section>`;
 
-  // ---- services tucked away: rename / announcements / delete ----
-  h += `<details id=svc-details><summary>Services (${(p.services || []).length}) - announcements &amp; rename</summary>`;
-  h += `<div class=row>
-    <div style="flex:1"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num></div>
-    <div style="flex:2"><label for=ns-name>Service name</label><input id=ns-name></div>
-    <div style="align-self:end"><button id=ns-add>Add service</button></div></div><div id=pd-services>`;
+  // ---- Displays tab ----
+  h += `<section id=pdtab-displays style="display:none">`;
+  h += `<div class=group><div class=grouptitle>Displays (${(p.displays || []).length})</div>`;
+  h += `<p class=hint>Define the boards this program drives, e.g. front 240×40, side 160×40, rear 80×40. Layouts are saved per display.</p>`;
+  h += `<div id=pd-displays-list>`;
+  h += (p.displays || []).map((d) =>
+    `<div class=row data-disp-id="${esc(d.id)}" style="align-items:center">
+      <div style="flex:1"><label>Name</label><input data-disp-name value="${esc(d.name)}"></div>
+      <div style="flex:0 0 100px"><label>Width (px)</label><input data-disp-w type=number value="${esc(d.width_px)}"></div>
+      <div style="flex:0 0 100px"><label>Height (px)</label><input data-disp-h type=number value="${esc(d.height_px)}"></div>
+      <div style="align-self:end" class=row>
+        <button data-disp-save class=primary>Save</button>
+        <button data-disp-del class=danger>Delete</button>
+      </div>
+    </div>`).join("");
+  h += `</div>`;
+  h += `<div class=group style="margin-top:14px"><div class=grouptitle>Add display</div><div class=row>
+    <div style="flex:1"><label for=pd-disp-name>Display name <span class=req>(required)</span></label><input id=pd-disp-name placeholder="e.g. side"></div>
+    <div style="flex:0 0 110px"><label for=pd-disp-w>Width</label><input id=pd-disp-w type=number value=160></div>
+    <div style="flex:0 0 110px"><label for=pd-disp-h>Height</label><input id=pd-disp-h type=number value=40></div>
+    <div style="align-self:end"><button id=pd-disp-add class=primary>Add display</button></div>
+  </div><div class=err id=pd-disp-err></div></div>`;
+  h += `</div></section>`;
+
+  // ---- Services tab ----
+  h += `<section id=pdtab-services style="display:none">`;
+  h += `<div class=group><div class=grouptitle>Add service</div><div class=row>
+    <div style="flex:0 0 120px"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num></div>
+    <div class=col><label for=ns-name>Service name</label><input id=ns-name></div>
+    <div style="align-self:end"><button id=ns-add class=primary>Add service</button></div></div></div>`;
+  h += `<div class=group><div class=grouptitle>Services (${svcCount})</div><div id=pd-services>`;
   for (const s of (p.services || [])) {
     h += `<div class=group><div class=grouptitle>Service ${esc(s.number)} ${esc(s.name || "")}</div>`;
     h += `<div class=row>
-      <div style="flex:1"><label>Number</label><input data-svc-num="${s.id}" value="${esc(s.number)}"></div>
-      <div style="flex:2"><label>Name</label><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></div></div>`;
+      <div style="flex:0 0 120px"><label>Number</label><input data-svc-num="${s.id}" value="${esc(s.number)}"></div>
+      <div class=col><label>Name</label><input data-svc-name="${s.id}" value="${esc(s.name || "")}"></div></div>`;
     h += `<div class=row>
-      <div style="flex:1"><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default - the next stop is…" })}</select></div>
-      <div style="flex:1"><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default - approaching…" })}</select></div>
-      <div style="flex:1"><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default - …where this service terminates" })}</select></div>
-      <div style="flex:1;min-width:140px"><label>Terminus suffix plays on</label><select data-svc-mode="${s.id}">
+      <div class=col><label>Next-stop announcement</label><select data-svc-audio="next_stop_audio" data-svc="${s.id}">${audioOptions(s.next_stop_audio, { emptyLabel: "Default - the next stop is…" })}</select></div>
+      <div class=col><label>Approaching announcement</label><select data-svc-audio="approaching_audio" data-svc="${s.id}">${audioOptions(s.approaching_audio, { emptyLabel: "Default - approaching…" })}</select></div></div>`;
+    h += `<div class=row>
+      <div class=col><label>Terminus suffix</label><select data-svc-audio="last_stop_audio" data-svc="${s.id}">${audioOptions(s.last_stop_audio, { emptyLabel: "Default - …where this service terminates" })}</select></div>
+      <div style="flex:0 0 200px"><label>Terminus suffix plays on</label><select data-svc-mode="${s.id}">
         <option value="both"${(s.terminus_clip_mode || "both") === "both" ? " selected" : ""}>Next stop + approaching</option>
         <option value="next"${s.terminus_clip_mode === "next" ? " selected" : ""}>Next stop only</option>
         <option value="approaching"${s.terminus_clip_mode === "approaching" ? " selected" : ""}>Approaching only</option>
       </select></div></div>`;
-    h += `<div class=row><button data-svc-save="${s.id}">Save service</button><button data-svc-del="${s.id}">Delete service</button></div>`;
+    h += `<div class=row><button data-svc-save="${s.id}" class=primary>Save service</button><button data-svc-del="${s.id}" class=danger>Delete service</button></div>`;
     h += `<div class=err data-svc-err="${s.id}"></div></div>`;
   }
-  h += `</div></details>`;
+  h += `</div></div>`;
+  h += `</section>`;
 
-  // ---- preview: all screens stop-by-stop + announcements ----
-  h += `<div class=group><div class=grouptitle>Preview - screens + announcements (stop by stop)</div>`;
-  h += `<div class=row><div style="flex:2;min-width:200px"><label for=pv-dest>Destination</label><select id=pv-dest>` +
+  // ---- Preview tab ----
+  h += `<section id=pdtab-preview style="display:none">`;
+  h += `<div class=group><div class=grouptitle>Journey preview - screens + announcements</div>`;
+  h += `<div class=row><div class=col><label for=pv-dest>Destination</label><select id=pv-dest>` +
     flat.map(({ s, d }) => `<option value="${d.id}">${esc(d.code)} · ${esc(s.number)} · ${esc(dispName(d, s))}</option>`).join("") +
-    `</select></div><div style="flex:1;min-width:140px"><label for=pv-pos>Stop</label><div class=row><button id=pv-first>|◀</button><button id=pv-prev>◀</button><button id=pv-next>▶</button></div></div></div>`;
+    `</select></div><div style="flex:0 0 200px"><label for=pv-pos>Stop</label><div class=row><button id=pv-first class=icn title="First stop"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button><button id=pv-prev class=icn title="Previous stop"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button><button id=pv-next class=icn title="Next stop"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button></div></div></div>`;
   h += `<div id=pv-meta class=hint></div><div id=pv-screens class=row style="align-items:flex-start"></div>`;
-  h += `<div class=row><div style="flex:1"><label>Next-stop announcement</label><div id=pv-next-list class=row></div><div class=row><button id=pv-play-next class=primary>Play next-stop</button></div></div>`;
-  h += `<div style="flex:1"><label>Approaching announcement</label><div id=pv-appr-list class=row></div><div class=row><button id=pv-play-appr class=primary>Play approaching</button></div></div></div>`;
+  h += `<div class=row><div class=col><label>Next-stop announcement</label><div id=pv-next-list class=row></div><div class=row><button id=pv-play-next class=primary>Play next-stop</button></div></div>`;
+  h += `<div class=col><label>Approaching announcement</label><div id=pv-appr-list class=row></div><div class=row><button id=pv-play-appr class=primary>Play approaching</button></div></div></div>`;
   h += `<div class=err id=pv-err></div></div>`;
+  h += `</section>`;
 
-  // ---- HELEN "Enter Route Code and Name" dialog ----
+  // ---- Publish & Upload tab ----
+  h += `<section id=pdtab-publish style="display:none">`;
+  h += `<div class=group><div class=grouptitle>Publish new version</div>`;
+  h += `<p class=hint>Edits are drafts until published. Publishing validates the program, builds an immutable numbered version, and prepares it for upload to controllers.</p>`;
+  h += `<div class=row><div class=col><label for=pd-notes>Publish notes</label><input id=pd-notes></div>
+    <div style="align-self:end"><button id=pd-publish class=primary>Publish new version</button></div></div>`;
+  h += `<div id=pd-versions class=hint><b>Versions:</b> ` + (p.versions || []).map((v) => `v${v.version}`).join(", ") + `</div></div>`;
+
+  h += `<div class=group><div class=grouptitle>Upload to controllers</div>`;
+  h += `<div id=pd-ctls>` +
+    S.controllers.map((c) => {
+      const act = (c.programs || []).find((x) => x.active_version != null);
+      const run = act ? ` · running ${esc(act.name || act.program_id)} v${act.active_version}` : "";
+      const ghost = !c.last_seen_at ? ` <span class=err>never checked in - probably a duplicate row, delete it in the Controllers tab</span>` : "";
+      return `<div class=row data-ctlrow="${c.id}" style="align-items:center"><label style="font-weight:normal;flex:1"><input type=checkbox value="${c.id}"> ${esc(c.name)} <span class="badge ${c.online ? "ok" : "err"}">${c.online ? "online" : "offline"}</span>${run}${ghost}</label>` +
+        `<span class=hint data-upstat="${c.id}" style="margin-right:8px"></span>` +
+        `<button data-up-latest="${c.id}" class=primary title="Publish (if changed) and upload the latest version to ${esc(c.name)}">Send latest</button></div>`;
+    }).join("") || `<p class=hint>No controllers paired yet. Pair one in the Controllers tab.</p>` +
+    `</div>`;
+  h += `<div class=row>
+    <div style="flex:0 0 120px"><label for=pd-ver>Exact version</label><input id=pd-ver type=number value="${esc(p.published_version || 0)}"></div>
+    <div style="align-self:end"><button id=pd-upload>Queue exact version to ticked</button></div></div></div>`;
+  h += `</section>`;
+
+  // ---- Edit destination dialog ----
   h += `<dialog id=dest-dialog><form method=dialog>
     <h3 style="margin-top:0">Edit destination</h3>
-    <div class=row><div style="flex:1"><label for=ed-code>Code (8 digits) <span class=req>(required)</span></label><input id=ed-code maxlength=8 inputmode=numeric></div>
-    <div style="flex:1"><label for=ed-service>Service</label><select id=ed-service></select></div></div>
+    <div class=row><div style="flex:0 0 140px"><label for=ed-code>Code (8 digits) <span class=req>(required)</span></label><input id=ed-code maxlength=8 inputmode=numeric></div>
+    <div class=col><label for=ed-service>Service</label><select id=ed-service></select></div></div>
     <div><label for=ed-name>Name <span class=req>(required)</span></label><input id=ed-name></div>
-    <div class=row><div style="flex:1"><label for=ed-via>Via</label><input id=ed-via></div>
-    <div style="flex:1"><label for=ed-dest>Dest</label><input id=ed-dest></div></div>
+    <div class=row><div class=col><label for=ed-via>Via</label><input id=ed-via></div>
+    <div class=col><label for=ed-dest>Dest board</label><input id=ed-dest></div></div>
     <div class=err id=ed-err></div>
-    <div class=row><button id=ed-save class=primary value=default>Save</button><button id=ed-close value=cancel>Cancel</button></div>
+    <div class=row style="justify-content:flex-end"><button id=ed-close>Cancel</button><button id=ed-save class=primary value=default>Save</button></div>
     </form></dialog>`;
 
   h += `<div id=pd-edit></div>`;
   $("pd-body").innerHTML = h;
-  // wire
+
+  // ---- sub-tab wiring ----
+  document.querySelectorAll("#pd-tabs .tab").forEach((t) => t.addEventListener("click", () => {
+    document.querySelectorAll("#pd-tabs .tab").forEach((x) => x.classList.remove("on"));
+    t.classList.add("on");
+    ["destinations", "displays", "services", "preview", "publish"].forEach((n) => { $("pdtab-" + n).style.display = (n === t.dataset.pdtab) ? "" : "none"; });
+    if (t.dataset.pdtab === "preview") loadPreview();
+  }));
+
+  // ---- displays ----
+  $("pd-disp-add").onclick = async () => {
+    $("pd-disp-err").textContent = "";
+    try {
+      const name = $("pd-disp-name").value.trim();
+      if (!name) throw new Error("Display name is required.");
+      await api(`/api/programs/${p.id}/displays`, { method: "POST", body: {
+        name, width_px: parseInt($("pd-disp-w").value || "160", 10), height_px: parseInt($("pd-disp-h").value || "40", 10) } });
+      $("pd-disp-name").value = ""; $("pd-disp-w").value = 160; $("pd-disp-h").value = 40;
+      openProgram(p.id);
+    } catch (e) { $("pd-disp-err").textContent = String(e.message || e); }
+  };
+  $("pd-displays-list").addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const row = b.closest("[data-disp-id]");
+    const did = row && row.dataset.dispId;
+    $("pd-disp-err").textContent = "";
+    try {
+      if (b.dataset.dispSave) {
+        await api(`/api/programs/${p.id}/displays/${did}`, { method: "PUT", body: {
+          name: row.querySelector("[data-disp-name]").value,
+          width_px: parseInt(row.querySelector("[data-disp-w]").value || "240", 10),
+          height_px: parseInt(row.querySelector("[data-disp-h]").value || "40", 10) } });
+        openProgram(p.id);
+      }
+      if (b.dataset.dispDel) {
+        if (!confirm("Delete this display? All layouts for it will be lost.")) return;
+        await api(`/api/programs/${p.id}/displays/${did}`, { method: "DELETE" });
+        openProgram(p.id);
+      }
+    } catch (e) { $("pd-disp-err").textContent = String(e.message || e); }
+  });
+
+  // ---- close / publish / upload ----
+  $("pd-close").onclick = () => { $("progdetail").style.display = "none"; LayoutEditor.stop(); Preview.stop(); S.curProg = null; };
   $("pd-publish").onclick = async () => {
     try {
       const r = await api(`/api/programs/${p.id}/publish`, { method: "POST", body: { notes: $("pd-notes").value } });
@@ -475,38 +591,16 @@ function renderProgram() {
   if (window._upTimer) clearInterval(window._upTimer);
   window._upTimer = setInterval(() => { if ($("pd-ctls")) refreshUploadStatus(); }, 5000);
   refreshUploadStatus();
-function upStatusText(c, pid) {
-  const row = ((c.programs || []).find((x) => x.program_id === pid)) || null;
-  if (!row || row.desired_version == null) return "not uploaded";
-  const inst = row.installed_version, des = row.desired_version, act = row.active_version;
-  const sync = c.sync_state;
-  if (sync && sync.phase && sync.phase !== "idle")
-    return (sync.phase === "audio" && sync.total ? `fetching audio ${sync.done || ""}/${sync.total}…`
-      : sync.phase === "bundle" ? `downloading v${sync.version || ""}…`
-      : sync.phase === "installing" ? "installing…" : `${sync.phase}…`);
-  if (inst == null) return c.online ? `queued v${des} - bus downloading…` : `queued v${des} - waiting for bus`;
-  if (inst !== des) return `installing v${des}… (bus has v${inst})`;
-  if (act == null || act !== des) return `✓ installed v${des}` + (act != null ? ` - bus parked on v${act}, select a destination to switch` : " - bus will adopt it");
-  return `✓ live on v${des}`;
-}
-async function refreshUploadStatus() {
-  try {
-    const r = await api("/api/controllers?organisation_id=" + encodeURIComponent(S.org));
-    S.controllers = r.controllers || [];
-    const pid = S.curProg && S.curProg.id;
-    for (const el of document.querySelectorAll("[data-upstat]")) {
-      const c = S.controllers.find((x) => x.id === el.dataset.upstat);
-      if (c && pid) el.textContent = upStatusText(c, pid);
-    }
-  } catch (e) { /* keep old text on failure */ }
-}
+
+  // ---- destination filter ----
   $("dest-filter").addEventListener("input", () => {
     const q = $("dest-filter").value.trim().toLowerCase();
     document.querySelectorAll("#destrows tr").forEach((tr) => {
       tr.style.display = !q || (tr.dataset.code + " " + tr.dataset.name).includes(q) ? "" : "none";
     });
   });
-  // new destination: single form for the whole program
+
+  // ---- new destination ----
   const svcSel = $("nd-service");
   const syncNewSvc = () => { $("nd-newsvc").style.display = svcSel.value === "__new__" ? "" : "none"; };
   svcSel.addEventListener("change", syncNewSvc); syncNewSvc();
@@ -536,7 +630,7 @@ async function refreshUploadStatus() {
         if (!num) throw new Error("Enter the new service number first.");
         sid = (await api(`/api/programs/${p.id}/services`, { method: "POST", body: { number: num, name: nm } })).service_id;
       }
-      if (!sid) throw new Error("Create a service first (Services section below).");
+      if (!sid) throw new Error("Create a service first (Services tab).");
       await api(`/api/services/${sid}/destinations`, { method: "POST",
         body: { code: $("nd-code").value.trim(), name: $("nd-name").value.trim() || $("nd-code").value.trim(),
                 via: $("nd-via").value.trim(), dest: $("nd-dest").value.trim() } });
@@ -549,9 +643,11 @@ async function refreshUploadStatus() {
       openProgram(p.id); loadPrograms();
     } catch (e) { err(String(e.message || e)); }
   };
-  // bustimes.org import
+
+  // ---- bustimes.org import ----
   wireBustimesImport(p);
-  // row actions: edit dialog / stops / display / delete
+
+  // ---- row actions ----
   const dlg = $("dest-dialog");
   const openEdit = (did) => {
     const found = findDest(did); if (!found) return;
@@ -562,7 +658,7 @@ async function refreshUploadStatus() {
     $("ed-err").textContent = ""; dlg.dataset.did = did;
     (dlg.showModal ? dlg.showModal() : null);
   };
-  $("ed-close").onclick = () => { };
+  $("ed-close").onclick = () => { if (dlg) dlg.close(); };
   $("ed-save").onclick = async (e) => {
     e.preventDefault();
     const did = dlg.dataset.did;
@@ -600,7 +696,8 @@ async function refreshUploadStatus() {
     try { await api(`/api/services/${b.dataset.svcDel}`, { method: "DELETE" }); openProgram(p.id); }
     catch (e) { err(String(e.message || e)); }
   });
-  // preview wiring
+
+  // ---- preview wiring ----
   Preview.stop();
   const pvErr = (m) => { $("pv-err").textContent = m || ""; };
   async function loadPreview() {
@@ -616,7 +713,7 @@ async function refreshUploadStatus() {
         : "No stops yet - add stops to preview.";
       $("pv-screens").innerHTML = (s.displays || []).map((dp) => {
         const e = (s.layouts || {})[dp.name] || {};
-        return `<div style="flex:1;min-width:180px"><label>${esc(dp.name)} ${esc(dp.width_px)}×${esc(dp.height_px)} <span class=hint>${esc(e.source || "")}</span></label><br><canvas id="pv-cv-${esc(dp.name)}" data-scale="3" style="border:1px solid #444;max-width:100%"></canvas></div>`;
+        return `<div class=col style="min-width:180px"><label>${esc(dp.name)} ${esc(dp.width_px)}×${esc(dp.height_px)} <span class=hint>${esc(e.source || "")}</span></label><div class=led><canvas id="pv-cv-${esc(dp.name)}" data-scale="3" style="max-width:100%"></canvas></div></div>`;
       }).join("") || `<span class=hint>No displays in this program.</span>`;
       const seqHtml = (seq) => seq.length
         ? seq.map((c) => `<button data-pv-clip="${esc(c.sha)}" title="${esc(c.kind)}">${esc(c.label)}</button>`).join("")
@@ -640,7 +737,32 @@ async function refreshUploadStatus() {
   $("pv-first").onclick = () => { Preview._pos = 1; loadPreview(); };
   $("pv-prev").onclick = () => { Preview._pos = Math.max(1, (Preview._pos || 1) - 1); loadPreview(); };
   $("pv-next").onclick = () => { Preview._pos = (Preview._pos || 1) + 1; loadPreview(); };
-  if ($("pv-dest").value) { Preview._did = $("pv-dest").value; Preview._pos = 1; loadPreview(); }
+}
+function upStatusText(c, pid) {
+  const row = ((c.programs || []).find((x) => x.program_id === pid)) || null;
+  if (!row || row.desired_version == null) return "not uploaded";
+  const inst = row.installed_version, des = row.desired_version, act = row.active_version;
+  const sync = c.sync_state;
+  if (sync && sync.phase && sync.phase !== "idle")
+    return (sync.phase === "audio" && sync.total ? `fetching audio ${sync.done || ""}/${sync.total}…`
+      : sync.phase === "bundle" ? `downloading v${sync.version || ""}…`
+      : sync.phase === "installing" ? "installing…" : `${sync.phase}…`);
+  if (inst == null) return c.online ? `queued v${des} - bus downloading…` : `queued v${des} - waiting for bus`;
+  if (inst !== des) return `installing v${des}… (bus has v${inst})`;
+  const okIcon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:2px"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+  if (act == null || act !== des) return `${okIcon} installed v${des}` + (act != null ? ` - bus parked on v${act}, select a destination to switch` : " - bus will adopt it");
+  return `${okIcon} live on v${des}`;
+}
+async function refreshUploadStatus() {
+  try {
+    const r = await api("/api/controllers?organisation_id=" + encodeURIComponent(S.org));
+    S.controllers = r.controllers || [];
+    const pid = S.curProg && S.curProg.id;
+    for (const el of document.querySelectorAll("[data-upstat]")) {
+      const c = S.controllers.find((x) => x.id === el.dataset.upstat);
+      if (c && pid) el.textContent = upStatusText(c, pid);
+    }
+  } catch (e) { /* keep old text on failure */ }
 }
 function findDest(did) {
   for (const s of (S.curProg.services || [])) for (const d of (s.destinations || [])) if (d.id === did) return { s, d };
@@ -657,7 +779,7 @@ function editStops(did) {
       <td><input data-f=board_text value="${esc(st.board_text || "")}"></td>
       <td><input data-f=board_override value="${esc(st.board_override || "")}"></td>
       <td><input data-f=is_terminus type=checkbox${st.is_terminus ? " checked" : ""}></td>
-      <td><button data-delstop="${i}">✕</button></td></tr>`;
+      <td><button data-delstop="${i}" class=danger title="Delete stop"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></td></tr>`;
   });
   h += `</tbody></table><div class=row><button id=stop-add>Add stop</button><button id=stop-save class=primary>Save stops</button></div>
     <p class=hint>Pick a clip by name for each stop, or leave it silent. Terminus must be the last stop. Positions are assigned in order.</p>`;
@@ -861,7 +983,7 @@ async function loadControllers() {
   S.controllers = r.controllers || [];
   $("ctlrows").innerHTML = S.controllers.map((c) => {
     const last = c.last_seen_at || "never";
-    const status = c.online ? `<b class=ok>ONLINE</b>` : `offline<br><span class=hint>last seen ${esc(last)}</span>`;
+    const status = c.online ? `<span class="badge ok">ONLINE</span>` : `<span class="badge err">OFFLINE</span><br><span class=hint>last seen ${esc(last)}</span>`;
     const handshake = c.awaiting_pi ? ` <span class=err>waiting for Pi - pair done, Pi hasn't collected its token yet</span>` : "";
     const progs = (c.programs || []).map((p) => {
       const bits = [`want v${p.desired_version}`, `bus v${p.installed_version == null ? "-" : p.installed_version}`];
@@ -873,8 +995,8 @@ async function loadControllers() {
       return `${esc(p.name || p.program_id)}: ${bits.join(" / ")}${warn}`;
     }).join("<br>") || "-";
     const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
-    return `<tr><td>${esc(c.name)}</td><td>${status}${esc(pend)}${handshake}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
+    return `<tr><td><b>${esc(c.name)}</b></td><td>${status}${esc(pend)}${handshake}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
+    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button class=danger data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
 }
@@ -1427,11 +1549,11 @@ const Tfl = (() => {
       h += `<tr${editingIndex === i ? ` class=editing` : ""}><td>${i + 1}</td><td>${esc(p.label)} <span class=hint>${esc(p.folder || "")}</span></td>` +
         `<td><input type=number step=0.01 min=0 max=${p.buf.duration.toFixed(2)} value=${p.start.toFixed(2)} data-mstart="${i}" style="width:64px" title="Part start (s)">–` +
         `<input type=number step=0.01 min=0 max=${p.buf.duration.toFixed(2)} value=${p.end.toFixed(2)} data-mend="${i}" style="width:64px" title="Part end (s)">s</td>` +
-        `<td class=row><button data-msolo="${i}" title="Play just this part">▶</button>` +
+        `<td class=row><button data-msolo="${i}" title="Play just this part"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>` +
         `<button data-mtrim="${i}" title="Load back into the trimmer for visual tweaking">${editingIndex === i ? "Cancel" : "Trim"}</button>` +
         `<button data-mup="${i}"${i === 0 ? " disabled" : ""} title="Move up">↑</button>` +
         `<button data-mdown="${i}"${i === mergeParts.length - 1 ? " disabled" : ""} title="Move down">↓</button>` +
-        `<button data-mdel="${i}" title="Remove">✕</button></td></tr>`;
+        `<button data-mdel="${i}" title="Remove" class=danger><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></td></tr>`;
       if (j) {
         h += `<tr><td></td><td colspan=2><span class=hint>transition →</span> ` +
           `gap <input type=number min=0 max=2000 step=10 value=${Math.round(j.gap)} data-jgap="${i}" style="width:60px" title="Silence between these words in ms (ignored when crossfade > 0)">ms ` +
@@ -1620,6 +1742,23 @@ const Tfl = (() => {
   return { wire };
 })();
 
+// ---------- theme ----------
+function applyTheme(dark) {
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  const btn = $("theme-toggle");
+  if (!btn) return;
+  const moon = btn.querySelector(".moon");
+  const sun = btn.querySelector(".sun");
+  const label = btn.querySelector(".label");
+  if (moon) moon.style.display = dark ? "none" : "";
+  if (sun) sun.style.display = dark ? "" : "none";
+  if (label) label.textContent = dark ? "Light" : "Dark";
+}
+let isDark = localStorage.getItem("nsl_dark") === "1" ||
+  (localStorage.getItem("nsl_dark") == null && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+applyTheme(isDark);
+$("theme-toggle").addEventListener("click", () => { isDark = !isDark; localStorage.setItem("nsl_dark", isDark ? "1" : "0"); applyTheme(isDark); });
+
 // ---------- boot ----------
 $("form-login").addEventListener("submit", (e) => { e.preventDefault(); doLogin(); });
 $("form-signup").addEventListener("submit", (e) => { e.preventDefault(); doCreate(); });
@@ -1631,6 +1770,6 @@ $("btn-logout").addEventListener("click", () => {
 $("orgsel").addEventListener("change", () => {
   S.org = $("orgsel").value; localStorage.setItem("nsl_org", S.org); loadAll();
 });
-document.querySelector('#tabs .tab').classList.add("on");
+showSection("programs");
 Tfl.wire();
 refreshMe();
