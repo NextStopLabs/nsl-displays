@@ -75,9 +75,14 @@ class DisplayDriver:
         nsl-display renders them) - drawing them here would composite several
         frames at the same origin, i.e. garbled flickering text.
         """
-        from .renderer import autofit_layout, current_page, render_frame
+        from .renderer import autofit_layout, fields_for_layout_page, render_frame
         import json as _j
+        import time as _t
         fields = snapshot.get("fields", {})
+        pages = snapshot.get("pages") or []
+        destination = snapshot.get("destination") or {}
+        service = snapshot.get("service") or {}
+        svc_number = service.get("number", "") if isinstance(service, dict) else ""
         override = snapshot.get("override") or ""
         layouts = snapshot.get("layouts", {})
         state = snapshot.get("state", {})
@@ -105,7 +110,16 @@ class DisplayDriver:
             if layout is None:
                 layout = autofit_layout(w, h)
             try:
-                frame = render_frame(layout, fields, override)
+                if pages and destination:
+                    page_fields, _ = fields_for_layout_page(
+                        destination, svc_number, layout, _t.time(), pages)
+                    # keep stop-derived fields (__board_text etc.) from snapshot
+                    for k, v in fields.items():
+                        if k.startswith("__"):
+                            page_fields[k] = v
+                    frame = render_frame(layout, page_fields, override)
+                else:
+                    frame = render_frame(layout, fields, override)
             except Exception:
                 continue  # hold last frame on crash (spec)
             self.last_frames[out["display_name"]] = frame

@@ -9,7 +9,7 @@ The program data format is defined in **`program-format.md`**.
 ## 1. Goals
 
 1. **Multi-user** portal where each account (organisation) has its own private data.
-2. **Programs**: users create programs in the portal and upload them to controllers. A program holds services, destinations (with 8-digit codes), stops, audio references and board layouts, stored in the new **program file format** (`.nslprog`, a SQLite file; see `program-format.md`).
+2. **Programs**: users create programs in the portal and upload them to controllers. A program holds services, destinations (with 1–8 digit codes), stops, audio references and board layouts, stored in the new **program file format** (`.nslprog`, a SQLite file; see `program-format.md`).
 3. **Web portal** at `nsldisplays.com/portal` to pair controllers, build programs, manage audio and voices, design what each board shows, and remotely control a controller.
 4. **Raspberry Pi 4 controller** that runs programs, plays announcements and drives the LED boards (one logical controller per bus: main Pi drives front directly, side/rear over network - see 6.6.1), controlled by a USB keypad, the portal and a local web controller (and optional GPIO buttons).
 5. **Three displays from one logical controller** (front, side, rear) with a documented wiring method for a 10 m bus (see 6.6). Front is driven directly from the main Pi's GPIO; side and rear are too far for HUB75 ribbon and use networked receiver Pis.
@@ -131,7 +131,7 @@ Organisation  (status: active | suspended, set externally)
        │    │     • approaching_clip    "Approaching…"
        │    │     • last_stop_clip      "…where this service terminates"
        │    └─ Destination (MANY per service)
-       │         ├─ code               8 digits, unique within the PROGRAM
+       │         ├─ code               1–8 digits, unique within the PROGRAM
        │         ├─ board fields       num, via, dest (+ any extra fields)
        │         ├─ layouts            one per program display, fully user-defined
        │         └─ Stop (ordered)     e.g. "Burton New Street"
@@ -171,7 +171,7 @@ Every row that belongs to a customer carries `organisation_id` (directly or via 
 ### 4.3 Programs and destination codes
 
 - A **program** is the unit users build and upload to a controller. It contains many services, each with many destinations. A controller can hold several programs and has one **active program** at a time.
-- Every destination has a **code of exactly 8 digits** (`0`-`9`), **unique within its program**. Two destinations in the same program can never share a code, even across different services. The same code can be reused in a different program.
+- Every destination has a **code of 1–8 digits** (`0`-`9`), **unique within its program**. Two destinations in the same program can never share a code, even across different services. The same code can be reused in a different program.
 - Because the code is unique in the program, entering a code selects the service **and** destination in one go.
 - The editor suggests the next free code and validates length, digits and uniqueness as you type (inline message under the field). The database enforces it with `UNIQUE (program_id, code)` on the server and `UNIQUE (code)` inside each `.nslprog` file.
 - Destination ids are stable across versions, so editing a code never breaks saved selections. Codes are used to pick a destination by keypad, remote control and local controller.
@@ -243,7 +243,7 @@ Per controller, editable in the portal and on the local controller at `192.168.4
 **Program editor** (tabbed dialog style):
 1. **General** tab: program name, `px_width`, default display, the **displays** the program defines (name, width, height; for example front 240x40, side 160x40, rear 80x40), and **override presets**.
 2. **Services** tab: add many services; opens the service editor (5.3a).
-3. **Codes** tab: table of every destination in the program with its 8-digit code, service and name. Sort, search, find duplicates (flagged in red), bulk re-number, export/print a code sheet for drivers.
+3. **Codes** tab: table of every destination in the program with its 1–8 digit code, service and name. Sort, search, find duplicates (flagged in red), bulk re-number, export/print a code sheet for drivers.
 4. **Uploads** tab: which controllers have this program, desired vs installed version, status and last error.
 
 **Draft and publish:** edits are saved as a draft and do not touch any controller. **Upload to controllers** runs validation (see `program-format.md` section 8), builds an immutable numbered `.nslprog` version, and queues it for the chosen controllers. The upload dialog shows the **total download size** (program file plus new audio). Because the Pi connects only now and then, "queued" means the controller will take it the next time it is online. The Pi installs it atomically and reports success or failure; the previous version stays until the new one verifies, and the active program is never switched mid-run (see 6.2). If nothing changed since the last version, no new version is created.
@@ -260,7 +260,7 @@ Per controller, editable in the portal and on the local controller at `192.168.4
    - Terminus clip mode (next stop, approaching, both)
 2. **Destinations** tab
    - Add as many destinations as needed (e.g. Burton, Lichfield, Derby)
-   - Per destination: **Code** (8 digits, unique in the program), **Name**, **Route number** (defaults to the service number), **Via**, **Destination text**, and extra fields
+   - Per destination: **Code** (1–8 digits, unique in the program), **Name**, **Route number** (defaults to the service number), **Via**, **Destination text**, and extra fields
    - Reorder, rename, delete
    - Copy a destination reversed (to build the return direction quickly; a new code is suggested)
 3. **Stops** tab (for the selected destination)
@@ -331,7 +331,7 @@ A per-controller page that acts as the driver's screen when they are not using t
 
 - **Live status**: online/offline, active program, selected service and destination (name and code), current stop, next stop, active override, volume, last announcement.
 - **Live previews** of every display exactly as the LED panels show them.
-- **Controls**: select program, select destination (list or type the 8-digit code), advance stop, previous stop, play next-stop / approaching / last-stop announcement, replay, apply a board override (choose a preset or type text), clear override, volume, mute, and "apply pending update now".
+- **Controls**: select program, select destination (list or type the 1–8 digit code), advance stop, previous stop, play next-stop / approaching / last-stop announcement, replay, apply a board override (choose a preset or type text), clear override, volume, mute, and "apply pending update now".
 - Commands go over the controller's WebSocket and are acknowledged by the Pi; failures are shown on the page.
 - Large buttons so it is usable on a phone.
 - Editors can control; viewers can only watch. Every command is written to the command log with user and time.
@@ -370,7 +370,7 @@ The Pi connects only when you bring up the phone hotspot (or another saved netwo
 
 The Pi creates its own Wi-Fi access point. Join it from a phone or laptop and open `http://192.168.4.1`. It works with **no internet** and uses the same UI components as the portal's remote control page.
 
-**Control** (same abilities as remote control, 5.6): choose program, destination (list or 8-digit code), advance/previous stop, announcements, overrides, volume, live display previews.
+**Control** (same abilities as remote control, 5.6): choose program, destination (list or 1–8 digit code), advance/previous stop, announcements, overrides, volume, live display previews.
 
 **Programs:** list installed programs and versions, choose the active program, apply a pending version, roll back to the previous version, and **import a `.nslpack` file** to install a program with no internet (see `program-format.md` section 12).
 
@@ -579,7 +579,7 @@ All portal routes are under the base path `/portal` (for example `https://nsldis
 - `POST /programs/:id/publish` (validate and build `.nslprog`), `POST /programs/:id/upload` (body: controller ids and version)
 - `GET /programs/:id/versions/:v/export` (`.nslpack`), `POST /programs/import`
 - `GET/POST /programs/:id/services`, `GET/PUT/DELETE /services/:id`
-- `POST /services/:id/destinations`, `PUT /destinations/:id`, `GET /programs/:id/destinations/check-code?code=` (8 digits, unique in the program)
+- `POST /services/:id/destinations`, `PUT /destinations/:id`, `GET /programs/:id/destinations/check-code?code=` (1–8 digits, unique in the program)
 - `PUT /destinations/:id/stops` (ordered list)
 - `GET/PUT /destinations/:id/layouts/:displayId`, `GET/POST /programs/:id/layout-templates`
 - `POST /audio` (upload), `POST /audio/generate` (Piper), `GET /audio`, `DELETE /audio/:id`
@@ -626,7 +626,7 @@ All portal routes are under the base path `/portal` (for example `https://nsldis
 
 ### Phase 1: Portal core (3 to 5 weeks)
 - Auth, organisations, roles, invites
-- Programs, services, many destinations with 8-digit codes unique per program, stops, clips, board text/override
+- Programs, services, many destinations with 1–8 digit codes unique per program, stops, clips, board text/override
 - Audio library: upload, convert, loudness normalise, hash, preview
 - Piper text-to-speech with your existing voice as default, generate/regenerate, bulk generate, **user voice model upload**
 - Program draft, validation, publish to `.nslprog`, versions, export/import `.nslpack`
@@ -643,7 +643,7 @@ All portal routes are under the base path `/portal` (for example `https://nsldis
 - Display driver based on your existing code, with your option names/defaults: front 3 panels local on main Pi 4 (`chain=3, parallel=1`), side/rear on networked receiver Pis (chain=2 / chain=1); bench-only profiles for 3 parallel chains and single chain of 6 retained
 - Receiver-Pi display sync protocol over bus LAN (state + layout JSON, <100 ms, hold-last-frame on drop)
 - Board layout editor in the portal and layout rendering on the Pi (same renderer on main and receivers)
-- **USB keypad** input: 8-digit code entry, key map, actions
+- **USB keypad** input: 1–8 digit code entry (Enter confirms, auto-select at 8 digits), key map, actions
 - Optional GPIO bindings with reserved-pin checks and a pin test view
 - Controller configuration screens (displays, matrix options, keypad, networks, startup) in the portal
 - Remote control page with live state and previews
@@ -673,7 +673,7 @@ All portal routes are under the base path `/portal` (for example `https://nsldis
 ## 11. Testing
 
 - **Program format**: build and read round-trip on SQLite and PostgreSQL with identical `content_hash`; validation errors and warnings; layout JSON parsing; unknown optional data ignored by an older reader; unsupported `format_version` refused.
-- **Unit**: announcement composition, versioning, pairing code lifecycle, destination codes (exactly 8 digits, leading zeros kept, unique within a program, same code allowed in another program), layout resolution.
+- **Unit**: announcement composition, versioning, pairing code lifecycle, destination codes (1–8 digits, leading zeros kept, unique within a program, same code allowed in another program), layout resolution.
 - **Integration**: portal ↔ device API, program publish/upload/install with interrupted and resumed downloads over a dropping connection, software update and rollback, remote command round trip with acknowledgement.
 - **State carry-over**: upgrading the active program keeps the selected destination and stop by id; a removed destination or stop falls back safely; an override survives an upgrade only on the same stop.
 - **Security**: cross-tenant access attempts, token revocation, role checks on remote commands, signature and hash tamper tests, malformed program files and voice uploads.

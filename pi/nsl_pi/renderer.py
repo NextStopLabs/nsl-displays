@@ -48,6 +48,34 @@ def resolve_fields(destination: dict, service_number: str = "") -> dict:
     return fields
 
 
+def fields_for_layout_page(destination: dict, service_number: str,
+                           layout: dict, now: float | None = None,
+                           pages: list[dict] | None = None) -> tuple[dict, int]:
+    """Pick the fields for the time slot active at `now`.
+
+    Board pages (each with its own via/dest) cycle on their own timer,
+    independent of layout pages: slot k shows layout page
+    ``k % n_layout_pages`` with destination page ``k % n_dest_pages``.
+    With a single layout page (the common case) the board simply rotates
+    through P1, P2, … every ``page_seconds``. Without destination pages
+    this is identical to the old layout-page cycling.
+    Returns (fields, layout_page_number). Service number is constant.
+    """
+    ordered_layout_pages = _pages_used(layout)
+    secs = float(layout.get("page_seconds", 3) or 3)
+    t = time.time() if now is None else now
+    slot = int(t // secs) if secs > 0 else 0
+    page = ordered_layout_pages[slot % len(ordered_layout_pages)]
+    fields = resolve_fields(destination, service_number)
+    if pages:
+        ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+        if ordered:
+            pg = ordered[slot % len(ordered)]
+            fields["via"] = pg.get("via") or ""
+            fields["dest"] = pg.get("dest") or ""
+    return fields, page
+
+
 def resolve_layout(con, destination_id: str, display_id: str) -> dict | None:
     """destination layout -> default template -> None (caller uses auto-fit)."""
     row = con.execute("SELECT layout FROM layouts WHERE destination_id=? AND display_id=?",

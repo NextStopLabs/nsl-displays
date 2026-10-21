@@ -386,6 +386,11 @@ def get_program(pid: str, u: dict = Depends(current_user)):
                 "SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (d["id"],))]
             d["layouts"] = [dict(r) for r in con.execute(
                 "SELECT * FROM p_layouts WHERE destination_id=?", (d["id"],))]
+            try:
+                d["pages"] = [dict(r) for r in con.execute(
+                    "SELECT * FROM p_destination_pages WHERE destination_id=? ORDER BY position", (d["id"],))]
+            except Exception:
+                d["pages"] = []
     p["presets"] = [dict(r) for r in con.execute("SELECT * FROM p_presets WHERE program_id=? ORDER BY position", (pid,))]
     p["versions"] = [dict(r) for r in con.execute("SELECT * FROM program_versions WHERE program_id=? ORDER BY version", (pid,))]
     return p
@@ -560,6 +565,47 @@ def add_service(pid: str, body: dict, u: dict = Depends(current_user)):
     return {"service_id": sid}
 
 
+def _check_code_shape(code: str) -> bool:
+    return 1 <= len(code) <= 8 and code.isdigit()
+
+
+def _insert_destination_page(con, org: str, pid: str, did: str, position: int,
+                             via: str = "", dest: str = "") -> str:
+    """Insert one board page row; table may be missing on old DBs (created lazily)."""
+    try:
+        con.execute("SELECT 1 FROM p_destination_pages LIMIT 1")
+    except Exception:
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS p_destination_pages ("
+            "id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,"
+            "destination_id TEXT NOT NULL, position INTEGER NOT NULL, via TEXT DEFAULT '',"
+            "dest TEXT DEFAULT '', UNIQUE (destination_id, position))")
+    pgid = str(uuid.uuid4())
+    con.execute("INSERT INTO p_destination_pages VALUES (?,?,?,?,?,?,?)",
+                (pgid, org, pid, did, position, via or "", dest or ""))
+    return pgid
+
+
+def _destination_pages(con, did: str) -> list[dict]:
+    try:
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM p_destination_pages WHERE destination_id=? ORDER BY position", (did,))]
+    except Exception:
+        return []
+
+
+def _sync_base_from_pages(con, did: str):
+    """Keep base via/dest columns equal to page 1 so older readers/layouts still work."""
+    try:
+        row = con.execute(
+            "SELECT via, dest FROM p_destination_pages WHERE destination_id=? ORDER BY position LIMIT 1",
+            (did,)).fetchone()
+    except Exception:
+        return
+    if row:
+        con.execute("UPDATE p_destinations SET via=?, dest=? WHERE id=?", (row["via"], row["dest"], did))
+
+
 @app.post("/api/services/{sid}/destinations")
 def add_destination(sid: str, body: dict, u: dict = Depends(current_user)):
     con = db()
@@ -568,16 +614,23 @@ def add_destination(sid: str, body: dict, u: dict = Depends(current_user)):
         raise HTTPException(404, "no service")
     require_role(u["id"], s["organisation_id"], "owner", "editor")
     code = (body.get("code") or "").strip()
-    if len(code) != 8 or not code.isdigit():
-        raise HTTPException(400, "code must be exactly 8 digits")
+    if not _check_code_shape(code):
+        raise HTTPException(400, "code must be 1-8 digits 0-9")
     if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (s["program_id"], code)).fetchone():
         raise HTTPException(400, "duplicate code in program")
     did = str(uuid.uuid4())
     pos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=?", (sid,)).fetchone()[0]
+    via, dest_text = body.get("via", ""), body.get("dest", "")
+    # Optional extra pages: [{via, dest}, ...] — page 1 is via/dest above.
+    extra_pages = body.get("pages") or []
     con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (did, s["organisation_id"], s["program_id"], sid, code, body.get("name", code), pos,
-                 body.get("num"), body.get("via", ""), body.get("dest", ""),
+                 body.get("num"), via, dest_text,
                  json.dumps(body.get("extra", {}), separators=(",", ":"))))
+    _insert_destination_page(con, s["organisation_id"], s["program_id"], did, 1, via, dest_text)
+    for i, pg in enumerate(extra_pages, 2):
+        _insert_destination_page(con, s["organisation_id"], s["program_id"], did, i,
+                                 (pg or {}).get("via", ""), (pg or {}).get("dest", ""))
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], s["program_id"]))
     con.commit()
     return {"destination_id": did}
@@ -592,8 +645,8 @@ def update_destination(did: str, body: dict, u: dict = Depends(current_user)):
         raise HTTPException(404, "no destination")
     require_role(u["id"], d["organisation_id"], "owner", "editor")
     code = (body.get("code") or d["code"]).strip()
-    if len(code) != 8 or not code.isdigit():
-        raise HTTPException(400, "code must be exactly 8 digits")
+    if not _check_code_shape(code):
+        raise HTTPException(400, "code must be 1-8 digits 0-9")
     if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=? AND id<>?",
                    (d["program_id"], code, did)).fetchone():
         raise HTTPException(400, "duplicate code in program")
@@ -610,7 +663,85 @@ def update_destination(did: str, body: dict, u: dict = Depends(current_user)):
     con.execute("UPDATE p_destinations SET service_id=?, code=?, name=?, position=?, num=?, via=?, dest=? WHERE id=?",
                 (sid, code, body.get("name", d["name"]), pos,
                  body.get("num", d["num"]), body.get("via", d["via"]), body.get("dest", d["dest"]), did))
+    # Keep page 1 in step when the base board text is edited directly.
+    try:
+        first = con.execute(
+            "SELECT id FROM p_destination_pages WHERE destination_id=? ORDER BY position LIMIT 1",
+            (did,)).fetchone()
+        if first and ("via" in body or "dest" in body):
+            con.execute("UPDATE p_destination_pages SET via=?, dest=? WHERE id=?",
+                        (body.get("via", d["via"]), body.get("dest", d["dest"]), first["id"]))
+    except Exception:
+        pass
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"ok": True}
+
+
+@app.post("/api/destinations/{did}/pages")
+def add_destination_page(did: str, body: dict, u: dict = Depends(current_user)):
+    """Append a board page (custom via/dest) to a destination. Position = N+1."""
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor")
+    pages = _destination_pages(con, did)
+    if not pages:
+        # Backfill page 1 from the base columns so older destinations join the model.
+        _insert_destination_page(con, d["organisation_id"], d["program_id"], did, 1,
+                                 d["via"] or "", d["dest"] or "")
+        pages = _destination_pages(con, did)
+    pgid = _insert_destination_page(con, d["organisation_id"], d["program_id"], did, len(pages) + 1,
+                                    body.get("via", ""), body.get("dest", ""))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"page_id": pgid, "position": len(pages) + 1}
+
+
+@app.put("/api/destination-pages/{pgid}")
+def update_destination_page(pgid: str, body: dict, u: dict = Depends(current_user)):
+    con = db()
+    pg = con.execute("SELECT * FROM p_destination_pages WHERE id=?", (pgid,)).fetchone()
+    if not pg:
+        raise HTTPException(404, "no page")
+    require_role(u["id"], pg["organisation_id"], "owner", "editor")
+    via = body.get("via", pg["via"])
+    dest_text = body.get("dest", pg["dest"])
+    if len(via or "") > 200 or len(dest_text or "") > 200:
+        raise HTTPException(400, "via/dest must be 200 characters or fewer")
+    con.execute("UPDATE p_destination_pages SET via=?, dest=? WHERE id=?", (via or "", dest_text or "", pgid))
+    if pg["position"] == 1:
+        con.execute("UPDATE p_destinations SET via=?, dest=? WHERE id=?",
+                    (via or "", dest_text or "", pg["destination_id"]))
+    d = con.execute("SELECT program_id FROM p_destinations WHERE id=?", (pg["destination_id"],)).fetchone()
+    if d:
+        con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/destination-pages/{pgid}")
+def delete_destination_page(pgid: str, u: dict = Depends(current_user)):
+    con = db()
+    pg = con.execute("SELECT * FROM p_destination_pages WHERE id=?", (pgid,)).fetchone()
+    if not pg:
+        raise HTTPException(404, "no page")
+    require_role(u["id"], pg["organisation_id"], "owner", "editor")
+    remaining = con.execute("SELECT COUNT(*) FROM p_destination_pages WHERE destination_id=?",
+                            (pg["destination_id"],)).fetchone()[0]
+    if remaining <= 1:
+        raise HTTPException(400, "a destination needs at least one page - edit it instead of deleting")
+    con.execute("DELETE FROM p_destination_pages WHERE id=?", (pgid,))
+    # Renumber higher pages down so positions stay 1..N.
+    rows = con.execute("SELECT id FROM p_destination_pages WHERE destination_id=? ORDER BY position",
+                       (pg["destination_id"],)).fetchall()
+    for i, r in enumerate(rows, 1):
+        con.execute("UPDATE p_destination_pages SET position=? WHERE id=?", (i, r["id"]))
+    _sync_base_from_pages(con, pg["destination_id"])
+    d = con.execute("SELECT program_id FROM p_destinations WHERE id=?", (pg["destination_id"],)).fetchone()
+    if d:
+        con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
     con.commit()
     return {"ok": True}
 
@@ -624,6 +755,10 @@ def delete_destination(did: str, u: dict = Depends(current_user)):
     require_role(u["id"], d["organisation_id"], "owner", "editor")
     con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
     con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
+    try:
+        con.execute("DELETE FROM p_destination_pages WHERE destination_id=?", (did,))
+    except Exception:
+        pass
     con.execute("DELETE FROM p_destinations WHERE id=?", (did,))
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
     con.commit()
@@ -641,6 +776,10 @@ def delete_service(sid: str, u: dict = Depends(current_user)):
     for did in dids:
         con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
         con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
+        try:
+            con.execute("DELETE FROM p_destination_pages WHERE destination_id=?", (did,))
+        except Exception:
+            pass
     con.execute("DELETE FROM p_destinations WHERE service_id=?", (sid,))
     con.execute("DELETE FROM p_services WHERE id=?", (sid,))
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], s["program_id"]))
@@ -652,7 +791,7 @@ def delete_service(sid: str, u: dict = Depends(current_user)):
 def check_code(pid: str, code: str, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner", "editor", "viewer")
-    ok_shape = len(code) == 8 and code.isdigit()
+    ok_shape = _check_code_shape(code)
     taken = db().execute("SELECT id FROM p_destinations WHERE program_id=? AND code=?", (pid, code)).fetchone()
     return {"code": code, "shape_ok": ok_shape, "unique": taken is None,
             "suggestion": None if (ok_shape and taken is None) else suggest_code(pid)}
@@ -750,7 +889,8 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
     count = len(stops)
     if count == 0:
         return {"destination": d, "service": s, "stop": None, "pos": 0, "count": 0,
-                "stops": [], "fields": {}, "layouts": {}, "displays": displays,
+                "stops": [], "fields": {}, "pages": _destination_pages(con, did),
+                "layouts": {}, "displays": displays,
                 "next": [], "approaching": []}
     pos = max(1, min(pos, count))
     stop = stops[pos - 1]
@@ -811,7 +951,8 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
     return {"destination": d, "service": s, "stop": stop, "pos": pos, "count": count,
             "stops": [{"position": x["position"], "name": x["name"],
                        "is_terminus": bool(x["is_terminus"])} for x in stops],
-            "fields": fields, "board_override": board_override,
+            "fields": fields, "pages": _destination_pages(con, did),
+            "board_override": board_override,
             "layouts": layouts, "displays": displays,
             "next": _seq("next"), "approaching": _seq("approaching")}
 
@@ -884,6 +1025,14 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
         for d in con.execute("SELECT * FROM p_destinations WHERE service_id=? ORDER BY position", (s["id"],)):
             b.add_destination(s["id"], d["code"], d["name"], d["via"] or "", d["dest"] or "",
                               d["num"], d["position"], json.loads(d["extra_fields"] or "{}"), id=d["id"])
+            try:
+                page_rows = con.execute(
+                    "SELECT * FROM p_destination_pages WHERE destination_id=? ORDER BY position", (d["id"],))
+            except Exception:
+                page_rows = []
+            for pg in page_rows:
+                b.add_destination_page(d["id"], pg["position"], pg["via"] or "", pg["dest"] or "",
+                                       id=pg["id"])
             for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (d["id"],)):
                 b.add_stop(d["id"], st["position"], st["name"], st["audio"], st["board_text"],
                            st["board_override"], bool(st["is_terminus"]), id=st["id"])
@@ -2107,6 +2256,13 @@ def duplicate_program(pid: str, u: dict = Depends(current_user)):
         d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); idmap[o] = d["id"]; d["program_id"] = nid
         d["service_id"] = idmap.get(d["service_id"], d["service_id"])
         con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)", list(d.values()))
+    try:
+        for r in con.execute("SELECT * FROM p_destination_pages WHERE program_id=?", (pid,)):
+            d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); d["program_id"] = nid
+            d["destination_id"] = idmap.get(d["destination_id"], d["destination_id"])
+            con.execute("INSERT INTO p_destination_pages VALUES (?,?,?,?,?,?,?)", list(d.values()))
+    except Exception:
+        pass
     for table, n in (("p_stops", 10), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5)):
         for r in con.execute(f"SELECT * FROM {table} WHERE program_id=?", (pid,)):
             d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); d["program_id"] = nid
@@ -2123,7 +2279,7 @@ def delete_program(pid: str, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner")
     con = db()
-    for t in ("p_stops", "p_layouts", "p_templates", "p_presets", "p_destinations", "p_services",
+    for t in ("p_stops", "p_destination_pages", "p_layouts", "p_templates", "p_presets", "p_destinations", "p_services",
               "program_displays", "program_versions", "controller_programs", "programs"):
         col = "id" if t == "programs" else "program_id"
         try:
@@ -2901,7 +3057,7 @@ def _do_bustimes_import_one(con, org: str, pid: str, user_id: str, bustimes_id: 
                 warnings.append(f"destination {name}: bad direction {direction!r} - no stops added")
                 stops = []
         code = ((entry or {}).get("code") or "").strip()
-        if len(code) != 8 or not code.isdigit() or code in used_codes or con.execute(
+        if not _check_code_shape(code) or code in used_codes or con.execute(
                 "SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (pid, code)).fetchone():
             code = suggest_code(pid, used_codes)
         used_codes.add(code)
@@ -2912,6 +3068,7 @@ def _do_bustimes_import_one(con, org: str, pid: str, user_id: str, bustimes_id: 
         con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (did, org, pid, sid, code, name, dpos, None, via, dest_text,
                      json.dumps({}, separators=(",", ":"))))
+        _insert_destination_page(con, org, pid, did, 1, via, dest_text)
         n_stops = 0
         for i, sname in enumerate(stops, 1):
             sname = (sname or "").strip()
@@ -3103,9 +3260,14 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
                 (nid, organisation_id, meta.get("program_name", "imported"),
                  int(meta.get("px_width", 240)), "", 0, 0, now, now, u["id"]))
     idmap = {}
-    for t, cols in (("displays", None), ("services", None), ("destinations", None), ("stops", None),
+    for t, cols in (("displays", None), ("services", None), ("destinations", None), ("destination_pages", None),
+                    ("stops", None),
                     ("layouts", None), ("layout_templates", None), ("override_presets", None)):
-        for r in src.execute(f"SELECT * FROM {t}"):
+        try:
+            rows = list(src.execute(f"SELECT * FROM {t}"))
+        except Exception:
+            continue
+        for r in rows:
             d = dict(r)
             o = d.get("id")
             if o:
@@ -3114,6 +3276,7 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
                 if k in d and d[k] in idmap:
                     d[k] = idmap[d[k]]
             dst = {"displays": "program_displays", "services": "p_services", "destinations": "p_destinations",
+                   "destination_pages": "p_destination_pages",
                    "stops": "p_stops", "layouts": "p_layouts", "layout_templates": "p_templates",
                    "override_presets": "p_presets"}[t]
             if t == "displays":
@@ -3127,6 +3290,10 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
                 con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["service_id"], d["code"], d["name"], d["position"],
                              d["num"], d["via"], d["dest"], d["extra_fields"]))
+            elif t == "destination_pages":
+                con.execute("INSERT INTO p_destination_pages VALUES (?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d["destination_id"], d["position"],
+                             d.get("via", ""), d.get("dest", "")))
             elif t == "stops":
                 con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["destination_id"], d["position"], d["name"],

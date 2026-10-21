@@ -50,6 +50,14 @@ def _rows(con: sqlite3.Connection, sql: str, params=()):
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def _has_table(con: sqlite3.Connection, name: str) -> bool:
+    try:
+        return con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
 def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> ValidationResult:
     """Full section-8 validation on an open .nslprog connection."""
     res = ValidationResult()
@@ -72,6 +80,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     displays = _rows(con, "SELECT * FROM displays ORDER BY position")
     services = _rows(con, "SELECT * FROM services ORDER BY position")
     destinations = _rows(con, "SELECT * FROM destinations ORDER BY position")
+    dest_pages = _rows(con, "SELECT * FROM destination_pages ORDER BY destination_id, position") \
+        if _has_table(con, "destination_pages") else []
     stops = _rows(con, "SELECT * FROM stops ORDER BY destination_id, position")
     layouts = _rows(con, "SELECT * FROM layouts")
     templates = _rows(con, "SELECT * FROM layout_templates")
@@ -103,8 +113,8 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
     seen_codes: dict[str, list] = {}
     for d in destinations:
         code = d["code"] or ""
-        if len(code) != 8 or not code.isdigit():
-            res.errors.append(Issue("bad_code", f"destination {d['id']} code {code!r} must be exactly 8 digits",
+        if not (1 <= len(code) <= 8) or not code.isdigit():
+            res.errors.append(Issue("bad_code", f"destination {d['id']} code {code!r} must be 1-8 digits",
                                     "destinations", d["id"]))
         seen_codes.setdefault(code, []).append(d["id"])
     for code, ids in seen_codes.items():
@@ -130,6 +140,26 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
                     res.errors.append(Issue("extra_value", f"extra field {k!r} must be string<=200", "destinations", d["id"]))
         except (ValueError, json.JSONDecodeError) as e:
             res.errors.append(Issue("extra_json", f"extra_fields invalid: {e}", "destinations", d["id"]))
+
+    # --- destination pages: per destination 1..N no gaps ---
+    dest_ids = {d["id"] for d in destinations}
+    from collections import defaultdict
+    pages_by_dest: dict[str, list] = defaultdict(list)
+    for pg in dest_pages:
+        if pg["destination_id"] not in dest_ids:
+            res.errors.append(Issue("orphan_pages", f"pages for unknown destination {pg['destination_id']}",
+                                    "destination_pages", pg["id"]))
+        else:
+            pages_by_dest[pg["destination_id"]].append(pg)
+    for dest_id, lst in pages_by_dest.items():
+        positions = sorted(r["position"] for r in lst)
+        if positions != list(range(1, len(lst) + 1)):
+            res.errors.append(Issue("page_gap", f"destination {dest_id} page positions must be 1..N no gaps, got {positions}",
+                                    "destination_pages", dest_id))
+        for pg in lst:
+            if len(pg["via"] or "") > 200 or len(pg["dest"] or "") > 200:
+                res.errors.append(Issue("page_value", "page via/dest must be <=200 chars",
+                                        "destination_pages", pg["id"]))
 
     # --- stops: per destination 1..N no gaps, terminus last & single ---
     from collections import defaultdict

@@ -125,9 +125,9 @@ class Core:
         return self.state()
 
     def select_code(self, code: str, source: str = "keypad", user_id: str | None = None) -> dict:
-        """8-digit code -> service+destination in ACTIVE program. Clears override, resets to stop 1."""
+        """1-8 digit code -> service+destination in ACTIVE program. Clears override, resets to stop 1."""
         code = (code or "").strip()
-        if len(code) != 8 or not code.isdigit():
+        if not (1 <= len(code) <= 8) or not code.isdigit():
             raise ValueError("INVALID")
         st = self.state()
         if not st["program_id"]:
@@ -398,6 +398,12 @@ class Core:
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
             from .renderer import resolve_fields
             fields = resolve_fields(dict(dest), svc["number"] if svc else "")
+            try:
+                pages = [dict(r) for r in pc.execute(
+                    "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
+                    (dest["id"],))]
+            except Exception:
+                pages = []
             if stop:
                 fields["__stop_name"] = stop["name"]
                 fields["__board_text"] = stop["board_text"] or stop["name"]
@@ -409,7 +415,7 @@ class Core:
                 layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
             for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
                 layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
-            return {"state": st, "fields": fields, "destination": dict(dest),
+            return {"state": st, "fields": fields, "pages": pages, "destination": dict(dest),
                     "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                     "layouts": layouts, "override": st["override_text"]}
         finally:

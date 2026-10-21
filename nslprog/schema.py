@@ -52,13 +52,22 @@ CREATE TABLE destinations (
   id           TEXT PRIMARY KEY,
   service_id   TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
   code         TEXT NOT NULL UNIQUE
-               CHECK (length(code) = 8 AND code NOT GLOB '*[^0-9]*'),
+               CHECK (length(code) BETWEEN 1 AND 8 AND code NOT GLOB '*[^0-9]*'),
   name         TEXT NOT NULL,
   position     INTEGER NOT NULL,
   num          TEXT,
   via          TEXT NOT NULL DEFAULT '',
   dest         TEXT NOT NULL,
   extra_fields TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE destination_pages (
+  id             TEXT PRIMARY KEY,
+  destination_id TEXT NOT NULL REFERENCES destinations(id) ON DELETE CASCADE,
+  position       INTEGER NOT NULL CHECK (position >= 1),
+  via            TEXT NOT NULL DEFAULT '',
+  dest           TEXT NOT NULL DEFAULT '',
+  UNIQUE (destination_id, position)
 );
 
 CREATE TABLE stops (
@@ -101,6 +110,7 @@ CREATE TABLE override_presets (
 
 CREATE INDEX idx_destinations_service ON destinations (service_id, position);
 CREATE INDEX idx_stops_destination    ON stops (destination_id, position);
+CREATE INDEX idx_destination_pages_destination ON destination_pages (destination_id, position);
 """
 
 META_REQUIRED_KEYS = (

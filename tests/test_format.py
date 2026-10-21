@@ -74,6 +74,33 @@ def test_dup_code_blocked(tmp_path):
         raise AssertionError("dup code should block publish")
 
 
+def test_short_codes_build_and_validate(tmp_path):
+    from nslprog import ProgramBuilder
+    from nslprog import validate_file
+    b = ProgramBuilder(program_name="t")
+    b.add_display("front", 240, 40, 0)
+    s = b.add_service("1", position=0)
+    for i, code in enumerate(["40101", "12105", "8070001", "4"]):
+        d = b.add_destination(s, code, f"D{i}", dest=f"D{i}", position=i)
+        b.add_stop(d, 1, "Only", is_terminus=True)
+    p = str(tmp_path / "short.nslprog")
+    b.build(p, 1)
+    assert validate_file(p).ok
+    # 9 digits and non-digits still blocked
+    for bad in ["123456789", "12A45", ""]:
+        b2 = ProgramBuilder(program_name="t")
+        b2.add_display("front", 240, 40, 0)
+        s2 = b2.add_service("1", position=0)
+        d = b2.add_destination(s2, bad, "Bad", dest="BAD", position=0)
+        b2.add_stop(d, 1, "Only", is_terminus=True)
+        try:
+            b2.build(str(tmp_path / "bad.nslprog"), 1)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"bad code {bad!r} should block publish")
+
+
 def test_stop_gap_and_terminus_rules(tmp_path):
     import sqlite3
     p = str(tmp_path / "v.nslprog")

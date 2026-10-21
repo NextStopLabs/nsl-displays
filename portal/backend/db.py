@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS p_stops (
   destination_id TEXT NOT NULL, position INTEGER NOT NULL, name TEXT NOT NULL,
   audio TEXT, board_text TEXT, board_override TEXT, is_terminus INTEGER DEFAULT 0,
   UNIQUE (destination_id, position));
+CREATE TABLE IF NOT EXISTS p_destination_pages (
+  id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
+  destination_id TEXT NOT NULL, position INTEGER NOT NULL, via TEXT DEFAULT '', dest TEXT DEFAULT '',
+  UNIQUE (destination_id, position));
 CREATE TABLE IF NOT EXISTS p_layouts (
   id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
   destination_id TEXT NOT NULL, display_id TEXT NOT NULL, layout TEXT NOT NULL,

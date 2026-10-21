@@ -46,7 +46,7 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 - **Portal** at `nsldisplays.com/portal`: multi-user web app. Build programs (services → destinations → stops), upload/generate audio with Piper, design what each LED board shows, pair controllers, push programs, remote-control a bus.
 - **Bus controller**: a main Raspberry Pi 4 at the front of the bus. Runs the service: plays announcements, drives the front LED sign, tells the side/rear signs what to show, reads the USB keypad, hosts the local controller page.
 - **Two receiver Pis**: one at the side sign, one at the rear sign. They drive their local panels and mirror the main Pi's state. The portal still sees **one controller per bus**.
-- **Program file** (`.nslprog`): a single SQLite file per published program version. Holds services, 8-digit destination codes, stops, displays, board layouts, audio references. Audio travels as separate hash-named FLAC files. Full spec in `format.md`.
+- **Program file** (`.nslprog`): a single SQLite file per published program version. Holds services, 1–8 digit destination codes, stops, displays, board layouts, audio references. Audio travels as separate hash-named FLAC files. Full spec in `format.md`.
 - **Offline-first**: the bus runs entirely from local cache. Internet (phone hotspot) is only needed to sync new programs, audio, or software updates.
 
 ```
@@ -299,7 +299,7 @@ Program "Burton routes"  (displays: front 240x40, side 160x40, rear 80x40)
  └─ Service "101" ...
 ```
 
-**Destination codes:** exactly 8 digits, unique within the program, stored as text (leading zeros kept). Entering a code selects service + destination in one go. Same code may exist in a different program without clash. Editor suggests the next free code, validates inline, DB enforces `UNIQUE(program_id, code)`.
+**Destination codes:** 1–8 digits, unique within the program, stored as text (leading zeros kept). Entering a code selects service + destination in one go. Short codes are confirmed with Enter; 8-digit codes also auto-select on the 8th digit. Same code may exist in a different program without clash. Editor suggests the next free code, validates inline, DB enforces `UNIQUE(program_id, code)`.
 
 **Stops:** ordered list per destination, positions 1..N no gaps. Each stop: name, stop audio clip, board text (default = name), board override (e.g. `TERMINATING BUS`, empty = none), terminus flag (must be last stop only).
 
@@ -332,7 +332,7 @@ Warnings: destination with no stops (display-only), missing service clip, stop w
 Print this for the cab.
 
 ```
-SELECT DESTINATION:  type 8-digit code ─► auto-selects on 8th digit
+SELECT DESTINATION:  type 1–8 digit code ─► Enter confirms (8-digit codes auto-select on the 8th digit)
                      (or type code + ENTER if Enter-required mode)
 CORRECT A DIGIT:     BACKSPACE (one digit) / DELETE or ESC (clear all)
 BAD CODE:            board flashes INVALID - nothing changes, retype
@@ -372,7 +372,7 @@ Entry behaviour: digits echo on the configured display (default front) → auto-
 
 Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4.1`. No internet needed. Same UI components as the portal remote page.
 
-- **Control:** program select, destination list or 8-digit code, prev/next stop, next/approaching/last-stop announce, replay, override preset/custom + clear, volume/mute, apply-pending-update, live display previews.
+- **Control:** program select, destination list or 1–8 digit code, prev/next stop, next/approaching/last-stop announce, replay, override preset/custom + clear, volume/mute, apply-pending-update, live display previews.
 - **Programs:** installed versions, active program, apply pending, roll back, **import `.nslpack`** (offline program install).
 - **Settings (login):** display outputs + matrix options, keypad map, GPIO bindings, audio device/volume, AP name/password, saved hotspot networks, join-hotspot-now, portal URL, release channel, startup program/destination.
 - **Diagnostics:** connection, last sync, pairing code, test pattern/message/announcement, live keypad/GPIO state, logs, check-for-updates, restart/shutdown.
@@ -382,7 +382,7 @@ Join the Pi AP (`NSL-<unit id>`, WPA2 per-unit password), open `http://192.168.4
 
 ## 11. Portal remote control
 
-Per-controller page. Pick the bus, type the 8-digit code, done - stop nav, announcements, override, volume and program switching live under "More controls". Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus-vs-active, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
+Per-controller page. Pick the bus, type the 1–8 digit code, done - stop nav, announcements, override, volume and program switching live under "More controls". Same abilities as §10 plus online/offline badge, programs wanted-vs-on-bus-vs-active, pending command count, last announcement, volume state. Editors control, viewers watch-only, everything logged with user + time.
 
 Truth rules: a command to an **offline** bus is refused immediately (`controller offline, last seen … - command not queued`) - it is never silently queued. Commands to an **online** bus persist in `pending_commands` (survive portal restarts) and the bus picks them up on its next heartbeat (every `NSL_POLL_S`, default 10 s); the agent logs each receipt (`portal command received: …`) and reports it back, so arrival is visible in the log. The controllers table shows per program `want vX / bus vY / active vZ` - installed ≠ selected: codes only work in the **active** version, and a `bus parked on vX` warning tells you exactly when the bus sits on an old one. Offline ⇒ keypad + local UI keep working.
 
@@ -543,7 +543,7 @@ systemctl is-active nsl-core nsl-agent nsl-display nsl-local-ui
 
 **5. Network (NetworkManager):** keep bus LAN and Wi-Fi apart - `10.9.0.0/24` wired only, `192.168.4.0/24` AP only (§6). Save the phone hotspot with `nmcli`, then boot logic (`netmode.py`) joins it ~60 s if visible else starts AP `NSL-<unit>` at `192.168.4.1`.
 
-**6. Verify:** `ping 10.9.0.2; ping 10.9.0.3`, `curl http://10.9.0.1:8090/state`, `aplay -l` shows USB audio, keypad types 8 digits → front display selects, `vcgencmd get_throttled` → `0x0`. Unpaired boards show the 6-char pairing code.
+**6. Verify:** `ping 10.9.0.2; ping 10.9.0.3`, `curl http://10.9.0.1:8090/state`, `aplay -l` shows USB audio, keypad types the code → front display selects, `vcgencmd get_throttled` → `0x0`. Unpaired boards show the 6-char pairing code.
 
 ---
 
@@ -590,7 +590,7 @@ Do this on a bench before touching the bus.
 3. Wire front chain on bench: front Pi → panel 1 → panel 2 → panel 3, ribbon <50 cm. Run the display program with `led-chain=3, parallel=1, rows=40, cols=80, brightness=70, slowdown-gpio=4`. Confirm 240x40 canvas lights.
 4. Wire side (`chain=2`) and rear (`chain=1`) the same way. Confirm each lights its own canvas.
 5. Link the three over Ethernet with static IPs, run the receiver sync once, confirm all three show the same destination.
-6. Plug in USB keypad, confirm 8-digit entry selects on the front display.
+6. Plug in USB keypad, confirm code entry selects on the front display.
 7. Full-white pattern 60 s per sign, check `vcgencmd get_throttled` = `0x0` and no panel brown-out. Then set brightness 70 for service.
 
 ---
@@ -760,7 +760,7 @@ Resolution order per destination per display: own layout → display default tem
 - **Program** - a set of services/destinations/stops/layouts published as one `.nslprog` version.
 - **Service** - e.g. route 100, with its three announcement clips.
 - **Destination** - a code + board fields (`num`/`via`/`dest`) + stops + layouts.
-- **Code** - 8-digit selector, unique per program.
+- **Code** - 1–8 digit selector, unique per program.
 - **Stop** - ordered point with name audio + board text/override.
 - **Display / output** - program display (front/side/rear sizes) vs physical output (panel chain + driver).
 - **Override** - replacement board message with the lifetime rule in §7.

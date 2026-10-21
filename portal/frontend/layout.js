@@ -221,7 +221,7 @@ const LayoutEditor = (() => {
   // ---------- LED preview ----------
   function drawPreview(t) {
     if (!ed) return;
-    const { lay, fields, ovText, pscale } = ed;
+    const { lay, ovText, pscale } = ed;
     const off = document.createElement("canvas");
     off.width = lay.width; off.height = lay.height;
     const g = off.getContext("2d");
@@ -230,7 +230,25 @@ const LayoutEditor = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     const cycle = document.getElementById("lay-cycle") && document.getElementById("lay-cycle").checked;
-    const page = cycle ? curPage(lay, t) : (ed.pageLock || curPage(lay, t));
+    // Board pages cycle on their own timer like the bus: slot k shows
+    // layout page k % n_layout with destination page k % n_dest.
+    // With cycling off, the locked layout page shows its matching board page.
+    const secs = parseFloat(lay.page_seconds) || 3;
+    let page, slot;
+    if (cycle) {
+      slot = Math.floor(t / secs);
+      const lp = pagesUsed(lay);
+      page = lp.length ? lp[slot % lp.length] : 1;
+    } else {
+      page = ed.pageLock || curPage(lay, t);
+      const lp = pagesUsed(lay);
+      slot = Math.max(0, lp.indexOf(page));
+    }
+    let fields = ed.fields;
+    if (ed.pages && ed.pages.length) {
+      const pg = ed.pages[slot % ed.pages.length];
+      fields = Object.assign({}, ed.fields, { via: pg.via || "", dest: pg.dest || "" });
+    }
     if (ov.mode === "full" && ovActive) {
       const ovEl = (lay.elements || []).find((e) => e.field === (ov.replaces || "dest"));
       const ovHan = ovEl && hanover.isHan(ovEl.font) ? hanGet(ovEl.font) : null;
@@ -559,6 +577,8 @@ const LayoutEditor = (() => {
     try { extraKeys = Object.keys(JSON.parse(dest.extra_fields || "{}")); } catch (e) { /* ignore */ }
     ed = { did, lay: null, src: "", sel: -1, scale: 3, pscale: 2, pageLock: 1, hanIds: [],
            fields: { num: dest.num || serviceNumber || "", via: dest.via || "", dest: dest.dest || "" },
+           pages: (ctx.pages && ctx.pages.length ? ctx.pages :
+             [{ via: dest.via || "", dest: dest.dest || "" }]),
            ovText: "", extraKeys, displays, apiFn, errFn };
     apiFn("/api/fonts").then((r) => { if (ed) { ed.hanIds = (r.fonts || []).map((f) => f.id); renderProps(); } })
       .catch(() => { if (ed) ed.hanIds = []; });
@@ -585,7 +605,7 @@ const LayoutEditor = (() => {
             <div class=hint>Click an element to select it.</div>
           </div>
           <div class=group><div class=grouptitle>Pages</div>
-            <div class=hint>Click a page to edit it. New elements land on the selected page.</div>
+            <div class=hint>Click a layout page to edit it. New elements land on the selected page. Board text pages (each with its own via/dest) live on the destination in the Destinations tab and cycle on their own - they don't need a layout page each.</div>
             <div id=lay-pages class=page-list></div>
             <div class=row>
               <button id=lay-addpage class=tool>Add page</button>
@@ -596,6 +616,7 @@ const LayoutEditor = (() => {
             <div class=row><label style="font-weight:normal"><input type=checkbox id=lay-cycle> Cycle pages in preview</label></div>
           </div>
           <div class=group><div class=grouptitle>Preview inputs</div>
+            <div class=hint id=lay-pages-hint></div>
             <div style="flex:1"><label for=lay-fnum>num</label><input id=lay-fnum></div>
             <div style="flex:1"><label for=lay-fvia>via</label><input id=lay-fvia></div>
             <div style="flex:1"><label for=lay-fdest>dest</label><input id=lay-fdest></div>
@@ -636,6 +657,10 @@ const LayoutEditor = (() => {
       document.getElementById("lay-fnum").value = ed.fields.num || "";
       document.getElementById("lay-fvia").value = ed.fields.via || "";
       document.getElementById("lay-fdest").value = ed.fields.dest || "";
+      const hint = document.getElementById("lay-pages-hint");
+      if (hint) hint.textContent = (ed.pages && ed.pages.length > 1)
+        ? `This destination has ${ed.pages.length} board pages - the preview cycles through each page's via/dest. Edit pages in the Destinations tab.`
+        : "";
     };
     const readFields = () => {
       ed.fields.num = document.getElementById("lay-fnum").value;

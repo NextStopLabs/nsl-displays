@@ -66,7 +66,16 @@ const Preview = (() => {
         { type: "field", field: "via", x: nw, y: dh, w: w - nw, h: h - dh, font: "han-1610N2E1", colour: AMBER,
           align: "centre", valign: "middle", scroll: "if_too_long", flash_ms: 0, page: 1, show_if: "has_text", scale: 1, spacing: 1 } ] };
   }
-  function drawOne(cv, lay, fields, ovText, t) {
+  // Board pages (each with its own via/dest) cycle on their own timer,
+  // independent of layout pages: slot k shows layout page k % n_layout
+  // with destination page k % n_dest. With a single layout page the board
+  // simply rotates through P1, P2, … every page_seconds.
+  function fieldsForSlot(baseFields, destPages, slot) {
+    if (!destPages || !destPages.length) return baseFields;
+    const pg = destPages[slot % destPages.length];
+    return Object.assign({}, baseFields, { via: pg.via || "", dest: pg.dest || "" });
+  }
+  function drawOne(cv, lay, baseFields, ovText, t, destPages) {
     const H = (typeof LayoutEditor !== "undefined" && LayoutEditor.hanover) || null;
     const scale = parseInt(cv.dataset.scale || "3", 10);
     const off = document.createElement("canvas");
@@ -77,7 +86,9 @@ const Preview = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     const pages = [...new Set((lay.elements || []).map((e) => parseInt(e.page || 1, 10)))].sort((a, b) => a - b);
-    const page = pages.length <= 1 ? (pages[0] || 1) : pages[Math.floor(t / (parseFloat(lay.page_seconds) || 3)) % pages.length];
+    const slot = Math.floor(t / (parseFloat(lay.page_seconds) || 3));
+    const page = pages.length ? pages[slot % pages.length] : 1;
+    const fields = fieldsForSlot(baseFields, destPages, slot);
     const hide = new Set();
     if (ovActive) {
       if (ov.mode === "hide_others") {
@@ -209,7 +220,7 @@ const Preview = (() => {
       const cv = document.getElementById("pv-cv-" + disp.name);
       if (!cv) continue;
       const entry = (snap.layouts || {})[disp.name] || {};
-      drawOne(cv, entry.layout || autofit(disp.width_px, disp.height_px), snap.fields || {}, snap.board_override || "", secs);
+      drawOne(cv, entry.layout || autofit(disp.width_px, disp.height_px), snap.fields || {}, snap.board_override || "", secs, snap.pages);
     }
     raf = requestAnimationFrame(loop);
   }
@@ -388,36 +399,58 @@ function renderProgram() {
   h += `</div>`;
 
   // ---- Destinations tab ----
+  // Service number first, then its destinations; each destination owns its
+  // board pages (each page has its own via/dest) plus a driver message
+  // (the label the driver sees on the controller screen).
+  const pageList = (d) => (d.pages && d.pages.length ? d.pages :
+    [{ via: d.via || "", dest: d.dest || "" }]);
+  const pageSummary = (d) => pageList(d).map((pg, i) =>
+    `P${i + 1} ${esc(pg.dest || "—")}${pg.via ? " via " + esc(pg.via) : ""}`).join(" · ");
   h += `<section id=pdtab-destinations>`;
-  h += `<div class=group><div class=grouptitle>Destinations (${destCount})</div>`;
-  h += `<div class=row><div class=col><label for=dest-filter>Filter</label><input id=dest-filter placeholder="code, service or destination"></div></div>`;
-  h += `<div class=dest-list><table><thead><tr><th>Code</th><th>Service</th><th>Destination</th><th>Stops</th><th>Actions</th></tr></thead><tbody id=destrows>`;
-  for (const { s, d } of flat) {
-    h += `<tr data-code="${esc(d.code)}" data-name="${esc((d.name + " " + (d.via || "") + " " + (d.dest || "")).toLowerCase())}">` +
-      `<td class=kbd>${esc(d.code)}</td><td>${esc(s.number)}</td><td>${esc(dispName(d, s))}</td>` +
-      `<td>${(d.stops || []).length}</td>` +
-      `<td class=row>` +
-      `<button class=primary data-layout="${d.id}">Display</button>` +
-      `<button data-stops="${d.id}">Stops</button>` +
-      `<button data-edit="${d.id}">Edit</button>` +
-      `<button class=danger data-del="${d.id}">Delete</button></td></tr>`;
+  h += `<div class=group><div class=grouptitle>1 · Service number</div>`;
+  h += `<div class=row><div class=col><label for=dest-service>Service</label><select id=dest-service>` +
+    `<option value="">All services (${destCount} destination(s))</option>` +
+    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${(s.destinations || []).length})</option>`).join("") +
+    `</select></div><div class=col><label for=dest-filter>Filter</label><input id=dest-filter placeholder="code or driver message"></div></div>`;
+  h += `<p class=hint>Pick a service to see its destinations. Each destination is one code the driver enters: it has a driver message for the controller screen and one or more board pages, each with its own via / dest.</p></div>`;
+  for (const s of (p.services || [])) {
+    const dests = [...(s.destinations || [])].sort((a, b) => (a.code < b.code ? -1 : 1));
+    h += `<div class=group data-svc-group="${s.id}"><div class=grouptitle>Service ${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${dests.length})</div>`;
+    if (!dests.length) {
+      h += `<p class=hint>No destinations yet - add one below.</p>`;
+    } else {
+      h += `<div class=dest-list><table><thead><tr><th>Code</th><th>Driver message</th><th>Board pages</th><th>Stops</th><th>Actions</th></tr></thead><tbody>`;
+      for (const d of dests) {
+        h += `<tr data-code="${esc(d.code)}" data-sid="${s.id}" data-name="${esc(((d.name || "") + " " + (d.via || "") + " " + (d.dest || "")).toLowerCase())}">` +
+          `<td class=kbd>${esc(d.code)}</td><td>${esc(d.name || "—")}</td><td class=hint>${pageSummary(d)}</td>` +
+          `<td>${(d.stops || []).length}</td>` +
+          `<td class=row>` +
+          `<button class=primary data-layout="${d.id}">Display</button>` +
+          `<button data-pages="${d.id}">Pages</button>` +
+          `<button data-stops="${d.id}">Stops</button>` +
+          `<button data-edit="${d.id}">Edit</button>` +
+          `<button class=danger data-del="${d.id}">Delete</button></td></tr>`;
+      }
+      h += `</tbody></table></div>`;
+    }
+    h += `</div>`;
   }
-  h += `</tbody></table></div></div>`;
 
   h += `<div class=group><div class=grouptitle>New destination</div>`;
   h += `<div class=row>
-    <div style="flex:0 0 180px"><label for=nd-service>Service</label><select id=nd-service>` +
+    <div style="flex:0 0 180px"><label for=nd-service>2 · Service</label><select id=nd-service>` +
     (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("") +
     `<option value="__new__">New service…</option></select></div>
-    <div style="flex:0 0 140px"><label for=nd-code>Code (8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
+    <div style="flex:0 0 140px"><label for=nd-code>3 · Code (1–8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
     <div style="align-self:end"><button id=nd-suggest type=button>Suggest</button></div></div>`;
   h += `<div class=row id=nd-newsvc style="display:none">
     <div style="flex:0 0 120px"><label for=nd-newsvc-num>New service number <span class=req>(required)</span></label><input id=nd-newsvc-num></div>
-    <div class=col><label for=nd-newsvc-name>New service name</label><input id=nd-newsvc-name></div></div>`;
+    <div class=col><label for=nd-newsvc-name>Service description</label><input id=nd-newsvc-name></div></div>`;
   h += `<div class=row>
-    <div class=col><label for=nd-name>Name <span class=req>(required)</span></label><input id=nd-name></div>
-    <div style="flex:0 0 160px"><label for=nd-via>Via</label><input id=nd-via></div>
-    <div style="flex:0 0 160px"><label for=nd-dest>Dest board</label><input id=nd-dest></div>
+    <div class=col><label for=nd-name>4 · Driver message <span class=req>(required)</span></label><input id=nd-name></div></div>
+    <p class=hint style="margin:0">Shown on the controller screen so the driver knows what they picked. The board itself shows the pages below.</p>`;
+  h += `<div id=nd-pages></div>`;
+  h += `<div class=row><div style="align-self:end"><button id=nd-addpage type=button>Add another board page</button></div>
     <div style="align-self:end"><button id=nd-add class=primary>Add destination</button></div></div>
   <div class=err id=nd-err></div></div>`;
 
@@ -489,7 +522,7 @@ function renderProgram() {
   h += `<section id=pdtab-services style="display:none">`;
   h += `<div class=group><div class=grouptitle>Add service</div><div class=row>
     <div style="flex:0 0 140px"><label for=ns-num>Service number <span class=req>(required)</span></label><input id=ns-num placeholder="e.g. 100"></div>
-    <div class=col><label for=ns-name>Service name</label><input id=ns-name placeholder="e.g. Lichfield - Burton"></div>
+    <div class=col><label for=ns-name>Service description</label><input id=ns-name placeholder="e.g. Lichfield - Burton"></div>
     <div style="align-self:end"><button id=ns-add class=primary>Add service</button></div></div></div>`;
   h += `<div class=group><div class=grouptitle>Services (${svcCount})</div>`;
   if (svcCount) {
@@ -566,11 +599,12 @@ function renderProgram() {
   // ---- Edit destination dialog ----
   h += `<dialog id=dest-dialog><form method=dialog>
     <h3 style="margin-top:0">Edit destination</h3>
-    <div class=row><div style="flex:0 0 140px"><label for=ed-code>Code (8 digits) <span class=req>(required)</span></label><input id=ed-code maxlength=8 inputmode=numeric></div>
+    <div class=row><div style="flex:0 0 140px"><label for=ed-code>Code (1–8 digits) <span class=req>(required)</span></label><input id=ed-code maxlength=8 inputmode=numeric></div>
     <div class=col><label for=ed-service>Service</label><select id=ed-service></select></div></div>
-    <div><label for=ed-name>Name <span class=req>(required)</span></label><input id=ed-name></div>
-    <div class=row><div class=col><label for=ed-via>Via</label><input id=ed-via></div>
-    <div class=col><label for=ed-dest>Dest board</label><input id=ed-dest></div></div>
+    <div><label for=ed-name>Driver message <span class=req>(required)</span></label><input id=ed-name></div>
+    <p class=hint style="margin:4px 0">The driver message shows on the controller screen. The boards show page 1 below - use the Pages button for extra board pages.</p>
+    <div class=row><div class=col><label for=ed-via>Page 1 via</label><input id=ed-via></div>
+    <div class=col><label for=ed-dest>Page 1 dest board</label><input id=ed-dest></div></div>
     <div class=err id=ed-err></div>
     <div class=row style="justify-content:flex-end"><button id=ed-close>Cancel</button><button id=ed-save class=primary value=default>Save</button></div>
     </form></dialog>`;
@@ -687,23 +721,59 @@ function renderProgram() {
   window._upTimer = setInterval(() => { if ($("pd-ctls")) refreshUploadStatus(); }, 5000);
   refreshUploadStatus();
 
-  // ---- destination filter ----
-  $("dest-filter").addEventListener("input", () => {
+  // ---- destination filter (service first, then text) ----
+  const applyDestFilter = () => {
+    const sid = $("dest-service").value;
     const q = $("dest-filter").value.trim().toLowerCase();
-    document.querySelectorAll("#destrows tr").forEach((tr) => {
-      tr.style.display = !q || (tr.dataset.code + " " + tr.dataset.name).includes(q) ? "" : "none";
+    document.querySelectorAll("[data-svc-group]").forEach((g) => {
+      const matchSvc = !sid || g.dataset.svcGroup === sid;
+      let visible = 0;
+      g.querySelectorAll("tr[data-code]").forEach((tr) => {
+        const ok = matchSvc && (!q || (tr.dataset.code + " " + tr.dataset.name).includes(q));
+        tr.style.display = ok ? "" : "none";
+        if (ok) visible++;
+      });
+      g.style.display = matchSvc && (visible > 0 || !q) ? "" : "none";
     });
-  });
+  };
+  $("dest-service").addEventListener("change", applyDestFilter);
+  $("dest-filter").addEventListener("input", applyDestFilter);
 
-  // ---- new destination ----
+  // ---- new destination (service → code → driver message → board pages) ----
   const svcSel = $("nd-service");
   const syncNewSvc = () => { $("nd-newsvc").style.display = svcSel.value === "__new__" ? "" : "none"; };
   svcSel.addEventListener("change", syncNewSvc); syncNewSvc();
+  const ndPageRow = (n) =>
+    `<div class=row data-nd-page="${n}">
+      <div style="flex:0 0 90px"><label>Page ${n}</label><div class=hint>${n === 1 ? "first shown" : "cycles after P" + (n - 1)}</div></div>
+      <div class=col><label for=nd-via-${n}>Via</label><input id=nd-via-${n}></div>
+      <div class=col><label for=nd-dest-${n}>Dest board</label><input id=nd-dest-${n}></div>
+      ${n > 1 ? `<div style="align-self:end"><button data-nd-delpage type=button class=danger>Remove</button></div>` : ""}
+    </div>`;
+  const ndReadVals = () => [...document.querySelectorAll("[data-nd-page]")].map((row) => ({
+    via: row.querySelector("input[id^=nd-via-]").value,
+    dest: row.querySelector("input[id^=nd-dest-]").value }));
+  const ndRenderVals = (vals) => {
+    if (!vals.length) vals = [{ via: "", dest: "" }];
+    $("nd-pages").innerHTML = `<label>5 · Board pages <span class=hint>each page gets its own via / dest; the boards cycle through them</span></label>` +
+      vals.map((_, i) => ndPageRow(i + 1)).join("");
+    [...document.querySelectorAll("[data-nd-page]")].forEach((row, i) => {
+      row.querySelector("input[id^=nd-via-]").value = vals[i].via;
+      row.querySelector("input[id^=nd-dest-]").value = vals[i].dest;
+    });
+    $("nd-pages").querySelectorAll("[data-nd-delpage]").forEach((b) => b.onclick = () => {
+      const vals2 = ndReadVals();
+      vals2.splice([...document.querySelectorAll("[data-nd-page]")].indexOf(b.closest("[data-nd-page]")), 1);
+      ndRenderVals(vals2);
+    });
+  };
+  ndRenderVals([{ via: "", dest: "" }]);
+  $("nd-addpage").onclick = () => ndRenderVals([...ndReadVals(), { via: "", dest: "" }]);
   const checkNewCode = async () => {
     const code = $("nd-code").value.trim();
     const box = $("nd-err");
     if (!code) { box.textContent = ""; return null; }
-    if (!/^[0-9]{8}$/.test(code)) { box.textContent = "Code must be exactly 8 digits 0-9."; return null; }
+    if (!/^[0-9]{1,8}$/.test(code)) { box.textContent = "Code must be 1–8 digits 0-9."; return null; }
     try {
       const r = await api(`/api/programs/${p.id}/destinations/check-code?code=${code}`);
       box.textContent = r.unique ? "" : `Code ${code} is already used in this program.` + (r.suggestion ? ` Suggestion: ${r.suggestion}.` : "");
@@ -726,9 +796,17 @@ function renderProgram() {
         sid = (await api(`/api/programs/${p.id}/services`, { method: "POST", body: { number: num, name: nm } })).service_id;
       }
       if (!sid) throw new Error("Create a service first (Services tab).");
+      const extra = [];
+      document.querySelectorAll("[data-nd-page]").forEach((row) => {
+        const m = parseInt(row.dataset.ndPage, 10);
+        if (m > 1) extra.push({ via: row.querySelector("input[id^=nd-via-]").value.trim(),
+                               dest: row.querySelector("input[id^=nd-dest-]").value.trim() });
+      });
       await api(`/api/services/${sid}/destinations`, { method: "POST",
         body: { code: $("nd-code").value.trim(), name: $("nd-name").value.trim() || $("nd-code").value.trim(),
-                via: $("nd-via").value.trim(), dest: $("nd-dest").value.trim() } });
+                via: ($("nd-via-1") || {}).value ? $("nd-via-1").value.trim() : "",
+                dest: ($("nd-dest-1") || {}).value ? $("nd-dest-1").value.trim() : "",
+                pages: extra } });
       openProgram(p.id);
     } catch (e) { $("nd-err").textContent = String(e.message || e); }
   };
@@ -772,6 +850,7 @@ function renderProgram() {
     catch (e) { err(String(e.message || e)); }
   });
   $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editStops(b.dataset.stops); });
+  $("pd-body").querySelectorAll("[data-pages]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editPages(b.dataset.pages); });
   $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout));
   $("pd-body").querySelectorAll("[data-svc-save]").forEach((b) => b.onclick = async () => {
     const sid = b.dataset.svcSave;
@@ -898,11 +977,67 @@ function editStops(did) {
     catch (e) { err(String(e.message || e)); }
   };
 }
+function editPages(did) {
+  const found = findDest(did); if (!found) return;
+  const d = found.d;
+  const pages = (d.pages && d.pages.length ? d.pages : [{ via: d.via || "", dest: d.dest || "" }]);
+  let h = `<h3>Board pages - ${esc(d.name)} (${esc(d.code)})</h3>
+    <p class=hint>Each page gets its own via / dest. The boards cycle P1 → P2 → … every few seconds (page time is set in the layout editor). Service number stays on every page.</p>
+    <table><thead><tr><th>Page</th><th>Via</th><th>Dest board</th><th></th></tr></thead><tbody id=pagerows>`;
+  pages.forEach((pg, i) => {
+    h += `<tr data-pgid="${esc(pg.id || "")}"><td>P${i + 1}</td>
+      <td><input data-f=via value="${esc(pg.via || "")}"></td>
+      <td><input data-f=dest value="${esc(pg.dest || "")}"></td>
+      <td>${i > 0 ? `<button data-delpage class=danger title="Delete page">Remove</button>` : `<span class=hint>first page</span>`}</td></tr>`;
+  });
+  h += `</tbody></table><div class=row><button id=page-add>Add page</button><button id=page-save class=primary>Save pages</button></div>
+    <div class=err id=page-err></div>`;
+  $("pd-edit").innerHTML = h;
+  $("pd-edit").scrollIntoView();
+  let deletedIds = [];
+  $("pd-edit").querySelectorAll("[data-delpage]").forEach((b) => b.onclick = () => {
+    const tr = b.closest("tr");
+    if (tr.dataset.pgid) deletedIds.push(tr.dataset.pgid);
+    tr.remove();
+    [...document.querySelectorAll("#pagerows tr")].forEach((r, i) => r.cells[0].textContent = `P${i + 1}`);
+  });
+  $("page-add").onclick = () => {
+    const tr = document.createElement("tr");
+    tr.dataset.pgid = "";
+    tr.innerHTML = `<td></td><td><input data-f=via></td><td><input data-f=dest></td>
+      <td><button data-delpage class=danger>Remove</button></td>`;
+    tr.querySelector("[data-delpage]").onclick = (e) => {
+      e.target.closest("tr").remove();
+      [...document.querySelectorAll("#pagerows tr")].forEach((r, i) => r.cells[0].textContent = `P${i + 1}`);
+    };
+    $("pagerows").appendChild(tr);
+    [...document.querySelectorAll("#pagerows tr")].forEach((r, i) => r.cells[0].textContent = `P${i + 1}`);
+  };
+  $("page-save").onclick = async () => {
+    try {
+      for (const pgid of deletedIds) {
+        await api(`/api/destination-pages/${pgid}`, { method: "DELETE" });
+      }
+      for (const tr of document.querySelectorAll("#pagerows tr")) {
+        const via = tr.querySelector("[data-f=via]").value.trim();
+        const dest = tr.querySelector("[data-f=dest]").value.trim();
+        if (tr.dataset.pgid) {
+          await api(`/api/destination-pages/${tr.dataset.pgid}`, { method: "PUT", body: { via, dest } });
+        } else {
+          await api(`/api/destinations/${did}/pages`, { method: "POST", body: { via, dest } });
+        }
+      }
+      openProgram(S.curProg.id);
+    } catch (e) { $("page-err").textContent = String(e.message || e); }
+  };
+}
 async function editLayout(did) {
   const found = findDest(did); if (!found) return;
   LayoutEditor.stop();
   await LayoutEditor.open($("pd-edit"), {
     did, dest: found.d, serviceNumber: (found.s && found.s.number) || "",
+    pages: (found.d.pages && found.d.pages.length ? found.d.pages :
+      [{ via: found.d.via || "", dest: found.d.dest || "" }]),
     displays: S.curProg.displays || [], apiFn: api, errFn: err,
   });
 }
@@ -1030,7 +1165,7 @@ async function showBustimesDetail(p, bustimesId) {
     det.innerHTML = `<div class=group><div class=grouptitle>Import ${esc(d.line_name)} - ${esc(d.description)}</div>
       <div class=row>
       <div style="flex:1"><label for=bt-num>Service number</label><input id=bt-num value="${esc(d.line_name)}"></div>
-      <div style="flex:2"><label for=bt-name>Service name</label><input id=bt-name value="${esc(d.description)}"></div></div>
+      <div style="flex:2"><label for=bt-name>Service description</label><input id=bt-name value="${esc(d.description)}"></div></div>
       <div class=row>
       <div style="flex:1"><label for=bt-voice>Voice for stop audio</label><select id=bt-voice>${bustimesVoiceOptions(localStorage.getItem("nsl_voice") || "")}</select></div>
       <div style="flex:1"><label for=bt-speaker>Speaker</label><select id=bt-speaker></select></div>

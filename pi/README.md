@@ -10,7 +10,7 @@ front display + AP. Side/rear Pis run the receiver + local display only.
 | `renderer.py` | shared Pillow layout renderer (portal preview identical) |
 | `display_driver.py` | owns HUB75 matrix, holds last frame |
 | `receiver.py` | polls `http://10.9.0.1:8090/state` @10 Hz, hold-last-frame |
-| `input_keypad.py` | evdev USB keypad, 8-digit entry |
+| `input_keypad.py` | evdev USB keypad, 1–8 digit entry (Enter confirms, auto-select at 8) |
 | `gpio.py` | optional GPIO bindings (free pins only) |
 | `agent.py` | portal sync (program→audio→software), heartbeat, outbox |
 | `local_ui.py` | `192.168.4.1` FastAPI app |

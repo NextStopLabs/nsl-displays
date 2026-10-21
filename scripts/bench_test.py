@@ -23,7 +23,7 @@ def main():
     for d in "10000001":
         ev = k.press(f"KEY_{d}")
     assert ev["kind"] == "select", ev
-    print("keypad 8-digit select: OK")
+    print("keypad 1-8 digit select: OK")
     import sqlite3
     from pi.nsl_pi.store import init_controller_db
     init_controller_db("/tmp/bench-controller.db")

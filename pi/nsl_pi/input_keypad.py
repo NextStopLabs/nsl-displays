@@ -27,7 +27,8 @@ DEFAULT_MAP = {
 
 
 class KeypadEntry:
-    """8-digit entry state machine. auto_select on 8th digit or require Enter."""
+    """1-8 digit entry state machine. Auto-selects at 8 digits (max length),
+    or on Enter for shorter codes."""
 
     def __init__(self, auto_select: bool = True, timeout_ms: int = 5000):
         self.buf = ""
@@ -53,12 +54,10 @@ class KeypadEntry:
                 return {"kind": "select", "code": code, "buf": ""}
             return {"kind": "digit", "buf": self.buf}
         if role == "enter":
-            if len(self.buf) == 8:
+            # Enter confirms any 1-8 digit code (short codes never auto-select).
+            if self.buf and len(self.buf) <= 8:
                 code, self.buf = self.buf, ""
                 return {"kind": "select", "code": code, "buf": ""}
-            if self.buf:
-                code, self.buf = self.buf, ""
-                return {"kind": "enter_short", "code": code, "buf": ""}
             return {"kind": "enter", "buf": self.buf}
         if role == "clear_one":
             self.buf = self.buf[:-1]

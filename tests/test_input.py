@@ -48,6 +48,17 @@ def test_numpad_action_keys():
     assert k.press("KEY_KPDOT")["action"] == "net_update_mode"
 
 
+def test_enter_selects_short_code():
+    k = KeypadEntry(auto_select=True)
+    for d in "40101":
+        ev = k.press(f"KEY_{d}")
+    assert ev["kind"] == "digit"  # short codes never auto-select
+    ev = k.press("KEY_ENTER")
+    assert ev["kind"] == "select" and ev["code"] == "40101"
+    ev = k.press("KEY_ENTER")
+    assert ev["kind"] == "enter"  # empty buffer: nothing to submit
+
+
 def test_gpio_press_long_double():
     ds = GpioDispatcher(
         [{"id": "b1", "pin": 17, "active_low": 1}],

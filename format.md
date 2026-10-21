@@ -42,7 +42,7 @@ A program holds **services → destinations → stops**, the **displays** it tar
 | Item | Type | Rule |
 |---|---|---|
 | Entity ids | `TEXT` | UUID (v7 recommended), lowercase, stable across versions |
-| Destination code | `TEXT` | Exactly 8 digits `0`-`9`, leading zeros kept, unique within the program |
+| Destination code | `TEXT` | 1–8 digits `0`-`9`, leading zeros kept, unique within the program |
 | Audio hash | `TEXT` | Lowercase hex SHA-256 of the audio file, 64 characters |
 | Booleans | `INTEGER` | `0` or `1` with a `CHECK` |
 | Timestamps | `TEXT` | ISO 8601 UTC, for example `2026-10-20T11:30:00Z` |
@@ -109,7 +109,7 @@ CREATE TABLE destinations (
   id           TEXT PRIMARY KEY,
   service_id   TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
   code         TEXT NOT NULL UNIQUE
-               CHECK (length(code) = 8 AND code NOT GLOB '*[^0-9]*'),
+               CHECK (length(code) BETWEEN 1 AND 8 AND code NOT GLOB '*[^0-9]*'),
   name         TEXT NOT NULL,                      -- name shown in lists
   position     INTEGER NOT NULL,
   num          TEXT,                               -- route number override, NULL = service number
@@ -127,6 +127,18 @@ CREATE TABLE stops (
   board_text     TEXT,                             -- NULL = use name
   board_override TEXT,                             -- NULL or '' = no override
   is_terminus    INTEGER NOT NULL DEFAULT 0 CHECK (is_terminus IN (0,1)),
+  UNIQUE (destination_id, position)
+);
+
+-- Board pages for one destination: each page has its own via/dest and the
+-- boards cycle through them (page 1, 2, …). via/dest on destinations is the
+-- fallback (kept equal to page 1) for older readers.
+CREATE TABLE destination_pages (
+  id             TEXT PRIMARY KEY,
+  destination_id TEXT NOT NULL REFERENCES destinations(id) ON DELETE CASCADE,
+  position       INTEGER NOT NULL CHECK (position >= 1),
+  via            TEXT NOT NULL DEFAULT '',
+  dest           TEXT NOT NULL DEFAULT '',
   UNIQUE (destination_id, position)
 );
 
@@ -161,6 +173,7 @@ CREATE TABLE override_presets (
 
 CREATE INDEX idx_destinations_service ON destinations (service_id, position);
 CREATE INDEX idx_stops_destination    ON stops (destination_id, position);
+CREATE INDEX idx_destination_pages_destination ON destination_pages (destination_id, position);
 ```
 
 The `UNIQUE` constraint on `destinations.code` is the rule "only one destination in a program can have a given code". Because a file is exactly one program, a plain `UNIQUE` is enough here. On the server the same rule is `UNIQUE (program_id, code)`.
@@ -244,7 +257,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 2. the `is_default` template for that display, else
 3. a built-in **auto-fit** layout (route number on the left, destination text filling the rest).
 
-**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination. Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
+**Field values at runtime:** `num` = `destinations.num`, or the service `number` when that is `NULL`. `via` and `dest` come from the destination's board page for the active time slot: slot `k = floor(now / page_seconds)` shows layout page `k % n_layout_pages` with destination page `k % n_destination_pages`. A destination with no `destination_pages` rows behaves as a single board page using its `via`/`dest`, so with one layout page and several board pages the board simply rotates P1 → P2 → … every `page_seconds`. Extra fields come from `extra_fields`. During an active override the override text takes the place of the element named in `override.replaces`.
 
 ---
 
@@ -268,10 +281,11 @@ A `NULL` clip is skipped. The terminus is the stop with `is_terminus = 1`.
 Run on the server when a user presses Publish, and again on the Pi before a downloaded file is activated.
 
 **Errors (publishing or activation is refused):**
-- `destinations.code` is not exactly 8 digits, or appears twice in the program
+- `destinations.code` is not 1–8 digits, or appears twice in the program
 - `services.number` appears twice
 - The program has no displays, or `default_display` does not exist
 - Stop positions are not 1, 2, 3 … with no gaps
+- Destination page positions are not 1, 2, 3 … with no gaps
 - A stop marked `is_terminus` is not the last stop of its destination, or a destination has more than one
 - A layout's `width`/`height` differs from its display, an element lies outside the display, or the JSON is invalid
 - An audio hash used by a service or stop is missing from the `audio` table
@@ -315,7 +329,7 @@ The schema is defined once (in the ORM/migration tool) and generated for both da
 
 | Item | SQLite | PostgreSQL |
 |---|---|---|
-| Code check | `length(code) = 8 AND code NOT GLOB '*[^0-9]*'` | `code ~ '^[0-9]{8}$'` |
+| Code check | `length(code) BETWEEN 1 AND 8 AND code NOT GLOB '*[^0-9]*'` | `code ~ '^[0-9]{1,8}$'` |
 | Booleans | `INTEGER` with `CHECK (x IN (0,1))` | `BOOLEAN` or the same `INTEGER` form |
 | Partial unique index | Supported | Supported |
 | JSON columns | `TEXT` | `TEXT` (no `jsonb` operators used) |

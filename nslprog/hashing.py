@@ -12,6 +12,7 @@ import sqlite3
 
 HASH_TABLES = [
     "audio",
+    "destination_pages",
     "destinations",
     "displays",
     "layout_templates",

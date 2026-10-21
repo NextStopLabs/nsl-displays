@@ -275,7 +275,7 @@ INDEX_HTML = """<!doctype html><html><head><meta charset=utf8><meta name=viewpor
 <body><div class=window><div class=titlebar>NSL Local Controller - bus control (offline OK)</div>
 <div class=body>
 <div class=group><div class=grouptitle>Destination</div>
-<label>8-digit code<input id=code maxlength=8 inputmode=numeric></label>
+<label>Destination code (1–8 digits)<input id=code maxlength=8 inputmode=numeric></label>
 <div class=row><button onclick="cmd('select_code')">Select code</button>
 <button onclick="cmd('stop_prev')">Prev stop</button><button onclick="cmd('stop_next')">Next stop</button></div>
 <div class=row><button onclick="cmd('announce_next')">Announce next</button>

@@ -213,14 +213,14 @@ immediately. No clips = silence (preview lists clips per stop first).
 ## 5. First program - portal to bus
 
 1. Portal → Programs → New (`Burton routes`).
-2. Open it → add Service `100`, add destinations with 8-digit codes
+2. Open it → add Service `100`, add destinations with 1–8 digit codes
    (`10000001` Burton…), Suggest validates inline, codes stay unique per program.
 3. Per destination → Stops (ordered, terminus last) → Display (per-sign
    layouts; auto-fit starter is fine) → Preview (screens + announcements).
 4. Publish → Upload to the bus (sends latest version).
 5. Next hotspot session the bus pulls it (program first, audio second,
    software last - short windows still land the important bits).
-6. On the bus: type the 8-digit code (keypad, portal remote, or local UI).
+6. On the bus: type the code (keypad, portal remote, or local UI).
    Check all three signs + announcement. `INVALID` = wrong active program.
 
 ---
@@ -236,7 +236,7 @@ journalctl -u nsl-pairing -u nsl-agent -u nsl-display -f
 ```
 
 Boards: pairing code while unpaired; destination content after select;
-receivers hold last frame if Ethernet drops. Keypad: 8 digits auto-select.
+receivers hold last frame if Ethernet drops. Keypad: type the code, Enter confirms (8-digit codes auto-select).
 Portal controller row: online badge, `want vX / bus vY / active vZ`,
 pending command count.
 

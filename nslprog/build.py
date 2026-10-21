@@ -49,6 +49,7 @@ class ProgramBuilder:
         self.displays: list[dict] = []
         self.services: list[dict] = []
         self.destinations: list[dict] = []
+        self.destination_pages: list[dict] = []
         self.stops: list[dict] = []
         self.layouts: list[dict] = []
         self.templates: list[dict] = []
@@ -89,6 +90,13 @@ class ProgramBuilder:
                                   "position": position, "num": num, "via": via, "dest": dest,
                                   "extra_fields": json.dumps(extra or {}, separators=(",", ":"))})
         return did
+
+    def add_destination_page(self, destination_id: str, position: int, via: str = "",
+                             dest: str = "", id: str | None = None) -> str:
+        pid = id or new_uuid()
+        self.destination_pages.append({"id": pid, "destination_id": destination_id,
+                                       "position": position, "via": via or "", "dest": dest or ""})
+        return pid
 
     def add_stop(self, destination_id: str, position: int, name: str,
                  audio: str | None = None, board_text: str | None = None,
@@ -136,8 +144,8 @@ class ProgramBuilder:
         codes: dict[str, str] = {}
         for d in self.destinations:
             c = d["code"] or ""
-            if len(c) != 8 or not c.isdigit():
-                raise ValueError(f"build validation failed: destination {d['id']} code {c!r} must be exactly 8 digits")
+            if not (1 <= len(c) <= 8) or not c.isdigit():
+                raise ValueError(f"build validation failed: destination {d['id']} code {c!r} must be 1-8 digits")
             if c in codes:
                 raise ValueError(f"build validation failed: code {c!r} used twice in program")
             codes[c] = d["id"]
@@ -171,6 +179,9 @@ class ProgramBuilder:
                 con.execute("INSERT INTO destinations VALUES (?,?,?,?,?,?,?,?,?)",
                             (d["id"], d["service_id"], d["code"], d["name"], d["position"],
                              d["num"], d["via"], d["dest"], d["extra_fields"]))
+            for pg in self.destination_pages:
+                con.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
+                            (pg["id"], pg["destination_id"], pg["position"], pg["via"], pg["dest"]))
             for st in self.stops:
                 con.execute("INSERT INTO stops VALUES (?,?,?,?,?,?,?,?)",
                             (st["id"], st["destination_id"], st["position"], st["name"], st["audio"],

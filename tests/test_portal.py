@@ -132,11 +132,17 @@ def test_ui_flow_end_to_end(tmp_path, monkeypatch):
     pid = c.post("/api/programs", json={"organisation_id": org, "name": "Burton", "px_width": 240}, headers=H).json()["program_id"]
     # add service + destinations (as the detail view does)
     sid = c.post(f"/api/programs/{pid}/services", json={"number": "100", "name": "Burton line"}, headers=H).json()["service_id"]
-    for code, name in (("10000001", "Burton"), ("10000002", "Lichfield")):
+    for code, name in (("10000001", "Burton"), ("10000002", "Lichfield"), ("40101", "Short code")):
         chk = c.get(f"/api/programs/{pid}/destinations/check-code", params={"code": code}, headers=H).json()
         assert chk["unique"] and chk["shape_ok"], chk
         c.post(f"/api/services/{sid}/destinations",
                json={"code": code, "name": name, "via": "Branston", "dest": name.upper()}, headers=H)
+    for bad in ("", "123456789", "12A45", "  "):
+        chk = c.get(f"/api/programs/{pid}/destinations/check-code", params={"code": bad}, headers=H).json()
+        assert not chk["shape_ok"], bad
+        r = c.post(f"/api/services/{sid}/destinations",
+                   json={"code": bad, "name": "Bad", "via": "", "dest": "BAD"}, headers=H)
+        assert r.status_code == 400, bad
     # stops
     prog = c.get(f"/api/programs/{pid}", headers=H).json()
     for i, d in enumerate(prog["services"][0]["destinations"]):
