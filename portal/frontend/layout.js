@@ -200,6 +200,20 @@ const LayoutEditor = (() => {
     const box = document.getElementById("lay-seconds");
     if (box && ed && ed.lay) ed.lay.page_seconds = Math.max(1, parseInt(box.value || "3", 10));
   }
+  function syncOverflow() {
+    const box = document.getElementById("lay-overflow");
+    if (box && ed && ed.lay) {
+      if (box.checked) ed.lay.allow_overflow = true;
+      else delete ed.lay.allow_overflow;
+    }
+  }
+  function syncLayoutSettings() {
+    const s = document.getElementById("lay-seconds"), o = document.getElementById("lay-overflow");
+    if (ed && ed.lay) {
+      if (s) s.value = ed.lay.page_seconds || 3;
+      if (o) o.checked = !!ed.lay.allow_overflow;
+    }
+  }
   function visible(el, fields, ovActive) {
     const sh = el.show_if || "always";
     if (sh === "always") return true;
@@ -798,6 +812,8 @@ const LayoutEditor = (() => {
           <div class=group style="margin-top:0"><div class=grouptitle>Selected element</div><div id=lay-props></div></div>
           <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
           <div class=group><div class=grouptitle>Advanced</div>
+            <div><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox id=lay-overflow> Allow elements outside display</label></div>
+            <div class=hint>Override: out-of-bounds elements save anyway and publish only warns (they render partially or not at all).</div>
             <button id=lay-jsonbtn>Edit JSON</button>
             <div id=lay-jsonbox style="display:none;margin-top:8px"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=8></textarea>
             <div class=row><button id=lay-jsonapply>Apply JSON</button></div></div>
@@ -847,6 +863,8 @@ const LayoutEditor = (() => {
         ed.sel = (ed.lay.elements || []).length ? 0 : -1;
         document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
         loadFields(); readFields();
+        const ovBox = document.getElementById("lay-overflow");
+        if (ovBox) { ovBox.checked = !!ed.lay.allow_overflow; }
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = String(e.message || e); }
     };
@@ -859,6 +877,7 @@ const LayoutEditor = (() => {
       ed.tab = 1;
       ensurePageLayouts();
       ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+      syncLayoutSettings();
       updateStatus(); drawEditor(); renderProps(); renderOverride();
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
@@ -898,6 +917,7 @@ const LayoutEditor = (() => {
       drawEditor(); renderProps();
     };
     document.getElementById("lay-seconds").addEventListener("input", syncPageSeconds);
+    document.getElementById("lay-overflow").addEventListener("change", syncOverflow);
     document.getElementById("lay-jsonbtn").onclick = () => {
       const box = document.getElementById("lay-jsonbox");
       box.style.display = box.style.display === "none" ? "" : "none";
@@ -911,6 +931,7 @@ const LayoutEditor = (() => {
         ensurePageLayouts();
         ed.sel = (ed.lay.elements || []).length ? 0 : -1;
         document.getElementById("lay-err").textContent = "";
+        syncLayoutSettings();
         updateStatus(); drawEditor(); renderProps(); renderOverride();
       } catch (e) { document.getElementById("lay-err").textContent = "Invalid JSON: " + e.message; }
     };
@@ -935,15 +956,21 @@ const LayoutEditor = (() => {
         const allLayouts = ordered.length > 1
           ? ordered.map((pg) => ({ name: `page ${pg.position}`, els: pe[pg.position] || [] }))
           : [{ name: "default", els: ed.lay.elements || [] }];
+        const outside = [];
         for (const { name, els } of allLayouts) {
           for (const [i, e] of els.entries()) {
             if (e.x < 0 || e.y < 0 || e.w <= 0 || e.h <= 0 || e.x + e.w > d.width_px || e.y + e.h > d.height_px)
-              throw new Error(`Layout ${name}, element #${i + 1} lies outside the display - move or resize it.`);
+              outside.push(`${name}, element #${i + 1}`);
           }
         }
+        if (outside.length && !ed.lay.allow_overflow)
+          throw new Error(`Layout ${outside[0]} lies outside the display - move or resize it, or tick "Allow elements outside display" in Advanced to override.`);
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
-        box.textContent = ""; ed.src = "destination (saved)";
-        updateStatus(); alert("Layout saved.");
+        box.textContent = outside.length
+          ? `Saved with override: ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}). Publish validation will only warn.`
+          : "";
+        ed.src = "destination (saved)";
+        updateStatus(); alert(outside.length ? "Layout saved (overflow override on)." : "Layout saved.");
       } catch (e) { box.textContent = String(e.message || e); }
     };
     bindMouse();
@@ -975,6 +1002,8 @@ const LayoutEditor = (() => {
     ensurePageLayouts();
     ed.sel = (ed.lay.elements || []).length ? 0 : -1;
     document.getElementById("lay-seconds").value = ed.lay.page_seconds || 3;
+    const ovBox2 = document.getElementById("lay-overflow");
+    if (ovBox2) { ovBox2.checked = !!ed.lay.allow_overflow; }
     updateStatus(); drawEditor(); renderProps(); renderOverride();
     return true;
   }

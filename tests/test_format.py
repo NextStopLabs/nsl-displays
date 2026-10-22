@@ -124,3 +124,30 @@ def test_missing_audio_error_and_warnings(tmp_path):
     con.close()
     res = validate_file(p, check_hash=False)
     assert any(e.code == "missing_audio" for e in res.errors)
+
+
+def test_layout_overflow_override_flag(tmp_path):
+    import json
+    import sqlite3
+    p = str(tmp_path / "v.nslprog")
+    demo_builder().build(p, 1)
+    con = sqlite3.connect(p)
+    row = con.execute("SELECT id, layout FROM layouts LIMIT 1").fetchone()
+    lj = json.loads(row[1])
+    # push the first element partly off the right edge
+    lj["elements"][0]["x"] = 230
+    lj["elements"][0]["w"] = 240
+    con.execute("UPDATE layouts SET layout=? WHERE id=?", (json.dumps(lj), row[0]))
+    con.commit()
+    con.close()
+    res = validate_file(p, check_hash=False)
+    assert not res.ok and any(e.code == "layout_overflow" for e in res.errors)
+    # opt out per layout: same geometry passes as a warning
+    con = sqlite3.connect(p)
+    lj["allow_overflow"] = True
+    con.execute("UPDATE layouts SET layout=? WHERE id=?", (json.dumps(lj), row[0]))
+    con.commit()
+    con.close()
+    res = validate_file(p, check_hash=False)
+    assert res.ok, [e.message for e in res.errors]
+    assert any(e.code == "layout_overflow" for e in res.warnings)

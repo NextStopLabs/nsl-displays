@@ -270,7 +270,8 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `keep_aspect` | For `image` elements: `true` (default) scales to fit the box while preserving aspect ratio, `false` stretches to fill |
 | `tint` | For `image` elements: `true` (default) recolours the image to `colour`, `false` keeps the original full-colour pixels |
 | `aspect` | For `image` elements: cached natural width/height ratio (used by editors when resizing) |
-| `x`, `y`, `w`, `h` | Pixels, element must lie inside the display |
+| `x`, `y`, `w`, `h` | Pixels, element must lie inside the display (unless `allow_overflow` is set) |
+| `allow_overflow` | Layout-level `true` overrides the bounds check: out-of-bounds elements save anyway, publish validation only warns, and they render partially or not at all |
 | `font` | Pixel font id, or `han-<STEM>` for a Hanover bitmap font (1:1 pixels, see README §19.1). Unknown font falls back to a default and raises a warning |
 | `scale` | Integer 1–8, default 1. Integer-upscales Hanover glyphs (ignored by pixel fonts) |
 | `spacing` | Integer −8…16 pixels, default 0. Extra tracking between Hanover glyphs (negative tightens; ignored by pixel fonts) |

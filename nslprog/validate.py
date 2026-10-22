@@ -289,7 +289,7 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
 
 
 def _check_elements(els: list, ref: str, res: ValidationResult, disp: dict | None,
-                    page_count: int | None = None):
+                    page_count: int | None = None, allow_overflow: bool = False):
     if not isinstance(els, list):
         res.errors.append(Issue("layout_elements", "elements must be a list", "layouts", ref))
         return
@@ -322,7 +322,11 @@ def _check_elements(els: list, ref: str, res: ValidationResult, disp: dict | Non
             res.errors.append(Issue("layout_geom", "x/y/w/h must be integers", "layouts", tag))
             continue
         if disp is not None and (x < 0 or y < 0 or ww <= 0 or hh <= 0 or x + ww > disp["width_px"] or y + hh > disp["height_px"]):
-            res.errors.append(Issue("layout_overflow", f"element outside display: {x},{y} {ww}x{hh}", "layouts", tag))
+            issue = Issue("layout_overflow", f"element outside display: {x},{y} {ww}x{hh}", "layouts", tag)
+            # allow_overflow is a deliberate per-layout override (set in the
+            # layout editor): out-of-bounds elements render partially/blank
+            # instead of failing validation, so the bus still accepts the file.
+            (res.warnings if allow_overflow else res.errors).append(issue)
         font = el.get("font", "pixel-medium")
         if font not in KNOWN_FONTS and not (isinstance(font, str) and font.startswith("han-")):
             res.warnings.append(Issue("unknown_font", f"unknown font {font!r}, will fall back", "layouts", tag))
@@ -371,7 +375,8 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
     ov = lj.get("override", {})
     if isinstance(ov, dict) and ov.get("mode", "replace") not in OVERRIDE_MODES:
         res.errors.append(Issue("layout_override", f"bad override mode {ov.get('mode')!r}", "layouts", ref))
-    _check_elements(lj.get("elements", []), ref, res, disp, page_count)
+    allow_overflow = bool(lj.get("allow_overflow", False))
+    _check_elements(lj.get("elements", []), ref, res, disp, page_count, allow_overflow)
     page_elements = lj.get("page_elements")
     if page_elements is not None:
         if not isinstance(page_elements, dict):
@@ -384,7 +389,7 @@ def _check_layout_json(lj: dict, disp: dict | None, res: ValidationResult, ref: 
                     ipos = None
                 if page_count is not None and (ipos is None or ipos < 1 or ipos > page_count):
                     res.warnings.append(Issue("layout_page_elements_key", f"page_elements key {pos!r} does not match a board page", "layouts", ref))
-                _check_elements(els, f"{ref} page {pos}", res, disp, page_count)
+                _check_elements(els, f"{ref} page {pos}", res, disp, page_count, allow_overflow)
 
 
 def validate_file(path: str, check_hash: bool = True) -> ValidationResult:
