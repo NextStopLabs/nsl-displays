@@ -116,7 +116,8 @@ class DisplayDriver:
             except Exception:
                 return 0
 
-        def render_board(out, w, h, fields, pages, destination, service, layouts, override):
+        def render_board(out, w, h, fields, pages, destination, service, layouts, override,
+                         allow_insert: bool = True, allow_depart: bool = True):
             """Render one output's frame from board bits (normal or GPIO board).
 
             When an insert is active its pages are appended after the normal
@@ -127,6 +128,10 @@ class DisplayDriver:
             Departure countdown (F key): when active every board locks on P1
             (no rotation, no insert pages); the front board also replaces its
             via line with the live countdown text.
+
+            A triggered GPIO board shows exactly its own designed content:
+            no insert pages appended, no departure replacement (pass both
+            flags False for the GPIO branch).
             """
             layout = None
             prog_display = out.get("program_display") or ""
@@ -154,7 +159,7 @@ class DisplayDriver:
                     dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
                 except (TypeError, ValueError):
                     dep_text = ""
-            dep_active = bool(dep.get("active")) and bool(dep_text)
+            dep_active = bool(dep.get("active")) and bool(dep_text) and allow_depart
             if dep_active:
                 # F-key departure time: freeze everything on P1, suppress inserts.
                 is_front = (prog_display == "front") or (out.get("display_name") == "front")
@@ -197,7 +202,7 @@ class DisplayDriver:
                 if layout_d is None:
                     layout_d = autofit_layout(w, h)
                 return render_frame(layout_d, flds, override)
-            if insert and destination:
+            if insert and destination and allow_insert:
                 ins_pages = insert.get("pages") or []
                 kind, idx, _total = combined_slot(
                     layout, now, len(pages) if pages else 1,
@@ -256,7 +261,8 @@ class DisplayDriver:
                 try:
                     frame = render_board(out, w, h, gb.get("fields", {}), gb.get("pages") or [],
                                          gb.get("destination") or {}, gb.get("service") or {},
-                                         gb.get("layouts") or {}, "")
+                                         gb.get("layouts") or {}, "",
+                                         allow_insert=False, allow_depart=False)
                 except Exception:
                     continue  # hold last frame on crash (spec)
                 self.last_frames[out["display_name"]] = frame
