@@ -115,6 +115,10 @@ def _gpio_loop(core):
                         cur = {p for p, d in devices.items()
                                if last_levels.get(p, False)}
                         core.sync_gpio_levels(cur)
+                        shown = sorted(set(core.gpio_overlay_map()) | set(core.gpio_board_map()))
+                        print(f"nsl-input: gpio pin {pin} {'active' if active else 'released'} "
+                              f"fired={[r.get('label') or r.get('trigger') for r in fired]} "
+                              f"overlays={shown}", flush=True)
                     except Exception as e:
                         print(f"nsl-input: gpio overlay sync failed ({e})", flush=True)
         except Exception as e:
