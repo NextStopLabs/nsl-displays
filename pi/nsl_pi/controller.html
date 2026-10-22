@@ -605,10 +605,17 @@ function boardElHtml(e, vals, hide) {
   }
   return `<div class="el" data-scroll="${esc(e.scroll || "none")}" style="${st}">${inner}</div>`;
 }
+const DEFAULT_LAYOUT = (() => {
+  const f = (field, x, y, w, h, font, scale, show) => ({ type: "field", field, x, y, w, h, font, colour: "#FFB000",
+    align: "centre", valign: "middle", scroll: "if_too_long", show_if: show || "always", scale, spacing: 1, invert: false });
+  return { width: 240, height: 40, background: "#000000", page_seconds: 3,
+    elements: [f("num", 0, 0, 70, 40, "han-1713B3E1", 2), f("dest", 70, 0, 170, 25, "han-2423B3E1", 1), f("via", 70, 25, 170, 15, "han-1610N2E1", 1, "has_text")] };
+})();
 function renderBoard(cur) {
+  if (!cur.fields && !(cur.pages && cur.pages.length)) return false;
   let layout;
-  try { layout = JSON.parse(cur.layouts.front); } catch (e) { return false; }
-  if (!layout || !layout.width) return false;
+  try { layout = JSON.parse(cur.layouts.front); } catch (e) { layout = null; }
+  if (!layout || !layout.width) layout = DEFAULT_LAYOUT;
 
   const st = cur.state || {};
   const fields = cur.fields || {};
@@ -619,7 +626,7 @@ function renderBoard(cur) {
   if (ins) pages.push({ num: ins.num || fields.num, via: ins.via || "", dest: ins.dest || ins.name || "" });
   const hide = [];
 
-  const key = JSON.stringify([cur.layouts.front, pages, hide]);
+  const key = JSON.stringify([layout, pages, hide]);
   if (key === boardKey && screen.querySelector(".board")) return true;
   clearTimeout(boardTimer);
   boardKey = key;
@@ -634,8 +641,8 @@ function renderBoard(cur) {
   let idx = 0;
   const secs = Math.max(1, layout.page_seconds || 3);
   function show() {
-    // always use the route num | dest / via layout (page 1), cycling only the text
-    const pe = layout.page_elements && layout.page_elements["1"];
+    // each page uses its own layout from page_elements (falls back to base elements)
+    const pe = layout.page_elements && layout.page_elements[String(idx + 1)];
     const els = (pe && pe.length ? pe : layout.elements) || [];
     board.innerHTML = els.map(e => boardElHtml(e, pages[idx], hide)).join("");
     board.querySelectorAll('.el[data-scroll="if_too_long"]').forEach(el => {
