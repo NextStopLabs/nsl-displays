@@ -190,6 +190,26 @@ def fields_for_slot(destination: dict, service_number: str = "",
     return fields
 
 
+def fields_for_page_index(destination: dict, service_number: str = "",
+                           pages: list[dict] | None = None, idx: int = 0) -> dict:
+    """Board text for an explicit page offset (combined main+insert rotation).
+
+    Unlike :func:`fields_for_slot` this does NOT read the wall clock: the
+    caller already mapped wall-clock to ``idx`` via :func:`combined_slot`,
+    so the via/dest here always matches the ``board_position`` passed to
+    :func:`render_frame`. Using the clock here again is what shifted text
+    one page late once an insert stretched the loop.
+    """
+    fields = resolve_fields(destination, service_number)
+    ordered = _ordered_pages(pages)
+    if not ordered:
+        return fields
+    pg = ordered[int(idx or 0) % len(ordered)]
+    fields["via"] = pg.get("via") or ""
+    fields["dest"] = pg.get("dest") or ""
+    return fields
+
+
 def resolve_layout(con, destination_id: str, display_id: str) -> dict | None:
     """destination layout -> default template -> None (caller uses auto-fit)."""
     row = con.execute("SELECT layout FROM layouts WHERE destination_id=? AND display_id=?",

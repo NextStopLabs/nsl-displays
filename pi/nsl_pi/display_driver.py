@@ -76,7 +76,7 @@ class DisplayDriver:
         frames at the same origin, i.e. garbled flickering text.
         """
         from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
-                               fields_for_slot, render_frame, slot_for_layout)
+                               fields_for_page_index, fields_for_slot, render_frame, slot_for_layout)
         import json as _j
         import time as _t
         fields = snapshot.get("fields", {})
@@ -154,16 +154,16 @@ class DisplayDriver:
                     ins_svc_number = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
                     ins_dest = insert.get("destination") or {}
                     if ins_pages and ins_dest:
-                        page_fields = fields_for_slot(
-                            ins_dest, ins_svc_number, ins_layout, now, ins_pages)
+                        page_fields = fields_for_page_index(
+                            ins_dest, ins_svc_number, ins_pages, idx)
                         return render_frame(
                             ins_layout, page_fields, override, now=now,
                             pages=ins_pages, board_position=_page_position(ins_pages, idx))
                     return render_frame(ins_layout, insert.get("fields", {}), override)
                 # main slot inside the combined loop
                 if pages and destination:
-                    page_fields = fields_for_slot(
-                        destination, svc_number, layout, now, pages)
+                    page_fields = fields_for_page_index(
+                        destination, svc_number, pages, idx)
                     for k, v in fields.items():
                         if k.startswith("__"):
                             page_fields[k] = v

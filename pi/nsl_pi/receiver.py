@@ -41,7 +41,7 @@ class Receiver:
 
     def render(self, snapshot: dict):
         from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
-                               fields_for_slot, render_frame, slot_for_layout)
+                               fields_for_page_index, fields_for_slot, render_frame, slot_for_layout)
         import time as _t
         now = _t.time()
         base = snapshot.get("fields", {})
@@ -86,7 +86,7 @@ class Receiver:
                 if ins_pages and ins_dest:
                     ordered = sorted(ins_pages, key=lambda p: int(p.get("position", 0) or 0))
                     bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
-                    flds = fields_for_slot(ins_dest, ins_num, ins_layout, now, ins_pages)
+                    flds = fields_for_page_index(ins_dest, ins_num, ins_pages, idx)
                     frame = render_frame(ins_layout, flds, override, now=now,
                                          pages=ins_pages, board_position=bpos)
                 else:
@@ -99,7 +99,7 @@ class Receiver:
             if pages and destination:
                 ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
                 bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
-                fields = fields_for_slot(destination, svc_number, layout, now, pages)
+                fields = fields_for_page_index(destination, svc_number, pages, idx)
                 for k, v in base.items():
                     if k.startswith("__"):
                         fields[k] = v
