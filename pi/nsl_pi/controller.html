@@ -283,6 +283,21 @@
       }
     }
 
+    /* dest code + insert code readout pinned to the bottom of the display,
+       below the scaled board replica */
+    .codebar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
+      padding-right: 10px;
+      text-align: right;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      color: #ffb21c;
+    }
+
     /* non-default screens (code entry, service / destination lists) */
     .hv-flex {
       position: absolute;
@@ -626,14 +641,19 @@ function renderBoard(cur) {
   }
   const hide = ovText ? (ovCfg.hide || []) : [];
 
-  const key = JSON.stringify([cur.layouts.front, pages, hide]);
+  const dest0 = cur.destination || {};
+  const svc0 = cur.service || {};
+  const code0 = fmtCode(dest0.code || svc0.number || "");
+  const insTag0 = ins ? ` +${ins.code || "INS"}` : "";
+
+  const key = JSON.stringify([cur.layouts.front, pages, hide, code0, insTag0]);
   if (key === boardKey && screen.querySelector(".board")) return true;
   clearTimeout(boardTimer);
   boardKey = key;
 
   const scale = DISPLAY_W / layout.width;
   const dispH = Math.round(layout.height * scale);
-  screen.innerHTML = `<div class="board" style="width:${layout.width}px;height:${layout.height}px;background:${esc(layout.background || "#000")};transform:scale(${scale})"></div>`;
+  screen.innerHTML = `<div class="board" style="width:${layout.width}px;height:${layout.height}px;background:${esc(layout.background || "#000")};transform:scale(${scale})"></div><div class="codebar">${esc(code0)}${esc(insTag0)}</div>`;
   const board = screen.firstChild;
 
   let idx = 0;
