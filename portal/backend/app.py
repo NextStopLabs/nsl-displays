@@ -886,14 +886,6 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
         "SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (did,))]
     displays = [dict(r) for r in con.execute(
         "SELECT * FROM program_displays WHERE program_id=? ORDER BY position", (d["program_id"],))]
-    count = len(stops)
-    if count == 0:
-        return {"destination": d, "service": s, "stop": None, "pos": 0, "count": 0,
-                "stops": [], "fields": {}, "pages": _destination_pages(con, did),
-                "layouts": {}, "displays": displays,
-                "next": [], "approaching": []}
-    pos = max(1, min(pos, count))
-    stop = stops[pos - 1]
     fields = {"num": d.get("num") or s.get("number") or "",
               "via": d.get("via") or "", "dest": d.get("dest") or ""}
     try:
@@ -902,9 +894,6 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
             fields[k] = v
     except Exception:
         pass
-    fields["__stop_name"] = stop.get("name") or ""
-    fields["__board_text"] = stop.get("board_text") or stop.get("name") or ""
-    board_override = stop.get("board_override") or ""
     layouts = {}
     for disp in displays:
         row = con.execute("SELECT layout FROM p_layouts WHERE destination_id=? AND display_id=?",
@@ -918,6 +907,17 @@ def preview_destination(did: str, pos: int = 1, u: dict = Depends(current_user))
             layouts[disp["name"]] = {"layout": json.loads(t[0]), "source": "template"}
         else:
             layouts[disp["name"]] = {"layout": None, "source": "auto-fit"}
+    count = len(stops)
+    if count == 0:
+        return {"destination": d, "service": s, "stop": None, "pos": 0, "count": 0,
+                "stops": [], "fields": fields, "pages": _destination_pages(con, did),
+                "layouts": layouts, "displays": displays,
+                "next": [], "approaching": []}
+    pos = max(1, min(pos, count))
+    stop = stops[pos - 1]
+    fields["__stop_name"] = stop.get("name") or ""
+    fields["__board_text"] = stop.get("board_text") or stop.get("name") or ""
+    board_override = stop.get("board_override") or ""
     clips = {r["sha256"]: dict(r) for r in con.execute(
         "SELECT sha256, filename, duration_ms FROM audio_files WHERE organisation_id=?",
         (d["organisation_id"],))}
