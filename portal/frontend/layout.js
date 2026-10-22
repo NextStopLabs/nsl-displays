@@ -238,19 +238,22 @@ const LayoutEditor = (() => {
     const ovActive = !!ovText;
     const ov = lay.override || {};
     // One pages system: the destination's board pages rotate every
-    // page_seconds, exactly like the bus. The edit canvas stays on the
-    // selected board tab; the preview cycles through the pages so you can
-    // see the whole rotation while you edit.
+    // page_seconds, but inside the layout editor the preview stays locked
+    // to the selected board tab so the user edits exactly what they see.
+    // The main Preview tab (app.js) does the real rotation.
     const slot = slotFor(lay, t);
     let fields = ed.fields;
-    let boardPos = boardPosForSlot(slot);
+    let boardPos = 0;
     let boardLabel = "";
     if (ed.pages && ed.pages.length) {
       const ordered = orderedBoardPages();
+      boardPos = ed.tab || ordered[0].position;
       const pg = ordered.find((p) => p.position === boardPos) || ordered[0];
       fields = Object.assign({}, ed.fields, { via: pg.via || "", dest: pg.dest || "" });
       boardLabel = ordered.length > 1
         ? `Board P${pg.position} of ${ordered.length}` : "";
+    } else {
+      boardPos = boardPosForSlot(slot);
     }
     const previewEls = activePageElements(lay, boardPos) || [];
     if (ov.mode === "full" && ovActive) {
