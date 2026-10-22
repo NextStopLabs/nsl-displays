@@ -263,6 +263,9 @@ def _check_elements(els: list, ref: str, res: ValidationResult, disp: dict | Non
         elif et == "text":
             if "text" not in el:
                 res.errors.append(Issue("layout_text", "text element needs 'text'", "layouts", tag))
+        elif et == "image":
+            if not el.get("src"):
+                res.errors.append(Issue("layout_image_src", "image element needs 'src'", "layouts", tag))
         else:
             res.errors.append(Issue("layout_type", f"bad element type {et!r}", "layouts", tag))
         if "pages" in el and el.get("pages") not in (None, []):

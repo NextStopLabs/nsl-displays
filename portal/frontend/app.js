@@ -53,6 +53,29 @@ async function playSequence(shas) {
 const Preview = (() => {
   let raf = 0, snap = null;
   const AMBER = "#FFB000";
+  const imgCache = {};
+  function loadImage(src) {
+    if (!src) return null;
+    if (imgCache[src]) return imgCache[src];
+    const im = new Image();
+    im.src = src;
+    imgCache[src] = im;
+    return im;
+  }
+  function drawImageEl(g, el, bx, by, bw, bh) {
+    const im = loadImage(el.src);
+    if (!im || !im.complete || !im.naturalWidth) return false;
+    const keep = el.keep_aspect !== false;
+    const iw = im.naturalWidth, ih = im.naturalHeight;
+    let dw = bw, dh = bh, dx = bx, dy = by;
+    if (keep) {
+      const sc = Math.min(bw / iw, bh / ih);
+      dw = iw * sc; dh = ih * sc;
+      dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
+    }
+    g.drawImage(im, dx, dy, dw, dh);
+    return true;
+  }
   function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; snap = null; }
   function autofit(w, h) {
     const nw = Math.max(16, Math.round(w * 70 / 240)), dh = Math.max(8, Math.round(h * 25 / 40));
@@ -122,6 +145,10 @@ const Preview = (() => {
       for (const el of elements) {
         if (el.field && hide.has(el.field)) continue;
         if (!show(el)) continue;
+        if (el.type === "image") {
+          drawImageEl(g, el, el.x, el.y, el.w, el.h);
+          continue;
+        }
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
         let text = "";
         if (ovText && el.type === "field" && (ov.replaces || "dest") === el.field &&

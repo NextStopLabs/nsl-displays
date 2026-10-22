@@ -84,3 +84,28 @@ def test_page_elements_layouts():
     img2 = render_frame(lay, {"num": "1", "via": "B", "dest": "D"}, "", now=3.5, pages=pages)
     assert img1.size == img2.size == (240, 40)
     assert list(img1.getdata()) != list(img2.getdata())
+
+
+def test_image_element():
+    """Image elements render from a base64 data URL, respecting keep_aspect."""
+    from io import BytesIO
+    import base64
+    from PIL import Image
+    dot = Image.new("RGBA", (8, 8), (255, 176, 0, 255))
+    buf = BytesIO()
+    dot.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    data_url = f"data:image/png;base64,{b64}"
+    lay = {
+        "width": 240, "height": 40, "background": "#000000", "page_seconds": 3,
+        "elements": [
+            {"type": "image", "src": data_url, "x": 0, "y": 0, "w": 16, "h": 16,
+             "keep_aspect": True, "show_if": "always"},
+            {"type": "image", "src": data_url, "x": 20, "y": 0, "w": 40, "h": 16,
+             "keep_aspect": False, "show_if": "always"}
+        ]
+    }
+    img = render_frame(lay, {"num": "", "via": "", "dest": ""}, "", now=0.0)
+    assert img.size == (240, 40)
+    # both images should have drawn non-black pixels
+    assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 100

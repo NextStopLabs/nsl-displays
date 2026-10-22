@@ -5,6 +5,8 @@ Renders with Pillow so portal preview and bus output stay identical.
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 import time
 
@@ -21,6 +23,53 @@ FONT_HEIGHTS = {
 }
 DEFAULT_FONT = "pixel-medium"
 AMBER = "#FFB000"
+
+# src string -> PIL Image cache for embedded data-url images.
+_IMAGE_CACHE: dict[str, Image.Image] = {}
+
+
+def _parse_data_url(src: str) -> bytes | None:
+    if not isinstance(src, str):
+        return None
+    if src.startswith("data:"):
+        try:
+            return base64.b64decode(src.split(",", 1)[1])
+        except Exception:
+            return None
+    return None
+
+
+def _load_image(src: str) -> Image.Image | None:
+    if src in _IMAGE_CACHE:
+        return _IMAGE_CACHE[src]
+    data = _parse_data_url(src)
+    if data is None:
+        return None
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGBA")
+        _IMAGE_CACHE[src] = im
+        return im
+    except Exception:
+        return None
+
+
+def _draw_image(dr: ImageDraw.Draw, img: Image.Image, el: dict):
+    """Draw an image element onto the layout canvas."""
+    x, y, ww, hh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
+    keep_aspect = el.get("keep_aspect", True)
+    iw, ih = img.size
+    if keep_aspect:
+        scale = min(ww / iw, hh / ih, 1) if iw and ih else 0
+        dw, dh = int(iw * scale), int(ih * scale)
+        dx, dy = x + (ww - dw) // 2, y + (hh - dh) // 2
+    else:
+        dw, dh, dx, dy = ww, hh, x, y
+    if dw <= 0 or dh <= 0:
+        return
+    resized = img.resize((dw, dh), Image.NEAREST)
+    # Composite onto existing pixels using alpha.
+    canvas = dr._image
+    canvas.paste(resized, (dx, dy), resized)
 
 
 def _font_for(font_id: str, h: int):
@@ -246,13 +295,18 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             continue
         if not _visible(el, fields, override_active):
             continue
+        x, y, ww, hh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
+        if el.get("type") == "image":
+            im = _load_image(el.get("src"))
+            if im:
+                _draw_image(dr, im, el)
+            continue
         flash_ms = int(el.get("flash_ms", 0) or 0)
         if flash_ms and (int(now * 1000) % (flash_ms * 2)) >= flash_ms:
             continue  # off phase
         text = _element_text(el, fields, override_text, layout)
         if not text:
             continue
-        x, y, ww, hh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
         colour = el.get("colour", AMBER)
         invert = bool(el.get("invert"))
         font_id = el.get("font", DEFAULT_FONT)

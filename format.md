@@ -239,8 +239,11 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `override.mode` | `replace` (override text replaces one element), `hide_others` (override text only, other elements hidden), `full` (override text fills the display) |
 | `override.replaces` | The `field` whose text is replaced (default `dest`) |
 | `override.hide` | Fields hidden while an override is active |
-| element `type` | `field` (shows a field) or `text` (fixed text in a `text` property) |
+| element `type` | `field` (shows a field), `text` (fixed text in a `text` property), or `image` (embedded bitmap/PNG) |
 | element `field` | `num`, `via`, `dest`, or an extra field key |
+| `src` | For `image` elements: a base64 data URL (`data:image/png;base64,...` or `data:image/bmp;base64,...`) |
+| `keep_aspect` | For `image` elements: `true` (default) scales to fit the box while preserving aspect ratio, `false` stretches to fill |
+| `aspect` | For `image` elements: cached natural width/height ratio (used by editors when resizing) |
 | `x`, `y`, `w`, `h` | Pixels, element must lie inside the display |
 | `font` | Pixel font id, or `han-<STEM>` for a Hanover bitmap font (1:1 pixels, see README §19.1). Unknown font falls back to a default and raises a warning |
 | `scale` | Integer 1–8, default 1. Integer-upscales Hanover glyphs (ignored by pixel fonts) |

@@ -11,6 +11,29 @@ const LayoutEditor = (() => {
   // ---------- Hanover bitmap fonts (server .Fnt files, 1:1 pixels, LSB = top) ----------
   // Standalone (no editor state): app.js Preview uses LayoutEditor.hanover too.
   const hanCache = {};
+  const imgCache = {};
+  function loadImage(src) {
+    if (!src) return null;
+    if (imgCache[src]) return imgCache[src];
+    const im = new Image();
+    im.src = src;
+    imgCache[src] = im;
+    return im;
+  }
+  function drawImageEl(g2, el, bx, by, bw, bh) {
+    const im = loadImage(el.src);
+    if (!im || !im.complete || !im.naturalWidth) return false;
+    const keep = el.keep_aspect !== false;
+    const iw = im.naturalWidth, ih = im.naturalHeight;
+    let dw = bw, dh = bh, dx = bx, dy = by;
+    if (keep) {
+      const sc = Math.min(bw / iw, bh / ih);
+      dw = iw * sc; dh = ih * sc;
+      dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
+    }
+    g2.drawImage(im, dx, dy, dw, dh);
+    return true;
+  }
   async function hanFetch(id) {
     if (hanCache[id]) return hanCache[id];
     const r = await api(`/api/fonts/${encodeURIComponent(id)}`);
@@ -214,10 +237,19 @@ const LayoutEditor = (() => {
       g.fillRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
       g.strokeStyle = sel ? "#ff4444" : AMBER; g.lineWidth = sel ? 2 : 1;
       g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
+      if (el.type === "image") {
+        if (drawImageEl(g, el, el.x * scale, el.y * scale, el.w * scale, el.h * scale)) {
+          if (sel) {
+            g.strokeStyle = "#ff4444"; g.lineWidth = 2;
+            g.strokeRect(el.x * scale, el.y * scale, el.w * scale, el.h * scale);
+          }
+          return;
+        }
+      }
       g.fillStyle = inv ? "#000" : (sel ? "#fff" : AMBER);
       g.font = `${Math.max(9, 3 * scale)}px monospace`;
       g.textBaseline = "top"; g.textAlign = "left";
-      const label = (el.type === "field" ? el.field : (el.text || "text").slice(0, 10)) + (inv ? " inv" : "");
+      const label = (el.type === "field" ? el.field : el.type === "image" ? "image" : (el.text || "text").slice(0, 10)) + (inv ? " inv" : "");
       g.fillText(label, el.x * scale + 2, el.y * scale + 2);
       if (sel) {
         g.fillStyle = "#ff4444";
@@ -271,6 +303,10 @@ const LayoutEditor = (() => {
       for (const el of previewEls) {
         if (el.field && hide.has(el.field)) continue;
         if (!visible(el, fields, ovActive)) continue;
+        if (el.type === "image") {
+          drawImageEl(g, el, el.x, el.y, el.w, el.h);
+          continue;
+        }
         if (el.flash_ms && (Math.floor(t * 1000) % (el.flash_ms * 2)) >= el.flash_ms) continue;
         const text = elText(el, fields, ovText, lay);
         if (!text) continue;
@@ -420,24 +456,31 @@ const LayoutEditor = (() => {
     const list = document.getElementById("lay-ellist");
     if (!box) return;
     const els = ed.lay.elements || [];
-    list.innerHTML = els.map((e, i) =>
-      `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${(e.type === "field" ? e.field : "text")}</option>`).join("");
+    list.innerHTML = els.map((e, i) => {
+      const name = e.type === "field" ? e.field : e.type === "image" ? "image" : "text";
+      return `<option value="${i}"${i === ed.sel ? " selected" : ""}>#${i + 1} ${name}</option>`;
+    }).join("");
     const el = els[ed.sel];
     if (!el) { box.innerHTML = "<p class=hint>Select an element on the canvas or list, or add one.</p>"; return; }
     const num = (k, label, opts = "") => `<div><label>${label}</label><input data-p=${k} type=number ${opts} value="${el[k] ?? 0}"></div>`;
+    const isImage = el.type === "image";
     const fieldSelect = el.type === "field"
       ? `<select data-p=field>${["num", "via", "dest", ...ed.extraKeys].map((f) => `<option${f === el.field ? " selected" : ""}>${f}</option>`).join("")}</select>`
       : `<input data-p=text value="${esc(el.text || "")}">`;
-    box.innerHTML = `
-      <div class="props-section"><div class="props-title">Position &amp; size</div>
-        <div class=row>${num("x", "X")}${num("y", "Y")}${num("w", "Width")}${num("h", "Height")}</div>
-      </div>
-      <div class="props-section"><div class="props-title">Content</div>
-        <div class=row>
-          <div style="flex:0 0 110px"><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option></select></div>
-          <div class=col><label>${el.type === "field" ? "Field" : "Fixed text"}</label>${fieldSelect}</div>
+    const imageSection = isImage ? `
+      <div class="props-section"><div class="props-title">Image</div>
+        <div class=row style="align-items:center">
+          <div style="width:64px;height:64px;background:#141414;border:1px solid #444;display:flex;align-items:center;justify-content:center">
+            ${el.src ? `<img src="${esc(el.src)}" style="max-width:60px;max-height:60px;image-rendering:pixelated">` : ""}
+          </div>
+          <div class=col>
+            <input id=lay-replaceimg type=file accept="image/png,image/bmp,image/x-windows-bmp" style="display:none">
+            <button id=lay-replaceimg-btn type=button>Replace image</button>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-top:6px"><input type=checkbox data-p=keep_aspect${el.keep_aspect !== false ? " checked" : ""}> Keep aspect ratio</label>
+          </div>
         </div>
-      </div>
+      </div>` : "";
+    const textAppearance = !isImage ? `
       <div class="props-section"><div class="props-title">Appearance</div>
         <div class=row>
           <div style="flex:0 0 130px"><label>Font size</label><select data-p=font-size>${fontSizeOptions(el.font)}</select></div>
@@ -450,13 +493,29 @@ const LayoutEditor = (() => {
           <div style="flex:0 0 90px"><label>Scale</label><input data-p=scale type=number min=1 max=8 value="${el.scale || 1}"></div>
           <div style="flex:0 0 90px"><label>Spacing</label><input data-p=spacing type=number min=-8 max=16 value="${el.spacing || 0}"></div>
         </div>
+      </div>` : "";
+    const textBehaviour = !isImage ? `
+      <div class=row>
+        <div style="flex:0 0 130px"><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
+        <div style="flex:0 0 100px"><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
+        <div style="flex:0 0 70px;display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=invert${el.invert ? " checked" : ""}> Invert</label></div>
+      </div>` : "";
+    box.innerHTML = `
+      <div class="props-section"><div class="props-title">Position &amp; size</div>
+        <div class=row>${num("x", "X")}${num("y", "Y")}${num("w", "Width")}${num("h", "Height")}</div>
       </div>
+      <div class="props-section"><div class="props-title">Content</div>
+        <div class=row>
+          <div style="flex:0 0 110px"><label>Type</label><select data-p=type><option value="field"${el.type === "field" ? " selected" : ""}>field</option><option value="text"${el.type === "text" ? " selected" : ""}>fixed text</option><option value="image"${isImage ? " selected" : ""}>image</option></select></div>
+          <div class=col><label>${el.type === "field" ? "Field" : el.type === "image" ? "Image" : "Fixed text"}</label>${isImage ? `<span class=hint>${esc(el.src ? (el.src.split(",").pop() || "").slice(0, 40) : "no image")}</span>` : fieldSelect}</div>
+        </div>
+      </div>
+      ${imageSection}
+      ${textAppearance}
       <div class="props-section"><div class="props-title">Behaviour</div>
         <div class=row>
-          <div style="flex:0 0 130px"><label>Scroll</label><select data-p=scroll>${["none", "always", "if_too_long"].map((a) => `<option${a === el.scroll ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-          <div style="flex:0 0 100px"><label>Flash ms</label><input data-p=flash_ms type=number min=0 step=100 value="${el.flash_ms || 0}"></div>
           <div class=col><label>Show if</label><select data-p=show_if>${["always", "has_text", "override_active", "override_inactive"].map((a) => `<option${(el.show_if || "always") === a ? " selected" : ""}>${a}</option>`).join("")}</select></div>
-          <div style="flex:0 0 70px;display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=invert${el.invert ? " checked" : ""}> Invert</label></div>
+          ${textBehaviour}
         </div>
       </div>
       <div class="row actions" style="margin-top:14px"><button id=lay-del class=danger>Delete element</button></div>`;
@@ -475,11 +534,42 @@ const LayoutEditor = (() => {
       } else if (k === "font-style") {
         if (el.font === v) return;
         el.font = v;
+      } else if (["w", "h"].includes(k) && el.type === "image" && el.keep_aspect !== false && el.aspect) {
+        // preserve aspect ratio when resizing an image
+        el[k] = v;
+        if (k === "w") el.h = Math.max(1, Math.round(el.w / el.aspect));
+        else el.w = Math.max(1, Math.round(el.h * el.aspect));
       } else {
         el[k] = v;
       }
       updateStatus(); drawEditor(); renderProps();
     }));
+    const replaceBtn = document.getElementById("lay-replaceimg-btn");
+    const replaceInput = document.getElementById("lay-replaceimg");
+    if (replaceBtn && replaceInput) {
+      replaceBtn.onclick = () => replaceInput.click();
+      replaceInput.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          const im = new Image();
+          im.onload = () => {
+            el.src = dataUrl;
+            el.aspect = im.naturalWidth / im.naturalHeight;
+            if (el.keep_aspect !== false) {
+              el.w = Math.max(1, Math.min(el.w, im.naturalWidth));
+              el.h = Math.max(1, Math.round(el.w / el.aspect));
+            }
+            updateStatus(); drawEditor(); renderProps();
+          };
+          im.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+    }
     const del = document.getElementById("lay-del");
     if (del) del.onclick = () => { els.splice(ed.sel, 1); ed.sel = Math.max(0, els.length - 1); updateStatus(); drawEditor(); renderProps(); };
   }
@@ -594,6 +684,21 @@ const LayoutEditor = (() => {
     ed.sel = lay.elements.length - 1;
     updateStatus(); drawEditor(); renderProps();
   }
+  function addImageElement(dataUrl, iw, ih) {
+    const lay = ed.lay;
+    const aspect = iw / ih;
+    // Fit within the display while preserving aspect ratio.
+    let w = iw, h = ih;
+    if (w > lay.width) { w = lay.width; h = w / aspect; }
+    if (h > lay.height) { h = lay.height; w = h * aspect; }
+    const el = {
+      type: "image", x: 0, y: 0, w: Math.floor(w), h: Math.floor(h),
+      src: dataUrl, aspect, keep_aspect: true, show_if: "always"
+    };
+    lay.elements.push(el);
+    ed.sel = lay.elements.length - 1;
+    updateStatus(); drawEditor(); renderProps();
+  }
 
   // ---------- open ----------
   async function open(mount, ctx) {
@@ -625,6 +730,8 @@ const LayoutEditor = (() => {
           <div class=group style="margin-top:0"><div class=grouptitle>Tools</div>
             <div class=row><button id=lay-addfield class=primary style="flex:1">Add field</button></div>
             <div class=row><button id=lay-addtext style="flex:1">Add fixed text</button></div>
+            <div class=row><button id=lay-addimage style="flex:1">Add image</button></div>
+            <input id=lay-imagefile type=file accept="image/png,image/bmp,image/x-windows-bmp" style="display:none">
           </div>
           <div class=group><div class=grouptitle>Elements</div>
             <select id=lay-ellist size=8 style="min-height:120px"></select>
@@ -736,6 +843,20 @@ const LayoutEditor = (() => {
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
     document.getElementById("lay-addtext").onclick = () => addElement("text");
+    document.getElementById("lay-addimage").onclick = () => document.getElementById("lay-imagefile").click();
+    document.getElementById("lay-imagefile").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const im = new Image();
+        im.onload = () => addImageElement(dataUrl, im.naturalWidth, im.naturalHeight);
+        im.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
+    });
     document.getElementById("lay-copyto").onclick = () => {
       const target = parseInt(document.getElementById("lay-copypage").value, 10);
       const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
