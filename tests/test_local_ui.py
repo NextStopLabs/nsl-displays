@@ -11,10 +11,13 @@ from nsl_pi.local_ui import app, client_allowed  # noqa: E402
 
 def test_allowlist_ranges():
     assert client_allowed("127.0.0.1")
-    assert client_allowed("192.168.4.7")
-    assert client_allowed("10.9.0.2")
-    assert not client_allowed("192.168.0.159")
-    assert not client_allowed("8.8.8.8")
+    assert client_allowed("192.168.4.7")    # Pi access point
+    assert client_allowed("10.9.0.2")       # bus LAN
+    assert client_allowed("192.168.0.159")  # home/office WiFi
+    assert client_allowed("192.168.43.5")   # Android hotspot
+    assert client_allowed("172.20.10.2")    # iPhone hotspot
+    assert not client_allowed("8.8.8.8")    # public stays blocked
+    assert not client_allowed("1.1.1.1")
 
 
 def test_health_open_and_state_guarded():

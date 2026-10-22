@@ -4,9 +4,11 @@ Same components as portal remote page. Control + programs (+.nslpack import)
 + settings + diagnostics.
 
 Access control is the network boundary (there is no login on this box):
-the app listens on all interfaces but only serves loopback, the Pi access
-point subnet (192.168.4.0/24) and the bus LAN (10.9.0.0/24). Everything else
-gets 403. Extra subnets via NSL_UI_ALLOW="cidr,cidr,...". /api/health is open.
+the app listens on all interfaces but only serves clients on local
+networks - loopback, RFC1918 private LANs (Pi access point, bus LAN, home
+WiFi, phone hotspots, …) and link-local. Anything arriving with a public
+source IP gets 403. Extra subnets (e.g. public) via
+NSL_UI_ALLOW="cidr,cidr,...". /api/health is open.
 """
 from __future__ import annotations
 
@@ -27,11 +29,12 @@ app = FastAPI(title="NSL Local Controller")
 ALLOW_NETS = [ipaddress.ip_network("127.0.0.0/8"),
               ipaddress.ip_network("192.168.4.0/24"),
               ipaddress.ip_network("10.9.0.0/24")]
+EXTRA_NETS: list = []
 for _tok in os.environ.get("NSL_UI_ALLOW", "").split(","):
     _tok = _tok.strip()
     if _tok:
         try:
-            ALLOW_NETS.append(ipaddress.ip_network(_tok))
+            EXTRA_NETS.append(ipaddress.ip_network(_tok))
         except ValueError:
             pass
 
@@ -39,11 +42,16 @@ OPEN_PATHS = {"/api/health", "/openapi.json", "/docs"}
 
 
 def client_allowed(host: str | None) -> bool:
+    """Any local-network client may use the box: if you can route to its IP
+    over a LAN you are already inside the boundary. Public source IPs stay
+    blocked (plain HTTP, no login); NSL_UI_ALLOW can open extra subnets."""
     try:
         ip = ipaddress.ip_address(host or "")
     except ValueError:
         return True  # no parseable peer (test client); real servers always pass an IP
-    return any(ip in net for net in ALLOW_NETS)
+    if ip.is_loopback or ip.is_private or ip.is_link_local:
+        return True
+    return any(ip in net for net in ALLOW_NETS + EXTRA_NETS)
 
 
 @app.middleware("http")

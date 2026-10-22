@@ -154,7 +154,8 @@ tr.sel{background:#cfe0ff}
 [data-theme="dark"] tbody tr:hover{background:var(--sel)}
 [data-theme="dark"] tr.sel{background:var(--sel)}
 td.row{display:table-cell;margin:0;white-space:nowrap;vertical-align:middle}
-td.row button{margin:1px 4px 1px 0;padding:3px 8px;font-size:12px}
+td.row button,td.row a.button{margin:1px 4px 1px 0;padding:3px 8px;font-size:12px;text-decoration:none;display:inline-block;background:linear-gradient(#fff,#D9D4C7);border:var(--bevel);border-radius:3px;color:var(--ink)}
+[data-theme="dark"] td.row a.button{background:var(--chrome-d);border-color:var(--shadow);color:var(--ink)}
 td input,td select{padding:4px 6px;font-size:13px}
 .kbd{font-family:var(--mono);background:#222;color:var(--amber);padding:2px 6px;border-radius:2px;font-size:12px}
 

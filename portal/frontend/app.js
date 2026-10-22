@@ -1394,7 +1394,7 @@ async function loadControllers() {
     }).join("<br>") || "-";
     const pend = c.pending_commands ? ` · ${c.pending_commands} cmd(s) waiting` : "";
     return `<tr><td><b>${esc(c.name)}</b></td><td>${status}${esc(pend)}${handshake}</td><td>${esc(last)}</td><td>${esc(c.app_version || "")}</td><td>${progs}</td>
-    <td class=row><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button class=danger data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
+    <td class=row><a class="button" href="controller.html?cid=${esc(c.id)}" target="_blank" title="Open mobile destination controller for this bus">Controller</a><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button class=danger data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
   await loadReleases();

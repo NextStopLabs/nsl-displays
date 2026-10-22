@@ -2100,6 +2100,52 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
     return out
 
 
+@app.get("/api/controllers/{cid}/browse")
+def controller_browse(cid: str, u: dict = Depends(current_user)):
+    """Services + destinations tree for the controller's current program."""
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
+    try:
+        live = json.loads(c["live_state"] or "null") or {}
+    except Exception:
+        live = {}
+    pid = live.get("program_id")
+    ver = live.get("program_version")
+    if not pid:
+        # no live state yet: fall back to the program queued for this controller
+        cp = con.execute(
+            "SELECT program_id, desired_version FROM controller_programs WHERE controller_id=? ORDER BY updated_at DESC LIMIT 1",
+            (cid,)).fetchone()
+        if cp:
+            pid, ver = cp["program_id"], cp["desired_version"]
+    if not pid or ver is None:
+        return {"services": []}
+    bundle = os.path.join(STORAGE_DIR, "programs", pid, f"{ver}.nslprog")
+    if not os.path.exists(bundle):
+        return {"services": []}
+    import sqlite3 as _s
+    bc = _s.connect(f"file:{bundle}?mode=ro", uri=True)
+    try:
+        bc.row_factory = _s.Row
+        services = []
+        for svc in bc.execute("SELECT * FROM services ORDER BY position"):
+            dests = [dict(d) for d in bc.execute(
+                "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
+                (svc["id"],))]
+            services.append({
+                "id": svc["id"],
+                "number": svc.get("number") or "",
+                "name": svc.get("description") or svc.get("name") or "",
+                "destinations": dests,
+            })
+        return {"services": services}
+    finally:
+        bc.close()
+
+
 @app.post("/api/controllers/{cid}/command")
 def remote_command(cid: str, body: dict, u: dict = Depends(current_user)):
     con = db()
