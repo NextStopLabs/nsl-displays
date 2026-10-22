@@ -643,6 +643,12 @@ function fmtCode(c) {
   if (!c && c !== "0") return "----";
   return String(c).padStart(4, "0");
 }
+function fmtDepEntry(digits) {
+  const d = (digits || []).join("");
+  if (!d) return "--:--";
+  if (d.length <= 2) return d;
+  return d.slice(0, -2) + ":" + d.slice(-2);
+}
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function splitDest(s) {
   s = String(s || "");
@@ -754,13 +760,13 @@ function renderScreen() {
   }
   if (state.mode === "depart") {
     const dep = cur.departure || {};
-    const live = dep && dep.text ? dep.text : "NO DEPART TIMER";
+    const live = (dep && (dep.text || dep.time)) ? (dep.text || `Departing ${dep.time}`) : "NO DEPART TIME";
     screen.innerHTML = `<div class="hv-flex">
-      <div class="line"><span class="small dim">${esc(live)}</span><span class="small">MINS TO DEPART</span></div>
-      <div class="line"><span class="big">${esc(state.code.join("") || "--")}m</span><span class="entry">${esc(state.code.join(""))}</span></div>
+      <div class="line"><span class="small dim">${esc(live)}</span><span class="small">DEPART AT</span></div>
+      <div class="line"><span class="big">${esc(fmtDepEntry(state.code))}</span><span class="entry">${esc(state.code.join(""))}</span></div>
       <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
     </div>`;
-    hint.textContent = "Type mins (1-99) · ENT = start · ENT empty = clear · X = cancel";
+    hint.textContent = "Type time HHMM e.g. 1510 · ENT = set · ENT empty = clear · X = cancel";
     return;
   }
   if (state.mode === "services") {
@@ -826,7 +832,7 @@ function renderScreen() {
   const baseHint = cur.insert
     ? `I = change insert (${cur.insert.code}) · ENT empty clears · D = type code`
     : "D = type code · I = insert page · ▲▼ = services · ENT = select";
-  hint.textContent = (dep && dep.text) ? `${dep.text} · F = change · ${baseHint}` : `${baseHint} · F = depart timer`;
+  hint.textContent = (dep && dep.text) ? `${dep.text} · F = change · ${baseHint}` : `${baseHint} · F = depart time`;
 }
 
 /* ---------- actions (logic unchanged) ---------- */
@@ -877,7 +883,7 @@ function buildCloudPrograms() {
 }
 function appendDigit(n) {
   if (state.mode === "depart") {
-    if (state.code.length >= 2) state.code.shift();
+    if (state.code.length >= 4) state.code.shift();
     state.code.push(n); state.codeError = ""; render();
     return;
   }
@@ -987,14 +993,19 @@ async function confirm() {
       }
       return;
     }
-    const mins = parseInt(cd, 10);
-    if (!mins || mins < 1 || mins > 99) {
-      state.codeError = "1-99 ONLY"; buzz([35, 40, 35]);
+    const dd = cd.replace(/\D/g, "");
+    let hhmm = null;
+    if (/^\d{3,4}$/.test(dd)) {
+      const hh = parseInt(dd.slice(0, -2), 10), mm = parseInt(dd.slice(-2), 10);
+      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) hhmm = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+    if (!hhmm) {
+      state.codeError = "BAD TIME"; buzz([35, 40, 35]);
       render();
       return;
     }
     try {
-      await cmdPath("depart_set", {mins});
+      await cmdPath("depart_set", {time: hhmm});
       state.mode = "view"; state.code = []; state.codeError = "";
       state.pending = null;
       await refresh();

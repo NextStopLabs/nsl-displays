@@ -36,11 +36,13 @@ def _ensure_insert_column(con: sqlite3.Connection):
 
 
 def _ensure_depart_columns(con: sqlite3.Connection):
-    """Migration for controller.db files created before departure countdown."""
+    """Migration for controller.db files created before departure time."""
     try:
         cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
         if "depart_mins" not in cols:
             con.execute("ALTER TABLE state ADD COLUMN depart_mins INTEGER DEFAULT NULL")
+        if "depart_time" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN depart_time TEXT DEFAULT NULL")
         if "depart_expires_at" not in cols:
             con.execute("ALTER TABLE state ADD COLUMN depart_expires_at REAL DEFAULT NULL")
         con.commit()
@@ -405,29 +407,64 @@ class Core:
         self._emit("state")
         return self.state()
 
-    # ---- departure countdown (F key) ----
+    # ---- departure time (F key) ----
+    @staticmethod
+    def _parse_depart_time(raw: str | int | None) -> str:
+        """Accept '15:10', '1510', '910' -> 'HH:MM'. Raises ValueError."""
+        s = str(raw or "").strip().replace(":", "").replace(".", "")
+        if not s.isdigit() or len(s) not in (3, 4):
+            raise ValueError("INVALID")
+        hh, mm = (int(s[:-2]), int(s[-2:])) if len(s) in (3, 4) else (None, None)
+        if hh is None or not 0 <= hh <= 23 or not 0 <= mm <= 59:
+            raise ValueError("INVALID")
+        return f"{hh:02d}:{mm:02d}"
+
+    @staticmethod
+    def _expires_for_time(hhmm: str, now: float | None = None) -> float:
+        """Next occurrence of HH:MM as a timestamp (today if still ahead,
+        else tomorrow). Local bus time."""
+        import time as _t
+        import datetime as _dt
+        now = now if now is not None else _t.time()
+        hh, mm = int(hhmm[:2]), int(hhmm[3:5])
+        loc = _dt.datetime.fromtimestamp(now)
+        cand = loc.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if cand.timestamp() <= now:
+            cand = cand + _dt.timedelta(days=1)
+        return cand.timestamp()
+
+    def set_departure_time(self, time_str: str | int, source: str = "local",
+                           user_id: str | None = None, now: float | None = None) -> dict:
+        """F key: lock boards on P1 and show 'Departing HH:MM' on the front
+        via line until the time passes. Auto-clears after expiry."""
+        import time as _t
+        hhmm = self._parse_depart_time(time_str)
+        expires = self._expires_for_time(hhmm, now)
+        self._con.execute("UPDATE state SET depart_time=?, depart_mins=NULL, depart_expires_at=?, updated_at=? WHERE id=1",
+                          (hhmm, expires, _utcnow()))
+        self._log(source, f"depart_set {hhmm}", user_id)
+        self._con.commit()
+        self._emit("state")
+        return self.state()
+
     def set_departure(self, mins: int | str, source: str = "local",
                       user_id: str | None = None) -> dict:
-        """F key: lock boards on P1 and show a live 'Departing in X mins'
-        countdown on the front via line until expiry. Auto-clears at zero."""
+        """Legacy mins countdown (kept for API compat): converts to a clock
+        time mins in the future and stores it the same way."""
         import time as _t
+        import datetime as _dt
         try:
             mins = int(mins)
         except (TypeError, ValueError):
             raise ValueError("INVALID")
         if not 1 <= mins <= 99:
             raise ValueError("INVALID")
-        expires = _t.time() + mins * 60
-        self._con.execute("UPDATE state SET depart_mins=?, depart_expires_at=?, updated_at=? WHERE id=1",
-                          (mins, expires, _utcnow()))
-        self._log(source, f"depart_set {mins}", user_id)
-        self._con.commit()
-        self._emit("state")
-        return self.state()
+        future = _dt.datetime.fromtimestamp(_t.time()) + _dt.timedelta(minutes=mins)
+        return self.set_departure_time(future.strftime("%H:%M"), source=source, user_id=user_id)
 
     def clear_departure(self, source: str = "local", user_id: str | None = None,
                         silent: bool = False) -> dict:
-        self._con.execute("UPDATE state SET depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+        self._con.execute("UPDATE state SET depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                           (_utcnow(),))
         if not silent:
             self._log(source, "depart_clear", user_id)
@@ -437,41 +474,57 @@ class Core:
         return self.state()
 
     def departure_status(self, now: float | None = None) -> dict:
-        """Live countdown state. Expired timers self-clear on read."""
+        """Departure-time state. Expired timers self-clear on read."""
         import time as _t
-        import math as _m
         now = now if now is not None else _t.time()
         try:
             row = self._con.execute(
-                "SELECT depart_mins, depart_expires_at FROM state WHERE id=1").fetchone()
+                "SELECT depart_time, depart_mins, depart_expires_at FROM state WHERE id=1").fetchone()
         except Exception:
-            return {"active": False, "mins_remaining": 0, "expires_at": None}
+            return {"active": False, "time": None, "text": None, "expires_at": None,
+                    "mins_remaining": 0}
         self._con.commit()
         if not row or row["depart_expires_at"] is None:
-            return {"active": False, "mins_remaining": 0, "expires_at": None}
+            return {"active": False, "time": None, "text": None, "expires_at": None,
+                    "mins_remaining": 0}
         try:
             exp = float(row["depart_expires_at"])
         except (TypeError, ValueError):
-            return {"active": False, "mins_remaining": 0, "expires_at": None}
-        rem = _m.ceil((exp - now) / 60)
-        if rem <= 0:
+            return {"active": False, "time": None, "text": None, "expires_at": None,
+                    "mins_remaining": 0}
+        if exp <= now:
             try:
                 self._con.execute(
-                    "UPDATE state SET depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                    "UPDATE state SET depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                     (_utcnow(),))
                 self._con.commit()
             except Exception:
                 pass
-            return {"active": False, "mins_remaining": 0, "expires_at": None}
-        return {"active": True, "mins_remaining": int(rem), "expires_at": exp}
+            return {"active": False, "time": None, "text": None, "expires_at": None,
+                    "mins_remaining": 0}
+        tstr = row["depart_time"] if "depart_time" in row.keys() else None
+        if not tstr:
+            # legacy mins row without a time label: derive HH:MM from expiry
+            import datetime as _dt
+            try:
+                tstr = _dt.datetime.fromtimestamp(exp).strftime("%H:%M")
+            except Exception:
+                tstr = None
+        import math as _m
+        rem = max(0, _m.ceil((exp - now) / 60))
+        text = f"Departing {tstr}" if tstr else None
+        return {"active": True, "time": tstr, "text": text, "expires_at": exp,
+                "mins_remaining": int(rem)}
 
     @staticmethod
-    def departure_text(mins_remaining: int) -> str:
+    def departure_text(time_str: str | int | None) -> str | None:
+        if time_str is None:
+            return None
         try:
-            n = int(mins_remaining)
-        except (TypeError, ValueError):
-            n = 0
-        return f"Departing in {n} min" if n == 1 else f"Departing in {n} mins"
+            hhmm = Core._parse_depart_time(time_str)
+        except ValueError:
+            return None
+        return f"Departing {hhmm}"
 
     # ---- selection ----
     def select_program(self, program_id: str, source: str = "local", user_id: str | None = None) -> dict:
@@ -492,7 +545,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (program_id, version, dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"program_select {program_id}@{version}", user_id)
             self._con.commit()
@@ -520,7 +573,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_code {code}", user_id)
             self._con.commit()
@@ -540,7 +593,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (destination_id,)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], destination_id, stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_select {destination_id}", user_id)
             self._con.commit()
@@ -691,7 +744,7 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (st["destination_id"],)).fetchone()
                     new_stop = first["id"] if first else None
-                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                                       (version, new_stop, _utcnow()))
                 else:
                     # same stop: keep override; (upgrade never clears it).
@@ -710,12 +763,12 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (dest["id"],)).fetchone()
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, dest["service_id"], dest["id"],
                          first["id"] if first else None, _utcnow()))
                 else:
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, _utcnow()))
             self._con.execute("UPDATE installed_programs SET status='superseded' WHERE program_id=? AND status='active'",
                               (program_id,))
@@ -773,6 +826,9 @@ class Core:
         if action == "override_clear":
             return self.clear_override(source=source, user_id=user_id)
         if action == "depart_set":
+            t = cmd.get("time", cmd.get("departure_time", cmd.get("at", None)))
+            if t is not None and str(t).strip() != "":
+                return self.set_departure_time(t, source=source, user_id=user_id)
             mins = cmd.get("mins", cmd.get("minutes", cmd.get("value", "")))
             return self.set_departure(mins, source=source, user_id=user_id)
         if action == "depart_clear":

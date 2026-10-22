@@ -1942,7 +1942,7 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
         keep = {k: body["state"].get(k) for k in
                 ("program_id", "program_version", "service_id", "destination_id",
                  "stop_id", "override_text", "volume", "muted", "insert_destination_id",
-                 "depart_mins", "depart_expires_at")}
+                 "depart_mins", "depart_time", "depart_expires_at")}
         con.execute("UPDATE controllers SET live_state=? WHERE id=?", (json.dumps(keep), c["id"]))
     for ev in body.get("events", []):
         con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
@@ -2138,16 +2138,20 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
                  "volume": live.get("volume", 80), "muted": bool(live.get("muted", 0))}
     try:
         _exp = live.get("depart_expires_at")
-        _mins = None
+        _tstr = live.get("depart_time")
         if _exp is not None:
-            import math as _m
             import time as _t
-            _rem = _m.ceil((float(_exp) - _t.time()) / 60)
-            if _rem > 0:
-                _mins = int(_rem)
-        if _mins:
-            out["departure"] = {"mins_remaining": _mins, "expires_at": float(_exp),
-                                "text": f"Departing in {_mins} min" if _mins == 1 else f"Departing in {_mins} mins"}
+            if float(_exp) > _t.time():
+                if not _tstr:
+                    import datetime as _dt
+                    try:
+                        _tstr = _dt.datetime.fromtimestamp(float(_exp)).strftime("%H:%M")
+                    except Exception:
+                        _tstr = None
+                if _tstr:
+                    out["departure"] = {"time": _tstr, "expires_at": float(_exp),
+                                        "text": f"Departing {_tstr}",
+                                        "mins_remaining": max(0, int((float(_exp) - _t.time()) // 60))}
     except Exception:
         pass
     pid, ver = live.get("program_id"), live.get("program_version")

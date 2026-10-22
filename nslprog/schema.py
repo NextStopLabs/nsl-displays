@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS state (
   updated_at       TEXT NOT NULL,
   insert_destination_id TEXT DEFAULT NULL,
   depart_mins      INTEGER DEFAULT NULL,
+  depart_time      TEXT DEFAULT NULL,
   depart_expires_at REAL DEFAULT NULL
 );
 

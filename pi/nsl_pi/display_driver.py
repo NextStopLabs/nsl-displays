@@ -147,12 +147,10 @@ class DisplayDriver:
                 layout = autofit_layout(w, h)
             svc_number = service.get("number", "") if isinstance(service, dict) else ""
             dep = snapshot.get("departure") or {}
-            dep_active = bool(dep.get("active")) and bool(dep.get("mins_remaining"))
+            dep_text = dep.get("text") or (f"Departing {dep.get('time')}" if dep.get("time") else "")
+            dep_active = bool(dep.get("active")) and bool(dep_text)
             if dep_active:
-                # F-key departure: freeze everything on P1, suppress inserts.
-                import math as _m
-                mins = int(dep.get("mins_remaining") or 0)
-                dep_text = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+                # F-key departure time: freeze everything on P1, suppress inserts.
                 is_front = (prog_display == "front") or (out.get("display_name") == "front")
                 if pages and destination:
                     from .renderer import fields_for_page_index as _ffpi

@@ -55,9 +55,10 @@ class Receiver:
         if insert and not insert.get("destination"):
             insert = None
         departure = snapshot.get("departure") or {}
-        dep_active = bool(departure.get("active")) and bool(departure.get("mins_remaining"))
+        dep_text = departure.get("text") or (f"Departing {departure.get('time')}" if departure.get("time") else "")
+        dep_active = bool(departure.get("active")) and bool(dep_text)
         if dep_active:
-            # F-key departure: every board locks on P1, inserts suppressed.
+            # F-key departure time: every board locks on P1, inserts suppressed.
             # Only the front replaces via; side/rear just freeze.
             insert = None
         layout = None
@@ -125,8 +126,7 @@ class Receiver:
                     if k.startswith("__"):
                         fields[k] = v
                 if self.display_name == "front":
-                    mins = int(departure.get("mins_remaining") or 0)
-                    fields["via"] = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+                    fields["via"] = dep_text
                 ordered0 = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
                 bpos0 = int(ordered0[0].get("position", 0) or 0) if ordered0 else 0
                 frame = render_frame(layout, fields, override, now=now, pages=pages,
@@ -142,8 +142,7 @@ class Receiver:
         else:
             flds = dict(base)
             if dep_active and self.display_name == "front":
-                mins = int(departure.get("mins_remaining") or 0)
-                flds["via"] = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+                flds["via"] = dep_text
             frame = render_frame(layout, flds, override)
         if self.virtual_dir:
             import os
