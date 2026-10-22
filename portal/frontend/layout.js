@@ -31,7 +31,16 @@ const LayoutEditor = (() => {
       dw = iw * sc; dh = ih * sc;
       dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
     }
-    g2.drawImage(im, dx, dy, dw, dh);
+    if (el.tint !== false) {
+      g2.save();
+      g2.drawImage(im, dx, dy, dw, dh);
+      g2.globalCompositeOperation = "source-in";
+      g2.fillStyle = el.colour || AMBER;
+      g2.fillRect(dx, dy, dw, dh);
+      g2.restore();
+    } else {
+      g2.drawImage(im, dx, dy, dw, dh);
+    }
     return true;
   }
   async function hanFetch(id) {
@@ -476,7 +485,11 @@ const LayoutEditor = (() => {
           <div class=col>
             <input id=lay-replaceimg type=file accept="image/png,image/bmp,image/x-windows-bmp" style="display:none">
             <button id=lay-replaceimg-btn type=button>Replace image</button>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-top:6px"><input type=checkbox data-p=keep_aspect${el.keep_aspect !== false ? " checked" : ""}> Keep aspect ratio</label>
+            <div class=row style="margin-top:6px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=keep_aspect${el.keep_aspect !== false ? " checked" : ""}> Keep aspect ratio</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox data-p=tint${el.tint !== false ? " checked" : ""}> Tint to colour</label>
+            </div>
+            <div class=row style="margin-top:6px"><label style="display:flex;align-items:center;gap:6px">Tint colour <input data-p=colour type=color value="${/^#[0-9a-fA-F]{6}$/.test(el.colour || "") ? el.colour : "#FFB000"}"></label></div>
           </div>
         </div>
       </div>` : "";
@@ -693,7 +706,8 @@ const LayoutEditor = (() => {
     if (h > lay.height) { h = lay.height; w = h * aspect; }
     const el = {
       type: "image", x: 0, y: 0, w: Math.floor(w), h: Math.floor(h),
-      src: dataUrl, aspect, keep_aspect: true, show_if: "always"
+      src: dataUrl, aspect, keep_aspect: true, tint: true, colour: AMBER,
+      show_if: "always"
     };
     lay.elements.push(el);
     ed.sel = lay.elements.length - 1;

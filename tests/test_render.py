@@ -109,3 +109,29 @@ def test_image_element():
     assert img.size == (240, 40)
     # both images should have drawn non-black pixels
     assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 100
+
+
+def test_image_tint():
+    """Image elements can be tinted to a single colour or kept full colour."""
+    from io import BytesIO
+    import base64
+    from PIL import Image
+    # a blue 8x8 square
+    blue = Image.new("RGBA", (8, 8), (0, 0, 255, 255))
+    buf = BytesIO()
+    blue.save(buf, format="PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    layout_tinted = {
+        "width": 16, "height": 16, "background": "#000000", "page_seconds": 3,
+        "elements": [{"type": "image", "src": data_url, "x": 0, "y": 0, "w": 8, "h": 8,
+                      "tint": True, "colour": "#FFB000", "show_if": "always"}]
+    }
+    layout_raw = dict(layout_tinted)
+    layout_raw["elements"] = [{**layout_tinted["elements"][0], "tint": False, "colour": "#FFB000"}]
+    tinted = render_frame(layout_tinted, {"num": "", "via": "", "dest": ""}, "", now=0.0)
+    raw = render_frame(layout_raw, {"num": "", "via": "", "dest": ""}, "", now=0.0)
+    # tinted image should be amber, not blue
+    assert any(px[:3] == (255, 176, 0) for px in tinted.getdata())
+    assert not any(px[:3] == (0, 0, 255) for px in tinted.getdata())
+    # raw image should still contain blue pixels
+    assert any(px[:3] == (0, 0, 255) for px in raw.getdata())

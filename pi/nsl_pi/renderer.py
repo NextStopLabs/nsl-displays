@@ -67,9 +67,14 @@ def _draw_image(dr: ImageDraw.Draw, img: Image.Image, el: dict):
     if dw <= 0 or dh <= 0:
         return
     resized = img.resize((dw, dh), Image.NEAREST)
-    # Composite onto existing pixels using alpha.
     canvas = dr._image
-    canvas.paste(resized, (dx, dy), resized)
+    colour = el.get("colour", AMBER)
+    if el.get("tint", True):
+        # Tint every opaque pixel to the chosen colour, preserving alpha.
+        tinted = Image.new("RGBA", resized.size, colour)
+        canvas.paste(tinted, (dx, dy), resized)
+    else:
+        canvas.paste(resized, (dx, dy), resized)
 
 
 def _font_for(font_id: str, h: int):

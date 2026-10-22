@@ -73,7 +73,16 @@ const Preview = (() => {
       dw = iw * sc; dh = ih * sc;
       dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
     }
-    g.drawImage(im, dx, dy, dw, dh);
+    if (el.tint !== false) {
+      g.save();
+      g.drawImage(im, dx, dy, dw, dh);
+      g.globalCompositeOperation = "source-in";
+      g.fillStyle = el.colour || AMBER;
+      g.fillRect(dx, dy, dw, dh);
+      g.restore();
+    } else {
+      g.drawImage(im, dx, dy, dw, dh);
+    }
     return true;
   }
   function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; snap = null; }

@@ -243,6 +243,7 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | element `field` | `num`, `via`, `dest`, or an extra field key |
 | `src` | For `image` elements: a base64 data URL (`data:image/png;base64,...` or `data:image/bmp;base64,...`) |
 | `keep_aspect` | For `image` elements: `true` (default) scales to fit the box while preserving aspect ratio, `false` stretches to fill |
+| `tint` | For `image` elements: `true` (default) recolours the image to `colour`, `false` keeps the original full-colour pixels |
 | `aspect` | For `image` elements: cached natural width/height ratio (used by editors when resizing) |
 | `x`, `y`, `w`, `h` | Pixels, element must lie inside the display |
 | `font` | Pixel font id, or `han-<STEM>` for a Hanover bitmap font (1:1 pixels, see README §19.1). Unknown font falls back to a default and raises a warning |
