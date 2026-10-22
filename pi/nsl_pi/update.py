@@ -243,8 +243,13 @@ def clear_activation_failure(version: str, base: str | None = None):
 def run_activation_helper(version: str):
     """Fork a background process that will activate the update and survive
     the agent service restart. Helper output goes to NSL_BASE/update.log
-    (journal would lose it: the helper outlives the agent service)."""
-    # Always invoke as a module so PYTHONPATH (set by the installer) is used.
+    (journal would lose it: the helper outlives the agent service).
+
+    The helper must run OUTSIDE the agent's cgroup: ``systemctl restart``
+    during activation kills the whole service cgroup, which used to take the
+    helper down mid-activation - leaving the pending marker behind so every
+    agent start spawned another helper and the slots flip-flopped forever.
+    """
     cmd = [sys.executable, "-m", "nsl_pi.update_helper", version]
     base = os.environ.get("NSL_BASE", "/var/lib/nsl")
     try:
@@ -252,7 +257,16 @@ def run_activation_helper(version: str):
         log = open(os.path.join(base, "update.log"), "ab")
     except OSError:
         log = subprocess.DEVNULL
-    # start_new_session keeps the helper alive after agent exits
+    try:
+        subprocess.run(["systemd-run", "--scope", "--quiet",
+                        f"--unit=nsl-update-{version}-{int(time.time())}"] + cmd,
+                       stdout=log, stderr=subprocess.STDOUT, check=True)
+        return
+    except Exception as e:
+        print(f"systemd-run unavailable ({e}); forking helper in place", flush=True)
+    # Fallback (no systemd, e.g. dev/CI): plain fork; a service restart may
+    # still take this down mid-activation.
+    # Always invoke as a module so PYTHONPATH (set by the installer) is used.
     subprocess.Popen(cmd, start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
 
 

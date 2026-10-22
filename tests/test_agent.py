@@ -165,3 +165,41 @@ def test_sync_release_with_real_signature(tmp_path, monkeypatch):
     from pi.nsl_pi.update import slots
     _, inactive = slots()
     assert open(os.path.join(inactive, "signed.txt")).read() == "signed v2 code"
+
+
+def test_activation_helper_runs_outside_agent_cgroup(tmp_path, monkeypatch):
+    """run_activation_helper must launch via systemd-run --scope so the
+    service restart during activation can't kill it (regression: bare Popen
+    stayed in the agent cgroup, died mid-activation, marker never cleared,
+    slots flip-flopped forever)."""
+    import pi.nsl_pi.update as upd
+    calls = {}
+    def fake_run(cmd, **kw):
+        calls["run"] = cmd
+        return None
+    def fake_popen(cmd, **kw):
+        calls["popen"] = cmd
+        raise AssertionError("fallback Popen must not run when systemd-run works")
+    monkeypatch.setattr(upd.subprocess, "run", fake_run)
+    monkeypatch.setattr(upd.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("NSL_BASE", str(tmp_path))
+    upd.run_activation_helper("9.9.9")
+    assert calls["run"][:3] == ["systemd-run", "--scope", "--quiet"]
+    assert any(a.startswith("--unit=nsl-update-9.9.9-") for a in calls["run"])
+    assert calls["run"][-2:] == ["-m", "nsl_pi.update_helper", "9.9.9"] or \
+        calls["run"][-3:] == ["-m", "nsl_pi.update_helper", "9.9.9"]
+
+
+def test_activation_helper_falls_back_without_systemd(tmp_path, monkeypatch):
+    import pi.nsl_pi.update as upd
+    calls = {}
+    def fake_run(cmd, **kw):
+        raise FileNotFoundError("no systemd-run")
+    def fake_popen(cmd, **kw):
+        calls["popen"] = cmd
+        return None
+    monkeypatch.setattr(upd.subprocess, "run", fake_run)
+    monkeypatch.setattr(upd.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("NSL_BASE", str(tmp_path))
+    upd.run_activation_helper("9.9.9")
+    assert calls["popen"][-2:] == ["nsl_pi.update_helper", "9.9.9"]
