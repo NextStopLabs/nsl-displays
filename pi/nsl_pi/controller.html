@@ -36,11 +36,9 @@
   .inner { position: absolute; left: -31px; top: -24px; width: 768px; height: 262px; }
 
   /* logo */
-  .hv-logo { position:absolute; left:45px; top:38px; display:flex; align-items:center; gap:6px; }
-  .hv-logo svg { width:32px; height:32px; }
-  .hv-logo b { font-size:19px; font-weight:800; letter-spacing:.2px; color:#101114;
-               font-family:"Arial Black","Helvetica Neue",Arial,sans-serif; transform:scaleX(1.02); }
-  .hv-model { position:absolute; left:186px; top:49px; font-size:15px; font-weight:600; color:#16181b; letter-spacing:.3px; }
+  .hv-logo { position:absolute; left:45px; top:36px; height:32px; display:flex; align-items:center; gap:10px; }
+  .hv-logo img { height:32px; width:auto; display:block; }
+  .hv-model { font-size:15px; font-weight:600; color:#16181b; letter-spacing:.3px; padding-top:6px; }
   .hv-led { position:absolute; left:75px; top:70px; width:9px; height:9px; border-radius:50%;
             background: radial-gradient(circle at 35% 30%, #5a1a14, #1d0806 70%); box-shadow: 0 0 0 1.5px #25272b; }
 
@@ -123,12 +121,9 @@
     <div class="inner">
 
       <div class="hv-logo">
-        <svg viewBox="0 0 32 32"><g fill="#d9261c">
-          <path d="M11 1h10v8.5L16 14l-5-4.5z"/><path d="M1 11h8.5L14 16l-4.5 5H1z"/>
-          <path d="M23 11h8v10h-8.5L18 16z"/><path d="M11 22.5L16 18l5 4.5V31H11z"/></g></svg>
-        <b>HANOVER</b>
+        <img src="NSL-Displays-3.png" alt="NSL Displays">
+        <span class="hv-model">NC1</span>
       </div>
-      <div class="hv-model">EG4</div>
       <div class="hv-led"></div>
       <div class="hv-slot"></div>
 
