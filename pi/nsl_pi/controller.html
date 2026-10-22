@@ -167,9 +167,6 @@
       inset: 0;
       pointer-events: none;
       z-index: 5;
-      background:
-        repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, transparent 1px 3px),
-        repeating-linear-gradient(90deg, rgba(0, 0, 0, .18) 0 1px, transparent 1px 3px);
     }
 
     .hv-route {
@@ -393,7 +390,6 @@
           <div class="hv-dest">
             <div>No destination</div>
           </div>
-          <div class="hv-left dim">Driver message</div>
           <div class="hv-right">----</div>
         </div>
 
@@ -557,7 +553,6 @@ function render() {
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
     <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
-    <div class="hv-left dim">Driver message</div>
     <div class="hv-right">${esc(code)}</div>`;
   hint.textContent = "D = type code · ▲▼ = services · ENT = select";
 }
