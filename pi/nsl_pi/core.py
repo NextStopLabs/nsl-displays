@@ -58,8 +58,15 @@ class Core:
         self._con.row_factory = sqlite3.Row
         self._con.execute("PRAGMA journal_mode = WAL")
         self._con.execute("PRAGMA foreign_keys = ON")
-        self._gpio_overlays: dict[str, dict] = {}
-        self._gpio_toggles: dict[str, bool] = {}
+        self._con.executescript("""
+        CREATE TABLE IF NOT EXISTS gpio_overlays (
+          target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',
+          destination_id TEXT, rule_id TEXT, expires_at REAL,
+          latched INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'oneshot',
+          position INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS gpio_toggles (
+          rule_id TEXT PRIMARY KEY, is_on INTEGER NOT NULL DEFAULT 0);""")
+        self._con.commit()
 
     def on_change(self, fn):
         self._listeners.append(fn)
@@ -82,23 +89,37 @@ class Core:
         finally:
             pc.close()
 
+    # Overlay state lives in controller.db (gpio_overlays / gpio_toggles) so
+    # every process - input, display, core state server - sees the same
+    # boards. In-memory state would stay invisible to the renderer, which
+    # runs in its own process. expires_at uses wall-clock seconds.
+    _OVERLAY_COLS = ("target, text, destination_id, rule_id, expires_at,"
+                     " latched, kind, position")
+
     def _prune_gpio_overlays(self, now: float | None = None) -> None:
         import time as _t
-        now = now if now is not None else _t.monotonic()
-        for target in [t for t, o in self._gpio_overlays.items()
-                       if o.get("expires_at") is not None and o["expires_at"] <= now]:
-            o = self._gpio_overlays[target]
-            if o.get("kind") == "toggle" and o.get("rule_id"):
-                self._gpio_toggles[o["rule_id"]] = False
-            del self._gpio_overlays[target]
+        now = now if now is not None else _t.time()
+        rows = self._con.execute(
+            "SELECT target, rule_id, kind FROM gpio_overlays"
+            " WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)).fetchall()
+        if not rows:
+            return
+        for r in rows:
+            if r["kind"] == "toggle" and r["rule_id"]:
+                self._con.execute("INSERT OR REPLACE INTO gpio_toggles VALUES (?,0)",
+                                  (r["rule_id"],))
+        self._con.execute("DELETE FROM gpio_overlays WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                          (now,))
+        self._con.commit()
 
     def _clear_oneshot_gpio_overlays(self) -> None:
-        for target in [t for t, o in self._gpio_overlays.items() if not o.get("latched")]:
-            del self._gpio_overlays[target]
+        self._con.execute("DELETE FROM gpio_overlays WHERE latched=0")
+        self._con.commit()
 
     def _clear_all_gpio_overlays(self) -> None:
-        self._gpio_overlays.clear()
-        self._gpio_toggles.clear()
+        self._con.execute("DELETE FROM gpio_overlays")
+        self._con.execute("DELETE FROM gpio_toggles")
+        self._con.commit()
 
     def _gpio_board_entry(self, r: dict) -> dict:
         """Overlay entry for one rule: destination board ref + text fallback."""
@@ -106,6 +127,14 @@ class Core:
                 "destination_id": (r.get("destination_id")
                                    if (r.get("board_source") or "text") == "destination" else None),
                 "rule_id": r.get("id")}
+
+    def _write_gpio_overlay(self, target: str, entry: dict, expires_at: float | None,
+                            latched: bool, kind: str, position: int) -> None:
+        self._con.execute(
+            f"INSERT OR REPLACE INTO gpio_overlays ({self._OVERLAY_COLS}) VALUES (?,?,?,?,?,?,?,?)",
+            (target, entry["text"], entry["destination_id"], entry["rule_id"],
+             expires_at, 1 if latched else 0, kind, position))
+        self._con.commit()
 
     def sync_gpio_levels(self, active_pins: set[int], now: float | None = None) -> dict:
         """Reconcile latched ``while_active`` overlays with live pin levels.
@@ -115,7 +144,7 @@ class Core:
         needing an edge. Returns the current overlay map.
         """
         import time as _t
-        now = now if now is not None else _t.monotonic()
+        now = now if now is not None else _t.time()
         self._prune_gpio_overlays(now)
         want: dict[str, dict] = {}
         for r in self.gpio_rules():
@@ -137,18 +166,16 @@ class Core:
                                     position=r.get("position") or 0)
         # only level-follow entries are owned by the live pin state; toggle
         # boards stay until their rule is tapped again (or the program changes)
-        for target in [t for t in self._gpio_overlays
-                       if self._gpio_overlays[t].get("latched")
-                       and self._gpio_overlays[t].get("kind", "level") == "level"
-                       and t not in want]:
-            del self._gpio_overlays[target]
-        self._gpio_overlays.update(want)
+        self._con.execute("DELETE FROM gpio_overlays WHERE latched=1 AND kind='level'")
+        for target, o in want.items():
+            self._write_gpio_overlay(target, o, None, True, "level", o["position"])
         return self.gpio_overlay_map(now)
 
     def gpio_overlay_map(self, now: float | None = None) -> dict[str, str]:
         """Current overlay text per target (for display_snapshot)."""
         self._prune_gpio_overlays(now)
-        return {t: o["text"] for t, o in self._gpio_overlays.items() if o.get("text")}
+        return {r["target"]: r["text"] for r in self._con.execute(
+            "SELECT target, text FROM gpio_overlays WHERE text != ''")}
 
     def _gpio_toggle_text(self, r: dict, entry: dict) -> str:
         """Driver text for override effects: destination's driver message, else custom text."""
@@ -158,6 +185,10 @@ class Core:
             if board and board["destination"].get("name"):
                 text = board["destination"]["name"]
         return text
+
+    def _gpio_toggle_on(self, rule_id: str | None) -> bool:
+        row = self._con.execute("SELECT is_on FROM gpio_toggles WHERE rule_id=?", (rule_id,)).fetchone()
+        return bool(row and row["is_on"])
 
     def _flip_gpio_toggle(self, r: dict, entry: dict, now: float,
                           source: str = "gpio", user_id: str | None = None) -> bool:
@@ -170,8 +201,9 @@ class Core:
         """
         rid = r.get("id")
         target = r.get("target") or "all"
-        on = not self._gpio_toggles.get(rid, False)
-        self._gpio_toggles[rid] = on
+        on = not self._gpio_toggle_on(rid)
+        self._con.execute("INSERT OR REPLACE INTO gpio_toggles VALUES (?,?)", (rid, 1 if on else 0))
+        self._con.commit()
         if on:
             if (r.get("effect") or "overlay") == "override":
                 text = self._gpio_toggle_text(r, entry)
@@ -179,13 +211,13 @@ class Core:
                     self.apply_override(text, source=source, user_id=user_id)
             else:
                 dur = int(r.get("duration_s") or 0)
-                self._gpio_overlays[target] = dict(
-                    entry, expires_at=(now + dur) if dur > 0 else None,
-                    latched=True, kind="toggle", position=r.get("position") or 0)
+                self._write_gpio_overlay(target, entry, (now + dur) if dur > 0 else None,
+                                         True, "toggle", r.get("position") or 0)
         else:
-            cur = self._gpio_overlays.get(target)
-            if cur and cur.get("rule_id") == rid:
-                del self._gpio_overlays[target]
+            cur = self._con.execute("SELECT rule_id FROM gpio_overlays WHERE target=?", (target,)).fetchone()
+            if cur and cur["rule_id"] == rid:
+                self._con.execute("DELETE FROM gpio_overlays WHERE target=?", (target,))
+                self._con.commit()
             if (r.get("effect") or "overlay") == "override":
                 if self.state()["override_text"] == self._gpio_toggle_text(r, entry):
                     self.clear_override(source=source, user_id=user_id)
@@ -203,7 +235,7 @@ class Core:
         "overlay": {...}}`` for the caller to speak through the PA.
         """
         import time as _t
-        now = now if now is not None else _t.monotonic()
+        now = now if now is not None else _t.time()
         clips: list[str] = []
         for r in sorted(fired or [], key=lambda x: (x.get("position") or 0)):
             entry = self._gpio_board_entry(r)
@@ -230,9 +262,9 @@ class Core:
                     self.apply_override(text, source=source, user_id=user_id)
             else:
                 dur = int(r.get("duration_s") or 0)
-                self._gpio_overlays[r.get("target") or "all"] = dict(
-                    entry, expires_at=(now + dur) if dur > 0 else None,
-                    latched=False, kind="oneshot", position=r.get("position") or 0)
+                self._write_gpio_overlay(r.get("target") or "all", entry,
+                                         (now + dur) if dur > 0 else None,
+                                         False, "oneshot", r.get("position") or 0)
         self._prune_gpio_overlays(now)
         out: dict = {"announcement": clips, "overlay": self.gpio_overlay_map(now)}
         if clips:
@@ -637,13 +669,12 @@ class Core:
         """Current destination-board overlays per target (for display_snapshot)."""
         self._prune_gpio_overlays()
         out: dict[str, dict] = {}
-        for target, o in self._gpio_overlays.items():
-            if not o.get("destination_id"):
-                continue
-            board = self._gpio_board(o["destination_id"])
+        for r in self._con.execute(
+                "SELECT target, text, destination_id FROM gpio_overlays WHERE destination_id IS NOT NULL"):
+            board = self._gpio_board(r["destination_id"])
             if board is not None:
-                out[target] = board
-            elif o.get("text"):
+                out[r["target"]] = board
+            elif r["text"]:
                 pass  # text fallback stays in gpio_overlay
         return out
 

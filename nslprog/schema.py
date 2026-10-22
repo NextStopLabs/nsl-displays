@@ -263,6 +263,25 @@ CREATE TABLE IF NOT EXISTS gpio_actions (
   action_param TEXT
 );
 
+-- Live GPIO overlay state, shared between the input/display/core processes
+-- (in-memory state would stay invisible to the renderer). One row per target
+-- display ('all' or a display name). expires_at is wall-clock seconds.
+CREATE TABLE IF NOT EXISTS gpio_overlays (
+  target TEXT PRIMARY KEY,
+  text TEXT NOT NULL DEFAULT '',
+  destination_id TEXT,
+  rule_id TEXT,
+  expires_at REAL,
+  latched INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'oneshot',
+  position INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS gpio_toggles (
+  rule_id TEXT PRIMARY KEY,
+  is_on INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS wifi_networks (
   ssid TEXT PRIMARY KEY,
   secret TEXT NOT NULL DEFAULT '',

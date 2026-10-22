@@ -285,7 +285,8 @@ def main():
             summary = (f"prog={st.get('program_id') or '-'} dest={st.get('destination_id') or '-'} "
                        f"stop={st.get('stop_id') or '-'} override={st.get('override_text') or '-'} "
                        f"fields={','.join(sorted((snap.get('fields') or {}).keys())) or '-'} "
-                       f"layouts={len(snap.get('layouts') or {})}")
+                       f"layouts={len(snap.get('layouts') or {})} "
+                       f"gpio={','.join(sorted(set(snap.get('gpio_overlay') or {}) | set(snap.get('gpio_boards') or {}))) or '-'}")
             if summary != last_summary:
                 print(f"display state: {summary}", flush=True)
                 last_summary = summary

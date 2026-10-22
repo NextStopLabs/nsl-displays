@@ -496,6 +496,35 @@ def test_core_toggle_audio_only_plays_every_tap(tmp_path):
     assert c.display_snapshot()["gpio_boards"] == {}
 
 
+def test_overlays_visible_across_processes(tmp_path):
+    """Input and display services run separate Core instances on one DB -
+    overlays set by one must render in the other's snapshot (regression:
+    in-memory overlays never reached the renderer)."""
+    from pi.nsl_pi.core import Core
+    from pi.nsl_pi.gpio import GpioRulesEngine
+    c_in, dest_id = _core_with_board_rule(tmp_path)
+    db, prog = c_in.controller_db, c_in.programs_dir
+    c_disp = Core(db, prog)
+    c_in.select_code("10000001", source="test")
+    e = GpioRulesEngine(c_in.gpio_rules())
+    e.level_event(16, True, now=100.0)
+    c_in.sync_gpio_levels({16}, now=100.0)
+    snap = c_disp.display_snapshot()
+    assert set(snap["gpio_boards"]) == {"all"}
+    assert snap["gpio_boards"]["all"]["destination"]["id"] == dest_id
+    # and toggle state set in one process flips off from the other
+    rules = c_in.gpio_rules()
+    tog = dict(rules[0], id="togx", trigger="toggle", pin=21, board_text="",
+               position=9)
+    e2 = GpioRulesEngine(rules + [tog])
+    e2.level_event(21, True, now=101.0)
+    c_in.apply_gpio_fired(e2.level_event(21, False, now=101.2), now=101.2, source="test")
+    assert set(c_disp.display_snapshot()["gpio_boards"]) == {"all"}
+    e2.level_event(21, True, now=102.0)
+    c_disp.apply_gpio_fired(e2.level_event(21, False, now=102.2), now=102.2, source="test")
+    assert c_in.display_snapshot()["gpio_boards"] == {}
+
+
 def test_portal_gpio_audio_only_and_edit(tmp_path, monkeypatch):
     import io
     import wave
