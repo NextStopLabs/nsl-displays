@@ -123,6 +123,12 @@ def api_programs():
     return {"installed": rows, "state": c.state()}
 
 
+@app.get("/api/browse")
+def api_browse():
+    """Services + destinations tree for the destination controller."""
+    return get_core().browse()
+
+
 @app.post("/api/programs/import")
 def api_import_pack(file: UploadFile = File(...)):
     """Import .nslpack offline (format.md 12). Validated, marked local_import."""
@@ -265,15 +271,34 @@ def api_identity(body: dict):
     return {"ok": True, "unit": unit, "rebooting": True}
 
 
+def _controller_html() -> str:
+    p = os.path.join(os.path.dirname(__file__), "controller.html")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return "<h1>controller.html missing</h1>"
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return INDEX_HTML
+
+
+@app.get("/controller", response_class=HTMLResponse)
+def controller():
+    """Mobile-first destination controller (Hanover EG3 style)."""
+    return _controller_html()
 
 
 INDEX_HTML = """<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>NSL Local Controller - 192.168.4.1</title><link rel=stylesheet href="/ui.css"></head>
 <body><div class=window><div class=titlebar>NSL Local Controller - bus control (offline OK)</div>
 <div class=body>
+<div class=group><div class=grouptitle>Driver controller</div>
+<a href="/controller" style="display:block;text-align:center;padding:14px;background:#4a4d52;border-radius:8px;color:#ffb000;text-decoration:none;font-weight:bold">Open destination controller</a>
+<div class=hint>Mobile-friendly Hanover-style keypad for drivers.</div>
+</div>
 <div class=group><div class=grouptitle>Destination</div>
 <label>Destination code (1–8 digits)<input id=code maxlength=8 inputmode=numeric></label>
 <div class=row><button onclick="cmd('select_code')">Select code</button>

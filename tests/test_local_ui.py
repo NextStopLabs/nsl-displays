@@ -27,6 +27,17 @@ def test_health_open_and_state_guarded():
     assert r.status_code in (200, 500)  # 500 only if no controller.db present
 
 
+def test_controller_page_and_browse():
+    c = TestClient(app, raise_server_exceptions=False)
+    r = c.get("/controller")
+    assert r.status_code == 200
+    assert "Destination Controller" in r.text
+    b = c.get("/api/browse")
+    assert b.status_code in (200, 500)  # 500 only if no controller.db present
+    if b.status_code == 200:
+        assert "services" in b.json()
+
+
 def test_identity_validation_and_success(tmp_path, monkeypatch):
     import stat as _stat
     # fake nsl-set-unit on PATH: records args, exits 0

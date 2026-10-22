@@ -32,12 +32,18 @@ const LayoutEditor = (() => {
       dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
     }
     if (el.tint !== false) {
-      g2.save();
-      g2.drawImage(im, dx, dy, dw, dh);
-      g2.globalCompositeOperation = "source-in";
-      g2.fillStyle = el.colour || AMBER;
-      g2.fillRect(dx, dy, dw, dh);
-      g2.restore();
+      // Tint on an isolated canvas: "source-in" keeps the fill wherever the
+      // canvas is already opaque, so doing it on the shared canvas (which
+      // has an opaque background) fills the whole element box. Isolated, it
+      // only sees the image pixels - the tint overlays the image itself.
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(dw)); c.height = Math.max(1, Math.round(dh));
+      const t = c.getContext("2d");
+      t.drawImage(im, 0, 0, c.width, c.height);
+      t.globalCompositeOperation = "source-in";
+      t.fillStyle = el.colour || AMBER;
+      t.fillRect(0, 0, c.width, c.height);
+      g2.drawImage(c, dx, dy, dw, dh);
     } else {
       g2.drawImage(im, dx, dy, dw, dh);
     }

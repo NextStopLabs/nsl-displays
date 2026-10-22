@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>NSL Destination Controller</title>
+<style>
+  :root {
+    --panel: #3a3d42;
+    --panel-dark: #2b2d31;
+    --display-bg: #1a1b1e;
+    --amber: #ffb000;
+    --amber-dim: #b87d00;
+    --key-bg: #565b63;
+    --key-lit: #ffb000;
+    --text: #e8e8e8;
+    --danger: #d85c5c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #222; color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 8px; }
+  .panel { width: 100%; max-width: 480px; background: linear-gradient(180deg, var(--panel) 0%, var(--panel-dark) 100%); border-radius: 14px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.5); border: 1px solid #4a4d52; flex: 1; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aaa; margin-bottom: 8px; }
+  .brand-dot { width: 10px; height: 10px; background: var(--danger); border-radius: 2px; box-shadow: 0 0 6px var(--danger); }
+  .display {
+    background: var(--display-bg);
+    border: 3px inset #555;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: "Courier New", Courier, monospace;
+    color: var(--amber);
+    text-shadow: 0 0 6px rgba(255,176,0,.4);
+    min-height: 110px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .display .line { display: flex; justify-content: space-between; align-items: baseline; }
+  .display .big { font-size: 28px; font-weight: bold; letter-spacing: 1px; }
+  .display .small { font-size: 16px; }
+  .display .dim { color: var(--amber-dim); }
+  .display .right { text-align: right; }
+  .display .list { font-size: 15px; line-height: 1.5; }
+  .display .list .item { display: flex; gap: 6px; }
+  .display .list .item.sel { background: rgba(255,176,0,.18); }
+  .display .entry { font-size: 26px; letter-spacing: 4px; }
+  .controls { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; flex: 1; }
+  .fn-pad { display: flex; flex-direction: column; gap: 8px; }
+  .arrow-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .key {
+    border: none; border-radius: 50%; background: var(--key-bg);
+    color: #fff; font-weight: bold; font-size: 16px;
+    aspect-ratio: 1/1; box-shadow: 0 3px 0 #222, inset 0 1px 0 rgba(255,255,255,.15);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none;
+  }
+  .key:active { transform: translateY(2px); box-shadow: 0 1px 0 #222; }
+  .key.lit { background: var(--key-lit); color: #000; box-shadow: 0 0 12px var(--key-lit); }
+  .key.red { background: #a84b4b; }
+  .key.wide { grid-column: span 2; border-radius: 999px; }
+  .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .numpad .key { font-size: 20px; }
+  .hint { font-size: 11px; color: #999; text-align: center; margin-top: 8px; }
+  @media (max-height: 680px) {
+    .display { min-height: 90px; padding: 8px; }
+    .display .big { font-size: 22px; }
+    .display .small, .display .list { font-size: 13px; }
+    .key { font-size: 14px; }
+    .numpad .key { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="brand"><div class="brand-dot"></div><div>HANOVER STYLE · NSL Destination Controller</div></div>
+  <div class="display" id="screen">
+    <div class="line"><span class="big" id="svcnum">--</span><span class="small right" id="destname">No program</span></div>
+    <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">----</span></div>
+  </div>
+  <div class="controls">
+    <div class="fn-pad">
+      <div class="arrow-row">
+        <button class="key" data-btn="left" title="Back">◄</button>
+        <button class="key" data-btn="down" title="Down">▼</button>
+        <button class="key" data-btn="up" title="Up">▲</button>
+        <button class="key" data-btn="right" title="Enter service">►</button>
+      </div>
+      <div class="arrow-row">
+        <button class="key red" data-btn="x" title="Cancel">X</button>
+        <button class="key" data-btn="y">Y</button>
+        <button class="key" data-btn="i">I</button>
+        <button class="key" data-btn="r">R</button>
+      </div>
+      <div class="arrow-row">
+        <button class="key lit" data-btn="f">F</button>
+        <button class="key lit" data-btn="d">D</button>
+        <button class="key lit wide" data-btn="ent">ENT</button>
+      </div>
+    </div>
+    <div class="numpad">
+      <button class="key" data-num="1">1</button>
+      <button class="key" data-num="2">2</button>
+      <button class="key" data-num="3">3</button>
+      <button class="key" data-num="4">4</button>
+      <button class="key" data-num="5">5</button>
+      <button class="key" data-num="6">6</button>
+      <button class="key" data-num="7">7</button>
+      <button class="key" data-num="8">8</button>
+      <button class="key" data-num="9">9</button>
+      <button class="key red" data-btn="clr">C</button>
+      <button class="key" data-num="0">0</button>
+      <button class="key" data-btn="bs">⌫</button>
+    </div>
+  </div>
+  <div class="hint" id="hint">D = type code · ENT = confirm · ◄ ► navigate</div>
+</div>
+<script>
+const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "" };
+const MAX_CODE = 5;
+const screen = document.getElementById("screen");
+const hint = document.getElementById("hint");
+
+async function api(path, body) {
+  const opts = body ? { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(()=>null))?.detail || ("HTTP "+r.status));
+  return r.json().catch(()=>null);
+}
+async function refresh() {
+  try { state.current = await api("/api/state") || {}; } catch(e){}
+  if (!state.services.length) {
+    try { const b = await api("/api/browse"); state.services = b.services || []; } catch(e){}
+  }
+  if (state.mode === "view") render();
+}
+function fmtCode(c) {
+  if (!c && c !== "0") return "----";
+  return String(c).padStart(4, "0");
+}
+function render() {
+  const cur = state.current || {};
+  const dest = cur.destination || {};
+  const svc = cur.service || {};
+  const msg = dest.name || dest.dest || svc.description || "No destination";
+  const code = fmtCode(dest.code || svc.number || "");
+  if (state.mode === "code") {
+    const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
+    screen.innerHTML = `
+      <div class="line"><span class="small dim">CURRENT CODE</span><span class="small right">ENTER CODE</span></div>
+      <div class="line"><span class="big">${code}</span><span class="entry">${entry}</span></div>
+      ${state.codeError ? `<div class="line"><span class="small" style="color:#ff5555">${state.codeError}</span></div>` : ""}`;
+    hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
+    return;
+  }
+  if (state.mode === "services") {
+    const items = state.services.map((s,i) =>
+      `<div class="item ${i===state.selSvc?"sel":""}"><span>${i===state.selSvc?">":" "}</span><span>${esc(s.number||"-")} ${esc(s.name||"")}</span></div>`).join("");
+    screen.innerHTML = `<div class="small dim">SELECT SERVICE</div><div class="list">${items}</div>`;
+    hint.textContent = "▲▼ choose service · ► enter destinations";
+    return;
+  }
+  if (state.mode === "destinations") {
+    const svc = state.services[state.selSvc] || {};
+    const items = (svc.destinations||[]).map((d,i) =>
+      `<div class="item ${i===state.selDest?"sel":""}"><span>${i===state.selDest?">":" "}</span><span>${esc(d.code||"")} ${esc(d.name||"")}</span></div>`).join("");
+    screen.innerHTML = `<div class="small dim">${esc(svc.number||"-")} ${esc(svc.name||"")}</div><div class="list">${items}</div>`;
+    hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
+    return;
+  }
+  // view
+  screen.innerHTML = `
+    <div class="line"><span class="big" id="svcnum">${esc(svc.number||"--")}</span><span class="small right" id="destname">${esc(msg)}</span></div>
+    <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">${esc(code)}</span></div>`;
+  hint.textContent = "D = type code · ▲▼ = services · ENT = select";
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function enterCode() {
+  state.mode = "code";
+  state.code = [];
+  state.codeError = "";
+  render();
+}
+function appendDigit(n) {
+  if (state.mode !== "code") return;
+  if (state.code.length >= MAX_CODE) state.code.shift();
+  state.code.push(n);
+  state.codeError = "";
+  render();
+}
+function backspace() {
+  if (state.mode !== "code") return;
+  state.code.pop();
+  state.codeError = "";
+  render();
+}
+function cancelCode() {
+  if (state.mode === "code") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "destinations") { state.mode = "services"; render(); return; }
+  if (state.mode === "services") { state.mode = "view"; render(); }
+}
+async function confirm() {
+  if (state.mode === "code") {
+    const c = state.code.join("");
+    if (c.length === 0) return;
+    try {
+      await api("/api/command", {command:"select_code", code:c});
+      state.mode = "view"; state.code = []; state.codeError = "";
+      await refresh();
+    } catch(e) {
+      state.codeError = "NOT FOUND";
+      render();
+    }
+    return;
+  }
+  if (state.mode === "destinations") {
+    const svc = state.services[state.selSvc];
+    const dest = (svc&&svc.destinations||[])[state.selDest];
+    if (!dest) return;
+    try {
+      await api("/api/command", {command:"select_destination", destination_id:dest.id});
+      state.mode = "view";
+      await refresh();
+    } catch(e) {
+      screen.innerHTML += `<div class="line"><span class="small" style="color:#ff5555">ERROR</span></div>`;
+    }
+    return;
+  }
+  if (state.mode === "services") {
+    state.mode = "destinations"; state.selDest = 0; render();
+  }
+}
+function move(dir) {
+  if (state.mode === "services") {
+    if (dir === "up") state.selSvc = Math.max(0, state.selSvc-1);
+    if (dir === "down") state.selSvc = Math.min(state.services.length-1, state.selSvc+1);
+    render();
+  } else if (state.mode === "destinations") {
+    const svc = state.services[state.selSvc] || {};
+    const n = (svc.destinations||[]).length;
+    if (dir === "up") state.selDest = Math.max(0, state.selDest-1);
+    if (dir === "down") state.selDest = Math.min(n-1, state.selDest+1);
+    if (dir === "left") { state.mode = "services"; }
+    render();
+  } else if (state.mode === "view") {
+    if (dir === "up" || dir === "down") { state.mode = "services"; state.selSvc = 0; render(); }
+  }
+}
+
+document.body.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  e.preventDefault();
+  const num = b.dataset.num;
+  const btn = b.dataset.btn;
+  if (num !== undefined) { appendDigit(num); return; }
+  if (btn === "d") enterCode();
+  else if (btn === "ent") confirm();
+  else if (btn === "x" || btn === "clr") cancelCode();
+  else if (btn === "bs") backspace();
+  else if (["up","down","left","right"].includes(btn)) move(btn);
+  // F, Y, I, R reserved for later
+});
+
+setInterval(refresh, 2000);
+refresh();
+</script>
+</body>
+</html>

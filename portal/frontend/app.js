@@ -74,12 +74,17 @@ const Preview = (() => {
       dx = bx + (bw - dw) / 2; dy = by + (bh - dh) / 2;
     }
     if (el.tint !== false) {
-      g.save();
-      g.drawImage(im, dx, dy, dw, dh);
-      g.globalCompositeOperation = "source-in";
-      g.fillStyle = el.colour || AMBER;
-      g.fillRect(dx, dy, dw, dh);
-      g.restore();
+      // Isolated canvas: "source-in" on the shared canvas would also hit the
+      // opaque background and fill the whole element box. Tinted here, only
+      // the image pixels take the colour.
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(dw)); c.height = Math.max(1, Math.round(dh));
+      const t = c.getContext("2d");
+      t.drawImage(im, 0, 0, c.width, c.height);
+      t.globalCompositeOperation = "source-in";
+      t.fillStyle = el.colour || AMBER;
+      t.fillRect(0, 0, c.width, c.height);
+      g.drawImage(c, dx, dy, dw, dh);
     } else {
       g.drawImage(im, dx, dy, dw, dh);
     }

@@ -170,6 +170,32 @@ class Core:
         self._emit("state")
         return self.state()
 
+    def browse(self) -> dict:
+        """Return services + destinations for the currently selected program."""
+        st = self.state()
+        pid = st.get("program_id")
+        version = st.get("program_version")
+        if not pid or not version:
+            return {"services": []}
+        pc = self._open_prog(pid, version)
+        if pc is None:
+            return {"services": []}
+        try:
+            services = []
+            for svc in pc.execute("SELECT * FROM services ORDER BY position"):
+                dests = [dict(d) for d in pc.execute(
+                    "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
+                    (svc["id"],))]
+                services.append({
+                    "id": svc["id"],
+                    "number": svc.get("number") or "",
+                    "name": svc.get("description") or svc.get("name") or "",
+                    "destinations": dests,
+                })
+            return {"services": services}
+        finally:
+            pc.close()
+
     # ---- stops ----
     def _stops_of_current(self, pc) -> list:
         st = self.state()
