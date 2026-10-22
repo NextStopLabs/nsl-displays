@@ -1888,7 +1888,7 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
 def device_release(authorization: str | None = Header(default=None)):
     c = device_controller(authorization)
     row = db().execute(
-        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (c["organisation_id"], c["channel"] or "stable")).fetchone()
     if not row:
         return {"version": None}
@@ -1910,7 +1910,7 @@ def device_release_bundle(v: str, authorization: str | None = Header(default=Non
     c = device_controller(authorization)
     row = db().execute(
         "SELECT * FROM releases WHERE organisation_id=? AND channel=? AND version=? "
-        "ORDER BY created_at DESC LIMIT 1",
+        "ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (c["organisation_id"], c["channel"] or "stable", v)).fetchone()
     if not row:
         raise HTTPException(404, "no release")
@@ -1926,7 +1926,7 @@ def admin_list_releases(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
     rows = db().execute(
         "SELECT id, version, channel, bundle_sha256, notes, created_at FROM releases "
-        "WHERE organisation_id=? ORDER BY created_at DESC",
+        "WHERE organisation_id=? ORDER BY created_at DESC, rowid DESC",
         (organisation_id,)).fetchall()
     return {"releases": [dict(r) for r in rows]}
 
@@ -1958,8 +1958,29 @@ def admin_upload_release(
     if raw[:2] != b"\x1f\x8b":
         raise HTTPException(400, "bundle must be a gzip tar archive")
     h = hashlib.sha256(raw).hexdigest()
+    con = db()
+    if con.execute("SELECT 1 FROM releases WHERE organisation_id=? AND channel=? AND version=?",
+                   (organisation_id, channel, version)).fetchone():
+        raise HTTPException(400, f"release {version} already exists for channel {channel}")
+    # Reject a re-upload of identical content under a new version string:
+    # date-based versions (push-release.sh) can otherwise produce a "new"
+    # release whose bundle is byte-identical to the current latest, so the
+    # Pi downloads, restarts, and reports up-to-date without any code change.
+    dup = con.execute(
+        "SELECT version FROM releases WHERE organisation_id=? AND channel=? "
+        "AND bundle_sha256=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (organisation_id, channel, h)).fetchone()
+    if dup:
+        raise HTTPException(
+            400, f"bundle content identical to release {dup['version']} on channel {channel} - "
+                 "nothing changed (git HEAD is the same as that release?)")
+    rid = str(uuid.uuid4())
+    # Unique filename per release: the old releases/{version}.tar.gz scheme
+    # let two orgs/channels sharing a version string overwrite each other's
+    # bundle on disk (and a re-upload could clobber the live file).
     os.makedirs(os.path.join(STORAGE_DIR, "releases"), exist_ok=True)
-    path = os.path.join(STORAGE_DIR, "releases", f"{version}.tar.gz")
+    bundle_key = f"releases/{rid}.tar.gz"
+    path = os.path.join(STORAGE_DIR, bundle_key)
     with open(path, "wb") as f:
         f.write(raw)
     if not signature:
@@ -1979,19 +2000,10 @@ def admin_upload_release(
         except OSError:
             pass
         raise HTTPException(400, "signature must be a hex string")
-    con = db()
-    if con.execute("SELECT 1 FROM releases WHERE organisation_id=? AND channel=? AND version=?",
-                   (organisation_id, channel, version)).fetchone():
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        raise HTTPException(400, f"release {version} already exists for channel {channel}")
-    rid = str(uuid.uuid4())
     con.execute(
         "INSERT INTO releases (id, organisation_id, version, channel, bundle_key, bundle_sha256, signature, notes, created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
-        (rid, organisation_id, version, channel, f"releases/{version}.tar.gz", h, signature, notes, _utcnow()))
+        (rid, organisation_id, version, channel, bundle_key, h, signature, notes, _utcnow()))
     con.execute("INSERT INTO audit_log (organisation_id, user_id, action, detail, at) VALUES (?,?,?,?,?)",
                 (organisation_id, u["id"], "release.upload", f"{version} ({channel})", _utcnow()))
     con.commit()
@@ -2013,7 +2025,7 @@ def controller_update_status(cid: str, u: dict = Depends(current_user)):
     require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
     channel = c["channel"] or "stable"
     rel = con.execute(
-        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM releases WHERE organisation_id=? AND channel=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (c["organisation_id"], channel)).fetchone()
     current = c["app_version"] if "app_version" in c.keys() else ""
     latest = rel["version"] if rel else None

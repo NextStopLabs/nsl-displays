@@ -12,12 +12,14 @@ PORTAL="${PORTAL_URL:-https://nsldisplays.com}"
 CHANNEL="stable"
 NOTES=""
 VERSION=""
+ALLOW_DIRTY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --channel) CHANNEL="${2:?}"; shift 2;;
     --notes) NOTES="${2:?}"; shift 2;;
     --version) VERSION="${2:?}"; shift 2;;
+    --allow-dirty) ALLOW_DIRTY=1; shift;;
     -h|--help) sed -n '1,9p' "$0"; exit 0;;
     *) echo "unknown flag: $1" >&2; exit 1;;
   esac
@@ -32,7 +34,23 @@ if [ -z "$VERSION" ]; then
   VERSION="$(date +%Y.%m.%d)-$HEAD_SHA"
 fi
 if ! git diff --quiet HEAD -- . ':!tfl-ibus-announcements'; then
-  echo "WARNING: working tree has uncommitted changes (release still builds from HEAD)" >&2
+  if [ "$ALLOW_DIRTY" -eq 1 ]; then
+    echo "WARNING: working tree has uncommitted changes (release still builds from HEAD)" >&2
+  else
+    echo "ERROR: working tree has uncommitted changes." >&2
+    echo "The bundle is built from HEAD (git archive), so uncommitted work would NOT ship," >&2
+    echo "yet the new version string would make the Pi report up-to-date. Commit first" >&2
+    echo "or re-run with --allow-dirty." >&2
+    exit 1
+  fi
+fi
+# Warn if HEAD is not pushed: the "git pull shows new stuff" confusion usually
+# means the release was built from a stale checkout.
+if git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
+  AHEAD="$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)"
+  BEHIND="$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)"
+  [ "$BEHIND" -gt 0 ] 2>/dev/null && echo "WARNING: HEAD is $BEHIND commit(s) behind its upstream - git pull first? (release builds from local HEAD=$HEAD_SHA)" >&2 || true
+  [ "$AHEAD" -gt 0 ] 2>/dev/null && echo "NOTE: HEAD is $AHEAD commit(s) ahead of upstream (unpushed work ships in this bundle)" >&2 || true
 fi
 
 BUNDLE="/tmp/nsl-release-${VERSION}.tar.gz"

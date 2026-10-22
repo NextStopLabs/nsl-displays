@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS releases (
   id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, version TEXT NOT NULL,
   channel TEXT NOT NULL DEFAULT 'stable', bundle_key TEXT NOT NULL,
   bundle_sha256 TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL, notes TEXT DEFAULT '',
-  created_at TEXT NOT NULL);
+  created_at TEXT NOT NULL,
+  UNIQUE (organisation_id, channel, version));
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT, organisation_id TEXT, user_id TEXT,
   action TEXT NOT NULL, detail TEXT DEFAULT '', at TEXT NOT NULL);
@@ -154,6 +155,8 @@ def connect(url: str | None = None) -> sqlite3.Connection:
         try:
             con.execute("CREATE INDEX IF NOT EXISTS ix_controllers_token ON controllers(device_token_hash)")
             con.execute("CREATE INDEX IF NOT EXISTS ix_controllers_code ON controllers(pairing_code)")
+            con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_releases_org_chan_ver "
+                        "ON releases(organisation_id, channel, version)")
             con.commit()
         except Exception:
             pass
