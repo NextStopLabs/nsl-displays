@@ -1,7 +1,10 @@
 import os
+import queue
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pi"))
 
 from pi.nsl_pi.gpio import GpioDispatcher, GpioRulesEngine  # noqa: E402
 
@@ -607,3 +610,82 @@ def test_gpio_pull_arg_mapping():
     assert _gpio_pull_arg("down") is False
     assert _gpio_pull_arg("none") is None
     assert _gpio_pull_arg("") is True
+
+
+def test_gpio_stabilizer_collapses_bounce():
+    from pi.nsl_pi.input_main import _GpioStabilizer
+    s = _GpioStabilizer()
+    s.reset({5: True})
+    now = 1000.0
+    # rapid alternations inside the debounce window, ending low
+    s.feed(5, False, now, 50)
+    s.feed(5, True, now + 0.01, 50)
+    s.feed(5, False, now + 0.02, 50)
+    s.feed(5, True, now + 0.03, 50)
+    s.feed(5, False, now + 0.035, 50)
+    assert s.ready(now + 0.04) == []
+    # finally settle low for the full 50 ms window
+    assert s.ready(now + 0.09) == [(5, False)]
+    s.commit(5, False)
+    assert s.ready(now + 1.0) == []
+
+
+def test_gpio_worker_batches_db_writes(tmp_path):
+    """Worker applies stabilised level changes and syncs the active set."""
+    from pi.nsl_pi.input_main import _GpioWorker
+
+    class FakeCore:
+        def __init__(self):
+            self.syncs = []
+            self.fired = []
+            self.overlays = {}
+            self.boards = {}
+
+        def sync_gpio_levels(self, active):
+            self.syncs.append(set(active))
+
+        def apply_gpio_fired(self, fired, source="gpio"):
+            self.fired.extend(fired)
+            return {"announcement": []}
+
+        def gpio_overlay_map(self):
+            return self.overlays
+
+        def gpio_board_map(self):
+            return self.boards
+
+    core = FakeCore()
+    q = queue.Queue()
+    w = _GpioWorker(core, q)
+    w.start()
+    try:
+        rule = {"id": "rev", "label": "Reverse", "pin": 21, "trigger": "while_active",
+                "effect": "overlay", "target": "all", "board_text": "REV", "audio": None,
+                "duration_s": 0, "pull": "down", "active_low": 0,
+                "debounce_ms": 20, "position": 0}
+        q.put(("config", [rule], {21: False}))
+        time.sleep(0.1)
+        # noisy burst: should not sync until stable
+        q.put(("levels", {21: True}))
+        q.put(("levels", {21: False}))
+        q.put(("levels", {21: True}))
+        time.sleep(0.04)
+        # still within debounce window; no stable change yet
+        before = len(core.syncs)
+        q.put(("levels", {21: False}))
+        time.sleep(0.08)
+        # now settled low; initial config already synced low, so no new sync
+        # should be fired for final low? level_event only fires on transitions
+        # initial config set stable low, final low is unchanged -> no fired rules
+        assert len(core.syncs) == before  # no extra syncs from the burst
+        # real activation, stable high
+        q.put(("levels", {21: True}))
+        time.sleep(0.08)
+        assert core.syncs and core.syncs[-1] == {21}
+        # real release
+        q.put(("levels", {21: False}))
+        time.sleep(0.08)
+        assert core.syncs[-1] == set()
+    finally:
+        q.put("stop")
+        w.join(timeout=1)

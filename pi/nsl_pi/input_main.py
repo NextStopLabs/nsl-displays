@@ -1,22 +1,141 @@
 """Input service: cab USB keypad -> Core commands (front Pi only).
 
-Reads evdev key-down events, runs them through KeypadEntry, dispatches to
-Core.apply_command. Announcement results are spoken through the PA.
-Entry echo on the boards and hotspot update-mode are logged, not yet wired.
+Also handles GPIO per-program display rules. The GPIO path is deliberately
+split into three pieces to stay robust on noisy vehicle wiring:
 
-Also polls GPIO pins for per-program display rules (door, reverse, toggle
-switches): level changes go through GpioRulesEngine, one-shot effects via
-Core.apply_gpio_fired and latched while_active boards via
-Core.sync_gpio_levels. Without gpiozero installed (dev laptop) the GPIO
-loop idles - keypad keeps working.
+1. poll thread  - samples gpiozero DigitalInputDevice pins at 50 Hz and
+                  forwards only *changes* to a queue.
+2. stabiliser   - waits for a pin to sit at the same level for its debounce
+                  window before treating the change as real.
+3. worker thread - owns the Core DB writes, applies fired rules, and syncs
+                  latched while_active overlays. All DB mutations from GPIO
+                  go through this one thread so they can be batched and
+                  never hold controller.db open during polling.
+
+Without gpiozero the GPIO pieces idle and the keypad keeps working.
 """
 from __future__ import annotations
 
 import os
+import queue
+import threading
 import time
+from typing import Optional
 
 BASE = os.environ.get("NSL_BASE", "/var/lib/nsl")
 ROLE = os.environ.get("NSL_ROLE", "front")
+
+
+class _GpioStabilizer:
+    """Collapse switch bounce / noise by requiring a level to stay stable
+    for its debounce window before it is emitted.
+    """
+
+    def __init__(self):
+        self.pending: dict[int, tuple[bool, float, float]] = {}
+        self.stable: dict[int, bool] = {}
+
+    def reset(self, levels: dict[int, bool]) -> None:
+        self.pending.clear()
+        self.stable = dict(levels)
+
+    def feed(self, pin: int, level: bool, now: float, debounce_ms: int) -> None:
+        self.pending[pin] = (level, now, debounce_ms / 1000.0)
+
+    def ready(self, now: float) -> list[tuple[int, bool]]:
+        out: list[tuple[int, bool]] = []
+        for pin, (level, t, debounce_s) in list(self.pending.items()):
+            if now - t >= debounce_s and self.stable.get(pin) != level:
+                out.append((pin, level))
+        return out
+
+    def commit(self, pin: int, level: bool) -> None:
+        self.stable[pin] = level
+        self.pending.pop(pin, None)
+
+
+class _GpioWorker(threading.Thread):
+    """Single thread that owns all GPIO-driven Core mutations.
+
+    Reads raw change events from ``event_q``, stabilises them, runs the
+    rules engine, and writes overlays/state. Keeping this on its own thread
+    means the fast poll loop never holds controller.db open, and a burst of
+    noise cannot starve the agent or local UI.
+    """
+
+    def __init__(self, core, event_q: queue.Queue):
+        super().__init__(daemon=True, name="nsl-gpio-worker")
+        self.core = core
+        self.q = event_q
+        self.engine: Optional[object] = None
+        self.stabilizer = _GpioStabilizer()
+        self.active_set: set[int] = set()
+
+    def _sync_active_set(self) -> None:
+        cur = {p for p, l in self.stabilizer.stable.items() if l}
+        if cur == self.active_set:
+            return
+        self.core.sync_gpio_levels(cur)
+        self.active_set = set(cur)
+
+    def _log_summary(self) -> None:
+        shown = sorted(set(self.core.gpio_overlay_map()) | set(self.core.gpio_board_map()))
+        print(f"nsl-input: gpio active={sorted(self.active_set)} overlays={shown}", flush=True)
+
+    def run(self) -> None:
+        while True:
+            try:
+                item = self.q.get(timeout=0.05)
+            except queue.Empty:
+                item = None
+            now = time.monotonic()
+            if item == "stop":
+                break
+
+            if isinstance(item, tuple):
+                kind = item[0]
+                if kind == "config":
+                    _, rules, levels = item
+                    from nsl_pi.gpio import GpioRulesEngine
+                    self.engine = GpioRulesEngine(rules)
+                    self.stabilizer.reset(levels)
+                    try:
+                        self._sync_active_set()
+                        self._log_summary()
+                    except Exception as e:
+                        print(f"nsl-input: gpio initial sync failed ({e})", flush=True)
+                elif kind == "levels" and self.engine is not None:
+                    _, changed = item
+                    for pin, level in changed.items():
+                        cfg = self.engine.pin_config(pin)
+                        self.stabilizer.feed(pin, level, now, cfg.get("debounce_ms", 50))
+
+            if self.engine is None:
+                continue
+
+            fired_any = False
+            for pin, level in self.stabilizer.ready(now):
+                fired = self.engine.level_event(pin, level, now=now)
+                if fired:
+                    try:
+                        from nsl_pi.player import play_announcement
+                        res = self.core.apply_gpio_fired(fired, source="gpio")
+                        if res.get("announcement"):
+                            prep = play_announcement(res["announcement"], BASE)
+                            print(f"nsl-input: gpio announcement played={prep.get('played')}", flush=True)
+                    except Exception as e:
+                        print(f"nsl-input: gpio pin {pin} action failed ({e})", flush=True)
+                self.stabilizer.commit(pin, level)
+                print(f"nsl-input: gpio pin {pin} {'active' if level else 'released'} "
+                      f"fired={[r.get('label') or r.get('trigger') for r in fired]}", flush=True)
+                fired_any = True
+
+            if fired_any:
+                try:
+                    self._sync_active_set()
+                    self._log_summary()
+                except Exception as e:
+                    print(f"nsl-input: gpio overlay sync failed ({e})", flush=True)
 
 
 def _gpio_pull_arg(pull: str):
@@ -33,103 +152,94 @@ def _gpio_pull_arg(pull: str):
 def _gpio_loop(core):
     """Poll GPIO pins for per-program rules. Never crashes the keypad loop."""
     from nsl_pi.gpio import GpioRulesEngine
-    engine = None
+
+    event_q: queue.Queue = queue.Queue(maxsize=4096)
+    worker = _GpioWorker(core, event_q)
+    worker.start()
+
     devices: dict[int, object] = {}
     last_sig = None
-    last_levels: dict[int, bool] = {}
-    last_active_set: set[int] = set()
+    last_raw: dict[int, bool] = {}
+    engine: Optional[GpioRulesEngine] = None
+
     print("nsl-input: gpio loop started", flush=True)
-    while True:
-        try:
-            rules = core.gpio_rules()
-        except Exception as e:
-            print(f"nsl-input: gpio rules load failed ({e})", flush=True)
-            rules = []
-        sig = tuple(sorted(
-            (int(r["pin"]), int(r.get("active_low", 1)), str(r.get("pull", "up")),
-             int(r.get("debounce_ms") or 50), str(r.get("trigger")))
-            for r in rules if str(r.get("pin", "")).lstrip("-").isdigit()))
-        if sig != last_sig:
-            for dev in devices.values():
+    try:
+        while True:
+            try:
+                rules = core.gpio_rules()
+            except Exception as e:
+                print(f"nsl-input: gpio rules load failed ({e})", flush=True)
+                rules = []
+
+            sig = tuple(sorted(
+                (int(r["pin"]), int(r.get("active_low", 1)), str(r.get("pull", "up")),
+                 int(r.get("debounce_ms") or 50), str(r.get("trigger")))
+                for r in rules if str(r.get("pin", "")).lstrip("-").isdigit()))
+
+            if sig != last_sig:
+                for dev in devices.values():
+                    try:
+                        dev.close()
+                    except Exception:
+                        pass
+                devices, last_raw, engine = {}, {}, None
+                last_sig = sig
+                if not rules:
+                    time.sleep(5)
+                    continue
                 try:
-                    dev.close()
-                except Exception:
-                    pass
-            devices, last_levels = {}, {}
-            engine = GpioRulesEngine(rules)
-            last_sig = sig
-            if not rules:
+                    from gpiozero import DigitalInputDevice
+                except ImportError:
+                    print("nsl-input: gpiozero missing - gpio rules idle (keypad unaffected)", flush=True)
+                    time.sleep(30)
+                    continue
+
+                engine = GpioRulesEngine(rules)
+                levels: dict[int, bool] = {}
+                for pin in engine.by_pin:
+                    cfg = engine.pin_config(pin)
+                    try:
+                        devices[pin] = DigitalInputDevice(
+                            pin, pull_up=_gpio_pull_arg(cfg.get("pull", "up")),
+                            bounce_time=max(0.01, min(0.5, cfg.get("debounce_ms", 50) / 1000.0)))
+                        print(f"nsl-input: watching gpio pin {pin} (active_low={cfg.get('active_low')})",
+                              flush=True)
+                    except Exception as e:
+                        print(f"nsl-input: pin {pin} unavailable ({e})", flush=True)
+
+                for pin, dev in devices.items():
+                    cfg = engine.pin_config(pin)
+                    raw = dev.value
+                    active = (raw == 0) if cfg.get("active_low", True) else (raw == 1)
+                    levels[pin] = active
+                    last_raw[pin] = active
+                event_q.put(("config", rules, levels))
+
+            if not devices:
                 time.sleep(5)
                 continue
-            try:
-                from gpiozero import DigitalInputDevice
-            except ImportError:
-                print("nsl-input: gpiozero missing - gpio rules idle (keypad unaffected)", flush=True)
-                time.sleep(30)
-                continue
-            for pin in engine.by_pin:
-                cfg = engine.pin_config(pin)
-                try:
-                    devices[pin] = DigitalInputDevice(
-                        pin, pull_up=_gpio_pull_arg(cfg.get("pull", "up")),
-                        bounce_time=max(0.01, min(0.5, cfg.get("debounce_ms", 50) / 1000.0)))
-                    print(f"nsl-input: watching gpio pin {pin} (active_low={cfg.get('active_low')})",
-                          flush=True)
-                except Exception as e:
-                    print(f"nsl-input: pin {pin} unavailable ({e})", flush=True)
-            # a held switch (reverse gear, toggle on) must assert immediately,
-            # not wait for an edge
-            if devices:
-                try:
-                    active = {p for p, d in devices.items()
-                              if ((d.value == 0) if engine.pin_config(p).get("active_low", True)
-                                  else (d.value == 1))}
-                    for p in active:
-                        engine.level_event(p, True)
-                    core.sync_gpio_levels(active)
-                    last_active_set = set(active)
-                except Exception as e:
-                    print(f"nsl-input: gpio initial sync failed ({e})", flush=True)
-        if not devices:
-            time.sleep(5)
-            continue
-        try:
-            for pin, dev in list(devices.items()):
+
+            changed: dict[int, bool] = {}
+            for pin, dev in devices.items():
                 cfg = engine.pin_config(pin)
                 raw = dev.value
                 active = (raw == 0) if cfg.get("active_low", True) else (raw == 1)
-                if last_levels.get(pin) != active:
-                    last_levels[pin] = active
-                    fired = engine.level_event(pin, active)
-                    if fired:
-                        try:
-                            from nsl_pi.player import play_announcement
-                            res = core.apply_gpio_fired(fired, source="gpio")
-                            print(f"nsl-input: gpio pin {pin} {'active' if active else 'released'} "
-                                  f"fired {[r.get('label') or r.get('trigger') for r in fired]}", flush=True)
-                            if res.get("announcement"):
-                                prep = play_announcement(res["announcement"], BASE)
-                                print(f"nsl-input: gpio announcement played={prep.get('played')}", flush=True)
-                        except Exception as e:
-                            print(f"nsl-input: gpio pin {pin} action failed ({e})", flush=True)
-                    # latched boards follow the live level (reverse off restores).
-                    # Only write to controller.db when the active set actually
-                    # changes; constant commits every 20 ms starve other services.
-                    try:
-                        cur = {p for p, d in devices.items()
-                               if last_levels.get(p, False)}
-                        if cur != last_active_set:
-                            core.sync_gpio_levels(cur)
-                            last_active_set = set(cur)
-                        shown = sorted(set(core.gpio_overlay_map()) | set(core.gpio_board_map()))
-                        print(f"nsl-input: gpio pin {pin} {'active' if active else 'released'} "
-                              f"fired={[r.get('label') or r.get('trigger') for r in fired]} "
-                              f"overlays={shown}", flush=True)
-                    except Exception as e:
-                        print(f"nsl-input: gpio overlay sync failed ({e})", flush=True)
-        except Exception as e:
-            print(f"nsl-input: gpio poll error ({e})", flush=True)
-        time.sleep(0.02)
+                if last_raw.get(pin) != active:
+                    changed[pin] = active
+                    last_raw[pin] = active
+            if changed:
+                try:
+                    event_q.put(("levels", changed), block=False)
+                except queue.Full:
+                    print("nsl-input: gpio event queue full, dropping samples", flush=True)
+            time.sleep(0.02)
+    except Exception as e:
+        print(f"nsl-input: gpio poll error ({e})", flush=True)
+    finally:
+        try:
+            event_q.put("stop", timeout=1)
+        except queue.Full:
+            pass
 
 
 def main():
