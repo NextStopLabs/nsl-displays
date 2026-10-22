@@ -42,6 +42,10 @@ def init_controller_db(path: str, controller_name: str = "", role: str = "front"
         cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
         if "insert_destination_id" not in cols:
             con.execute("ALTER TABLE state ADD COLUMN insert_destination_id TEXT DEFAULT NULL")
+        if "depart_mins" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN depart_mins INTEGER DEFAULT NULL")
+        if "depart_expires_at" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN depart_expires_at REAL DEFAULT NULL")
     except Exception:
         pass
     if fresh:

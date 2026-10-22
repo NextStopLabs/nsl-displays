@@ -123,6 +123,10 @@ class DisplayDriver:
             screens: normal 1..N, then insert 1..M, then loop. The insert
             renders with its own destination layouts so a via board looks
             designed, not forced into the main layout.
+
+            Departure countdown (F key): when active every board locks on P1
+            (no rotation, no insert pages); the front board also replaces its
+            via line with the live countdown text.
             """
             layout = None
             prog_display = out.get("program_display") or ""
@@ -142,6 +146,53 @@ class DisplayDriver:
             if layout is None:
                 layout = autofit_layout(w, h)
             svc_number = service.get("number", "") if isinstance(service, dict) else ""
+            dep = snapshot.get("departure") or {}
+            dep_active = bool(dep.get("active")) and bool(dep.get("mins_remaining"))
+            if dep_active:
+                # F-key departure: freeze everything on P1, suppress inserts.
+                import math as _m
+                mins = int(dep.get("mins_remaining") or 0)
+                dep_text = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+                is_front = (prog_display == "front") or (out.get("display_name") == "front")
+                if pages and destination:
+                    from .renderer import fields_for_page_index as _ffpi
+                    page_fields = _ffpi(destination, svc_number, pages, 0)
+                    for k, v in fields.items():
+                        if k.startswith("__"):
+                            page_fields[k] = v
+                    if is_front:
+                        page_fields["via"] = dep_text
+                    bpos = _page_position(pages, 0)
+                    layout_d = None
+                    cand_d = layouts.get(prog_display) or layouts.get(out.get("display_name"))
+                    if cand_d:
+                        layout_d = _j.loads(cand_d) if isinstance(cand_d, str) else cand_d
+                    else:
+                        for k, v in layouts.items():
+                            if k.startswith("template:"):
+                                layout_d = _j.loads(v) if isinstance(v, str) else dict(v)
+                                layout_d["width"], layout_d["height"] = w, h
+                                break
+                    if layout_d is None:
+                        layout_d = autofit_layout(w, h)
+                    return render_frame(layout_d, page_fields, override,
+                                        now=now, pages=pages, board_position=bpos)
+                flds = dict(fields)
+                if is_front:
+                    flds["via"] = dep_text
+                layout_d = None
+                cand_d = layouts.get(prog_display) or layouts.get(out.get("display_name"))
+                if cand_d:
+                    layout_d = _j.loads(cand_d) if isinstance(cand_d, str) else cand_d
+                else:
+                    for k, v in layouts.items():
+                        if k.startswith("template:"):
+                            layout_d = _j.loads(v) if isinstance(v, str) else dict(v)
+                            layout_d["width"], layout_d["height"] = w, h
+                            break
+                if layout_d is None:
+                    layout_d = autofit_layout(w, h)
+                return render_frame(layout_d, flds, override)
             if insert and destination:
                 ins_pages = insert.get("pages") or []
                 kind, idx, _total = combined_slot(

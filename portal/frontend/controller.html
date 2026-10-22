@@ -597,7 +597,7 @@ async function refresh() {
   if (!state.cid) { render(); return; }
   try {
     state.live = await api("/api/controllers/" + state.cid + "/live") || {};
-    state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null };
+    state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null, departure: state.live.departure || null };
     offline.textContent = state.live.online ? "" : (state.live.stale ? "bus offline / stale state" : "");
     if (!state.services.length) {
       try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortLists(); } catch(e){}
@@ -681,7 +681,8 @@ function activeKeys() {
   const nums = ["n0","n1","n2","n3","n4","n5","n6","n7","n8","n9"];
   switch (state.mode) {
     case "code":
-    case "insert": return new Set([...nums, "x", "ent"]);
+    case "insert":
+    case "depart": return new Set([...nums, "x", "ent"]);
     case "services": return new Set(["up", "down", "right", "ent", "x"]);
     case "destinations": return new Set(["up", "down", "left", "ent", "x"]);
     case "admin": return new Set(["up", "down", "left", "right", "ent", "x"]);
@@ -689,7 +690,7 @@ function activeKeys() {
     default: {
       // cloud bus-picker (no bus chosen yet): only list navigation works
       if (state.cid === null) return new Set(["up", "down", "ent"]);
-      const s = new Set(["d", "i", "r", "up", "down"]);
+      const s = new Set(["d", "i", "f", "r", "up", "down"]);
       if (state.seq.length === 1 && state.seq[0] === "r") s.add("x");
       if (state.seq.length === 2 && state.seq[0] === "r" && state.seq[1] === "x") s.add("ent");
       return s;
@@ -751,6 +752,17 @@ function renderScreen() {
     hint.textContent = "Type code · ENT = insert after screens · ENT empty = clear · X = cancel";
     return;
   }
+  if (state.mode === "depart") {
+    const dep = cur.departure || {};
+    const live = dep && dep.text ? dep.text : "NO DEPART TIMER";
+    screen.innerHTML = `<div class="hv-flex">
+      <div class="line"><span class="small dim">${esc(live)}</span><span class="small">MINS TO DEPART</span></div>
+      <div class="line"><span class="big">${esc(state.code.join("") || "--")}m</span><span class="entry">${esc(state.code.join(""))}</span></div>
+      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
+    </div>`;
+    hint.textContent = "Type mins (1-99) · ENT = start · ENT empty = clear · X = cancel";
+    return;
+  }
   if (state.mode === "services") {
     screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="small dim">SELECT SERVICE</div>
@@ -805,13 +817,16 @@ function renderScreen() {
   }
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
   const insTag = cur.insert ? ` +${esc(cur.insert.code || "INS")}` : "";
+  const dep = cur.departure || {};
+  const depLines = (dep && dep.text) ? [msg, dep.text] : splitDest(msg);
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
-    <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
+    <div class="hv-dest">${depLines.map(l => `<div>${esc(l)}</div>`).join("")}</div>
     <div class="hv-right">${esc(code)}${insTag}</div>`;
-  hint.textContent = cur.insert
+  const baseHint = cur.insert
     ? `I = change insert (${cur.insert.code}) · ENT empty clears · D = type code`
     : "D = type code · I = insert page · ▲▼ = services · ENT = select";
+  hint.textContent = (dep && dep.text) ? `${dep.text} · F = change · ${baseHint}` : `${baseHint} · F = depart timer`;
 }
 
 /* ---------- actions (logic unchanged) ---------- */
@@ -824,6 +839,11 @@ function enterInsert() {
   if (!state.cid) return;
   state.pending = null;
   state.mode = "insert"; state.code = []; state.codeError = ""; render();
+}
+function enterDepart() {
+  if (!state.cid) return;
+  state.pending = null;
+  state.mode = "depart"; state.code = []; state.codeError = ""; render();
 }
 /* hidden admin menu: press R, X, ENT in sequence from the main screen */
 function adminSeq(btn) {
@@ -856,16 +876,21 @@ function buildCloudPrograms() {
   })));
 }
 function appendDigit(n) {
+  if (state.mode === "depart") {
+    if (state.code.length >= 2) state.code.shift();
+    state.code.push(n); state.codeError = ""; render();
+    return;
+  }
   if (state.mode !== "code" && state.mode !== "insert") return;
   if (state.code.length >= MAX_CODE) state.code.shift();
   state.code.push(n); state.codeError = ""; render();
 }
 function backspace() {
-  if (state.mode !== "code" && state.mode !== "insert") return;
+  if (state.mode !== "code" && state.mode !== "insert" && state.mode !== "depart") return;
   state.code.pop(); state.codeError = ""; render();
 }
 function cancelCode() {
-  if (state.mode === "code" || state.mode === "insert") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
   if (state.mode === "programs") { state.mode = "admin"; state.adminMsg = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
@@ -949,6 +974,36 @@ async function confirm() {
     }
     return;
   }
+  if (state.mode === "depart") {
+    const cd = state.code.join("");
+    if (cd.length === 0) {
+      try {
+        await cmdPath("depart_clear", {});
+        state.mode = "view"; state.code = []; state.codeError = "";
+        await refresh();
+      } catch(e) {
+        state.codeError = "ERROR"; buzz([35, 40, 35]);
+        render();
+      }
+      return;
+    }
+    const mins = parseInt(cd, 10);
+    if (!mins || mins < 1 || mins > 99) {
+      state.codeError = "1-99 ONLY"; buzz([35, 40, 35]);
+      render();
+      return;
+    }
+    try {
+      await cmdPath("depart_set", {mins});
+      state.mode = "view"; state.code = []; state.codeError = "";
+      state.pending = null;
+      await refresh();
+    } catch(e) {
+      state.codeError = "ERROR"; buzz([35, 40, 35]);
+      render();
+    }
+    return;
+  }
   if (state.mode === "code") {
     const c = state.code.join("");
     if (c.length === 0) return;
@@ -1002,7 +1057,7 @@ function move(dir) {
     render();
     return;
   }
-  if (state.mode === "code" || state.mode === "insert") {
+  if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
   }
@@ -1048,6 +1103,7 @@ document.body.addEventListener("click", (e) => {
   buzz(12);
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
+  else if (btn === "f") enterDepart();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (["up","down","left","right"].includes(btn)) move(btn);
@@ -1092,6 +1148,7 @@ document.addEventListener("keydown", (e) => {
   else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
+  else if (btn === "f") enterDepart();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (btn === "bs") backspace();

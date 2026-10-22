@@ -634,10 +634,19 @@ function renderBoard(cur) {
   const ovText = (ovo && (ovo.text || ovo.override_text)) || st.override_text || "";
   const ovCfg = layout.override || {};
   const ins = cur.insert && cur.insert.destination;
+  const dep = cur.departure || {};
+  const depActive = dep.active && dep.mins_remaining > 0;
+  const depText = depActive
+    ? (dep.mins_remaining === 1 ? "Departing in 1 min" : `Departing in ${dep.mins_remaining} mins`)
+    : "";
 
   let pages;
   if (ovText) {
     pages = [Object.assign({}, fields, { [ovCfg.replaces || "dest"]: ovText })];
+  } else if (depActive) {
+    // F-key departure: frozen on P1, front via shows the live countdown.
+    const p1 = (cur.pages && cur.pages.length ? cur.pages[0] : fields);
+    pages = [Object.assign({}, fields, p1, { via: depText })];
   } else {
     pages = (cur.pages && cur.pages.length ? cur.pages : [fields]).map(p => Object.assign({}, fields, p));
     if (ins) pages.push({ num: ins.num || fields.num, via: ins.via || "", dest: ins.dest || ins.name || "" });
@@ -648,8 +657,9 @@ function renderBoard(cur) {
   const svc0 = cur.service || {};
   const code0 = fmtCode(dest0.code || svc0.number || "");
   const insTag0 = ins ? ` +${ins.code || "INS"}` : "";
+  const depTag0 = depActive ? ` · ${depText}` : "";
 
-  const key = JSON.stringify([cur.layouts.front, pages, hide, code0, insTag0]);
+  const key = JSON.stringify([cur.layouts.front, pages, hide, code0, insTag0, depTag0]);
   if (key === boardKey && screen.querySelector(".board")) return true;
   clearTimeout(boardTimer);
   boardKey = key;
@@ -694,7 +704,8 @@ function activeKeys() {
   const nums = ["n0","n1","n2","n3","n4","n5","n6","n7","n8","n9"];
   switch (state.mode) {
     case "code":
-    case "insert": return new Set([...nums, "x", "ent"]);
+    case "insert":
+    case "depart": return new Set([...nums, "x", "ent"]);
     case "services": return new Set(["up", "down", "right", "ent", "x"]);
     case "destinations": return new Set(["up", "down", "left", "ent", "x"]);
     case "admin": return new Set(["up", "down", "left", "right", "ent", "x"]);
@@ -702,7 +713,7 @@ function activeKeys() {
     default: {
       // cloud bus-picker (no bus chosen yet): only list navigation works
       if (state.cid === null) return new Set(["up", "down", "ent"]);
-      const s = new Set(["d", "i", "r", "up", "down"]);
+      const s = new Set(["d", "i", "f", "r", "up", "down"]);
       if (state.seq.length === 1 && state.seq[0] === "r") s.add("x");
       if (state.seq.length === 2 && state.seq[0] === "r" && state.seq[1] === "x") s.add("ent");
       return s;
@@ -751,6 +762,20 @@ function renderScreen() {
     hint.textContent = "Type code · ENT = insert after screens · ENT empty = clear · X = cancel";
     return;
   }
+  if (state.mode === "depart") {
+    const dep = state.current.departure || {};
+    const live = (dep.active && dep.mins_remaining > 0)
+      ? (dep.mins_remaining === 1 ? "Departing in 1 min" : `Departing in ${dep.mins_remaining} mins`)
+      : "NO DEPART TIMER";
+    const entry = (state.code.join("") || "--") + "m";
+    screen.innerHTML = `<div class="hv-flex">
+      <div class="line"><span class="small dim">${esc(live)}</span><span class="small">MINS TO DEPART</span></div>
+      <div class="line"><span class="big">${esc(entry)}</span><span class="entry">${esc(state.code.join(""))}</span></div>
+      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
+    </div>`;
+    hint.textContent = "Type mins (1-99) · ENT = start · ENT empty = clear · X = cancel";
+    return;
+  }
   if (state.mode === "services") {
     screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="small dim">SELECT SERVICE</div>
@@ -789,9 +814,15 @@ function renderScreen() {
   }
 
   const ins = state.current.insert;
-  hint.textContent = (ins && ins.destination)
+  const dep = state.current.departure || {};
+  const depActive = dep.active && dep.mins_remaining > 0;
+  const depHint = depActive
+    ? (dep.mins_remaining === 1 ? "Departing in 1 min" : `Departing in ${dep.mins_remaining} mins`)
+    : null;
+  const baseHint = (ins && ins.destination)
     ? `${code} · I = change insert (${ins.destination.code}) · ENT empty clears · D = type code`
     : `${code} · D = type code · I = insert page · ▲▼ = services · ENT = select`;
+  hint.textContent = depHint ? `${depHint} · F = change · ${baseHint}` : `${baseHint} · F = depart timer`;
 
   // main screen: replicate what the board is actually showing
   if (renderBoard(cur)) return;
@@ -813,6 +844,9 @@ function enterCode() {
 }
 function enterInsert() {
   state.mode = "insert"; state.code = []; state.codeError = ""; render();
+}
+function enterDepart() {
+  state.mode = "depart"; state.code = []; state.codeError = ""; render();
 }
 /* hidden admin menu: press R, X, ENT in sequence from the main screen */
 function adminSeq(btn) {
@@ -847,16 +881,21 @@ function collapsePrograms(rows, activePid) {
   return Object.values(m);
 }
 function appendDigit(n) {
+  if (state.mode === "depart") {
+    if (state.code.length >= 2) state.code.shift();
+    state.code.push(n); state.codeError = ""; render();
+    return;
+  }
   if (state.mode !== "code" && state.mode !== "insert") return;
   if (state.code.length >= MAX_CODE) state.code.shift();
   state.code.push(n); state.codeError = ""; render();
 }
 function backspace() {
-  if (state.mode !== "code" && state.mode !== "insert") return;
+  if (state.mode !== "code" && state.mode !== "insert" && state.mode !== "depart") return;
   state.code.pop(); state.codeError = ""; render();
 }
 function cancelCode() {
-  if (state.mode === "code" || state.mode === "insert") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
   if (state.mode === "programs") { state.mode = "admin"; state.adminMsg = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
@@ -925,6 +964,36 @@ async function confirm() {
     }
     return;
   }
+  if (state.mode === "depart") {
+    const c = state.code.join("");
+    if (c.length === 0) {
+      // ENT with no digits clears an active departure timer
+      try {
+        await api("/api/command", {command:"depart_clear"});
+        state.mode = "view"; state.code = []; state.codeError = "";
+        await refresh();
+      } catch(e) {
+        state.codeError = "ERROR"; buzz([35, 40, 35]);
+        render();
+      }
+      return;
+    }
+    const mins = parseInt(c, 10);
+    if (!mins || mins < 1 || mins > 99) {
+      state.codeError = "1-99 ONLY"; buzz([35, 40, 35]);
+      render();
+      return;
+    }
+    try {
+      await api("/api/command", {command:"depart_set", mins});
+      state.mode = "view"; state.code = []; state.codeError = "";
+      await refresh();
+    } catch(e) {
+      state.codeError = "ERROR"; buzz([35, 40, 35]);
+      render();
+    }
+    return;
+  }
   if (state.mode === "code") {
     const c = state.code.join("");
     if (c.length === 0) return;
@@ -957,7 +1026,7 @@ async function confirm() {
   }
 }
 function move(dir) {
-  if (state.mode === "code" || state.mode === "insert") {
+  if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
   }
@@ -1003,6 +1072,7 @@ document.body.addEventListener("click", (e) => {
   buzz(12);
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
+  else if (btn === "f") enterDepart();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (["up","down","left","right"].includes(btn)) move(btn);
@@ -1032,6 +1102,7 @@ document.addEventListener("keydown", (e) => {
   else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
+  else if (btn === "f") enterDepart();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (btn === "bs") backspace();

@@ -54,6 +54,12 @@ class Receiver:
         insert = snapshot.get("insert") or None
         if insert and not insert.get("destination"):
             insert = None
+        departure = snapshot.get("departure") or {}
+        dep_active = bool(departure.get("active")) and bool(departure.get("mins_remaining"))
+        if dep_active:
+            # F-key departure: every board locks on P1, inserts suppressed.
+            # Only the front replaces via; side/rear just freeze.
+            insert = None
         layout = None
         if self.display_name in layouts:
             layout = layouts[self.display_name]
@@ -113,15 +119,32 @@ class Receiver:
                 frame.save(os.path.join(self.virtual_dir, f"{self.display_name}.png"))
             return frame
         if pages and destination:
-            slot = slot_for_layout(layout, now)
-            fields = fields_for_slot(destination, svc_number, layout, now, pages)
-            for k, v in base.items():
-                if k.startswith("__"):
-                    fields[k] = v
-            frame = render_frame(layout, fields, override, now=now, pages=pages,
-                                 board_position=board_position_for_slot(pages, slot))
+            if dep_active:
+                fields = fields_for_page_index(destination, svc_number, pages, 0)
+                for k, v in base.items():
+                    if k.startswith("__"):
+                        fields[k] = v
+                if self.display_name == "front":
+                    mins = int(departure.get("mins_remaining") or 0)
+                    fields["via"] = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+                ordered0 = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+                bpos0 = int(ordered0[0].get("position", 0) or 0) if ordered0 else 0
+                frame = render_frame(layout, fields, override, now=now, pages=pages,
+                                     board_position=bpos0)
+            else:
+                slot = slot_for_layout(layout, now)
+                fields = fields_for_slot(destination, svc_number, layout, now, pages)
+                for k, v in base.items():
+                    if k.startswith("__"):
+                        fields[k] = v
+                frame = render_frame(layout, fields, override, now=now, pages=pages,
+                                     board_position=board_position_for_slot(pages, slot))
         else:
-            frame = render_frame(layout, base, override)
+            flds = dict(base)
+            if dep_active and self.display_name == "front":
+                mins = int(departure.get("mins_remaining") or 0)
+                flds["via"] = f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
+            frame = render_frame(layout, flds, override)
         if self.virtual_dir:
             import os
             os.makedirs(self.virtual_dir, exist_ok=True)

@@ -186,7 +186,9 @@ CREATE TABLE IF NOT EXISTS state (
   volume           INTEGER NOT NULL DEFAULT 80,
   muted            INTEGER NOT NULL DEFAULT 0,
   updated_at       TEXT NOT NULL,
-  insert_destination_id TEXT DEFAULT NULL
+  insert_destination_id TEXT DEFAULT NULL,
+  depart_mins      INTEGER DEFAULT NULL,
+  depart_expires_at REAL DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS outbox (

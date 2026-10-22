@@ -35,6 +35,19 @@ def _ensure_insert_column(con: sqlite3.Connection):
         pass
 
 
+def _ensure_depart_columns(con: sqlite3.Connection):
+    """Migration for controller.db files created before departure countdown."""
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
+        if "depart_mins" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN depart_mins INTEGER DEFAULT NULL")
+        if "depart_expires_at" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN depart_expires_at REAL DEFAULT NULL")
+        con.commit()
+    except Exception:
+        pass
+
+
 def _utcnow() -> str:
     import datetime as dt
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -42,6 +55,7 @@ def _utcnow() -> str:
 
 def ensure_state_row(con: sqlite3.Connection):
     _ensure_insert_column(con)
+    _ensure_depart_columns(con)
     con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at, insert_destination_id) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?,NULL)",
                 (_utcnow(),))
 
@@ -70,6 +84,7 @@ class Core:
         from .db import connect as _db_connect
         self._con = _db_connect(controller_db, row_factory=sqlite3.Row)
         _ensure_insert_column(self._con)
+        _ensure_depart_columns(self._con)
         self._con.executescript("""
         CREATE TABLE IF NOT EXISTS gpio_overlays (
           target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',
@@ -390,6 +405,74 @@ class Core:
         self._emit("state")
         return self.state()
 
+    # ---- departure countdown (F key) ----
+    def set_departure(self, mins: int | str, source: str = "local",
+                      user_id: str | None = None) -> dict:
+        """F key: lock boards on P1 and show a live 'Departing in X mins'
+        countdown on the front via line until expiry. Auto-clears at zero."""
+        import time as _t
+        try:
+            mins = int(mins)
+        except (TypeError, ValueError):
+            raise ValueError("INVALID")
+        if not 1 <= mins <= 99:
+            raise ValueError("INVALID")
+        expires = _t.time() + mins * 60
+        self._con.execute("UPDATE state SET depart_mins=?, depart_expires_at=?, updated_at=? WHERE id=1",
+                          (mins, expires, _utcnow()))
+        self._log(source, f"depart_set {mins}", user_id)
+        self._con.commit()
+        self._emit("state")
+        return self.state()
+
+    def clear_departure(self, source: str = "local", user_id: str | None = None,
+                        silent: bool = False) -> dict:
+        self._con.execute("UPDATE state SET depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                          (_utcnow(),))
+        if not silent:
+            self._log(source, "depart_clear", user_id)
+        self._con.commit()
+        if not silent:
+            self._emit("state")
+        return self.state()
+
+    def departure_status(self, now: float | None = None) -> dict:
+        """Live countdown state. Expired timers self-clear on read."""
+        import time as _t
+        import math as _m
+        now = now if now is not None else _t.time()
+        try:
+            row = self._con.execute(
+                "SELECT depart_mins, depart_expires_at FROM state WHERE id=1").fetchone()
+        except Exception:
+            return {"active": False, "mins_remaining": 0, "expires_at": None}
+        self._con.commit()
+        if not row or row["depart_expires_at"] is None:
+            return {"active": False, "mins_remaining": 0, "expires_at": None}
+        try:
+            exp = float(row["depart_expires_at"])
+        except (TypeError, ValueError):
+            return {"active": False, "mins_remaining": 0, "expires_at": None}
+        rem = _m.ceil((exp - now) / 60)
+        if rem <= 0:
+            try:
+                self._con.execute(
+                    "UPDATE state SET depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                    (_utcnow(),))
+                self._con.commit()
+            except Exception:
+                pass
+            return {"active": False, "mins_remaining": 0, "expires_at": None}
+        return {"active": True, "mins_remaining": int(rem), "expires_at": exp}
+
+    @staticmethod
+    def departure_text(mins_remaining: int) -> str:
+        try:
+            n = int(mins_remaining)
+        except (TypeError, ValueError):
+            n = 0
+        return f"Departing in {n} min" if n == 1 else f"Departing in {n} mins"
+
     # ---- selection ----
     def select_program(self, program_id: str, source: str = "local", user_id: str | None = None) -> dict:
         """Select program: picks active installed version, first destination/stop, clears override."""
@@ -409,7 +492,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (program_id, version, dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"program_select {program_id}@{version}", user_id)
             self._con.commit()
@@ -437,7 +520,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_code {code}", user_id)
             self._con.commit()
@@ -457,7 +540,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (destination_id,)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], destination_id, stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_select {destination_id}", user_id)
             self._con.commit()
@@ -608,7 +691,7 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (st["destination_id"],)).fetchone()
                     new_stop = first["id"] if first else None
-                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                                       (version, new_stop, _utcnow()))
                 else:
                     # same stop: keep override; (upgrade never clears it).
@@ -627,12 +710,12 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (dest["id"],)).fetchone()
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, dest["service_id"], dest["id"],
                          first["id"] if first else None, _utcnow()))
                 else:
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, _utcnow()))
             self._con.execute("UPDATE installed_programs SET status='superseded' WHERE program_id=? AND status='active'",
                               (program_id,))
@@ -689,6 +772,11 @@ class Core:
             return self.apply_override(cmd.get("text", ""), source=source, user_id=user_id)
         if action == "override_clear":
             return self.clear_override(source=source, user_id=user_id)
+        if action == "depart_set":
+            mins = cmd.get("mins", cmd.get("minutes", cmd.get("value", "")))
+            return self.set_departure(mins, source=source, user_id=user_id)
+        if action == "depart_clear":
+            return self.clear_departure(source=source, user_id=user_id)
         if action == "volume":
             return self.set_volume(cmd.get("volume"), cmd.get("muted"), source=source, user_id=user_id)
         if action == "activate":
@@ -832,23 +920,27 @@ class Core:
             st = self.state()
             gpio_overlay = self.gpio_overlay_map()
             gpio_boards = self.gpio_board_map()
+            departure = self.departure_status()
             if not st["program_id"]:
                 # no program selected: still show an active override (manual message
                 # must reach the boards with or without program context)
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                        "departure": departure}
             pc = self._open_prog(st["program_id"], st["program_version"])
             if pc is None:
                 # installed row without its bundle (deleted mid-sync?) - empty, not a crash
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                        "departure": departure}
             try:
                 dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
                 svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
                 stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
                 if not dest:
                     return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
+                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                            "departure": departure}
                 from .renderer import resolve_fields
                 fields = resolve_fields(dict(dest), svc["number"] if svc else "")
                 try:
@@ -873,7 +965,7 @@ class Core:
                         "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                         "layouts": layouts, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards,
-                        "insert": insert}
+                        "insert": insert, "departure": departure}
             finally:
                 pc.close()
         finally:
