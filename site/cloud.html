@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud portal — NSL Displays</title>
+  <meta name="description" content="Program the fleet from a browser: services, codes, audio, board layouts, pairing, remote control and over-the-air updates.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <!-- Surface in the NSL world (see index.html contract): Persuade, product page. -->
+  <header class="site">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="index.html"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+      <div class="nav-links">
+        <a href="displays.html">Boards</a>
+        <a href="controller.html">Controller</a>
+        <a class="on" href="cloud.html">Cloud</a>
+        <a href="audio.html">Audio</a>
+        <a href="/cloud/static/">Log in</a>
+        <a class="btn btn-primary btn-sm" href="contact.html" style="margin-left:8px">Get a quote</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">Cloud portal</p>
+          <h1>Program the fleet from a browser.</h1>
+          <p class="lede">Services, destinations, codes, stops, announcements and board layouts &mdash; built once, published as one program file, pulled down by every bus on its next connection.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="/cloud/static/">Log in to Cloud</a>
+            <a class="btn btn-ghost" href="contact.html">Get a quote</a>
+          </div>
+        </div>
+        <div>
+          <div class="board-shell">
+            <canvas data-board='[{"num":"38","dest":"DERBY","via":"Bus Station"},{"num":"V3","dest":"VIC PARK","via":"Night Bus"}]' role="img" aria-label="Demo board showing programmed destinations"></canvas>
+            <div class="board-cap"><span class="live">Designed in Cloud &middot; live demo</span><span data-board-page>P1 / P2</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">What you run from here</p>
+        <h2>The depot desk for every bus.</h2>
+        <div class="grid-2">
+          <div class="card"><h3>Programs, codes &amp; stops</h3><p>Services with destinations, unique 1&ndash;8 digit codes, ordered stops with terminus rules &mdash; validated on publish so a bad code can never reach a bus.</p></div>
+          <div class="card"><h3>Board layout editor</h3><p>Draw each destination&rsquo;s boards against a live LED preview with per-element fonts, scaling, spacing, scrolling and rotating board pages.</p></div>
+          <div class="card"><h3>Audio &amp; voices</h3><p>Upload clips or generate speech with on-board voices, trim announcements from the library, and assign next, approaching and terminus audio per service.</p></div>
+          <div class="card"><h3>Pairing &amp; rollout</h3><p>Pair each bus with a one-time code, publish a program version, and watch controllers pick it up &mdash; audio and software updates travel the same way.</p></div>
+          <div class="card"><h3>Remote control</h3><p>See what each bus is showing, which stop it&rsquo;s at, and drive it from the desk: codes, stops, announcements, overrides, volume and programs.</p></div>
+          <div class="card"><h3>Fleet software updates</h3><p>Stage signed software releases per channel and let buses install them on their next heartbeat &mdash; with automatic rollback on failure.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">Your data, your organisation</p>
+        <h2>Multi-user, scoped by organisation.</h2>
+        <p class="lede">Sign up, get your organisation, invite owners, editors and viewers. Every program, clip, controller and release belongs to exactly one organisation &mdash; the bus only ever sees its own.</p>
+        <div class="cta-band">
+          <h2>Already running NSL?</h2>
+          <p>Your programs, buses and audio are waiting where you left them.</p>
+          <a class="btn btn-primary" href="/cloud/static/">Log in to Cloud</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="index.html" style="margin-bottom:14px"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+          <p style="color:var(--muted);font-size:14.5px;max-width:34ch">LED destination boards, driver controller, next-stop audio and cloud programming &mdash; one offline-first system for buses.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="displays.html">LED boards</a></li>
+            <li><a href="controller.html">NC1 controller</a></li>
+            <li><a href="cloud.html">Cloud portal</a></li>
+            <li><a href="audio.html">Next-stop audio</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Cloud</h4>
+          <ul>
+            <li><a href="/cloud/static/">Log in</a></li>
+            <li><a href="contact.html">Get a quote</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="mailto:hello@nsldisplays.com">hello@nsldisplays.com</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-note"><span>&copy; <span data-year>2026</span> NSL Displays</span><span>Boards &middot; Controller &middot; Cloud &middot; Audio</span></div>
+    </div>
+  </footer>
+  <script src="assets/site.js"></script>
+</body>
+</html>

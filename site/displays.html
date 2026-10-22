@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LED destination boards — NSL Displays</title>
+  <meta name="description" content="Amber HUB75 front, side and rear destination boards with per-destination layouts, Hanover glyphs and rotating board pages.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <!-- Surface in the NSL world (see index.html contract): Persuade, product page. Proves with a live cycling board + true specs; closes on quote CTA. -->
+  <header class="site">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="index.html"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+      <div class="nav-links">
+        <a class="on" href="displays.html">Boards</a>
+        <a href="controller.html">Controller</a>
+        <a href="cloud.html">Cloud</a>
+        <a href="audio.html">Audio</a>
+        <a href="/cloud/static/">Log in</a>
+        <a class="btn btn-primary btn-sm" href="contact.html" style="margin-left:8px">Get a quote</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">LED destination boards</p>
+          <h1>Boards that read like Hanover.</h1>
+          <p class="lede">Amber HUB75 signs in front, side and rear sizes. Every destination gets its own layout &mdash; route number, destination and via &mdash; drawn in true 1:1 Hanover bitmap letterforms, the shapes passengers already know how to read.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="contact.html">Get a quote</a>
+            <a class="btn btn-ghost" href="cloud.html">See how boards are designed</a>
+          </div>
+        </div>
+        <div>
+          <div class="board-shell">
+            <canvas data-board='[{"num":"38","dest":"DERBY","via":"Bus Station"},{"num":"38","dest":"SINFIN","via":"Moor Lane"}]' role="img" aria-label="Demo board cycling between Derby and Sinfin pages"></canvas>
+            <div class="board-cap"><span class="live">Front board &middot; live demo</span><span data-board-page>P1 / P2</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">The set</p>
+        <h2>Three sizes, one program.</h2>
+        <div class="spec">
+          <div class="spec-row"><b>Front &middot; 240&times;40</b><span><strong>Driven direct</strong> off the front Pi over HUB75. Route number left, destination and via right &mdash; or any layout you design per destination.</span></div>
+          <div class="spec-row"><b>Side &middot; 160&times;40</b><span><strong>Driven over the bus LAN</strong> by its own receiver Pi. Shows the same destination in its own layout, sized for the kerb.</span></div>
+          <div class="spec-row"><b>Rear &middot; 80&times;40</b><span><strong>Driven over the bus LAN</strong> by its own receiver Pi. Route number behind you, all the way home.</span></div>
+          <div class="spec-row"><b>Hold last frame</b><span>If the bus LAN drops, side and rear signs <strong>keep showing their board</strong> instead of going dark.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">Layouts</p>
+        <h2>Every destination, dressed for its route.</h2>
+        <div class="grid-2">
+          <div class="card"><h3>Board pages that rotate</h3><p>A destination can carry several board pages &mdash; each with its own via and dest &mdash; that take turns on the signs every few seconds. One page in the program, one board at a time on the street.</p></div>
+          <div class="card"><h3>Type, tuned per element</h3><p>Every element sets its own Hanover font, integer scale for tall boards, letter spacing, alignment and scrolling. Long names scroll; short ones sit still.</p></div>
+          <div class="card"><h3>Insert pages</h3><p>Need an extra board after the booked ones &mdash; a diversion, a terminating short? The driver inserts a destination page that rides along until cleared.</p></div>
+          <div class="card"><h3>Designed in the cloud</h3><p>Layouts are drawn in the portal against a live LED preview &mdash; what you see is what the bus shows, pixel for pixel.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <div class="cta-band">
+          <h2>Size up your fleet.</h2>
+          <p>Tell us the buses and the boards &mdash; front, side, rear &mdash; and we&rsquo;ll quote the set.</p>
+          <a class="btn btn-primary" href="contact.html">Get a quote</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="index.html" style="margin-bottom:14px"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+          <p style="color:var(--muted);font-size:14.5px;max-width:34ch">LED destination boards, driver controller, next-stop audio and cloud programming &mdash; one offline-first system for buses.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="displays.html">LED boards</a></li>
+            <li><a href="controller.html">NC1 controller</a></li>
+            <li><a href="cloud.html">Cloud portal</a></li>
+            <li><a href="audio.html">Next-stop audio</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Cloud</h4>
+          <ul>
+            <li><a href="/cloud/static/">Log in</a></li>
+            <li><a href="contact.html">Get a quote</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="mailto:hello@nsldisplays.com">hello@nsldisplays.com</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-note"><span>&copy; <span data-year>2026</span> NSL Displays</span><span>Boards &middot; Controller &middot; Cloud &middot; Audio</span></div>
+    </div>
+  </footer>
+  <script src="assets/site.js"></script>
+</body>
+</html>

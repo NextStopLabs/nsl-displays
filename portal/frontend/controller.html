@@ -498,7 +498,7 @@
 
 <script>
 /* cloud wiring (bus picker + auth); faceplate + logic below match the Pi exactly */
-const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
+const PREFIX = (location.pathname.startsWith("/portal") || location.pathname.startsWith("/cloud")) ? "/portal" : "";
 const ORG = localStorage.getItem("nsl_org") || "";
 const TOKEN = localStorage.getItem("nsl_token") || "";
 const urlCid = new URLSearchParams(location.search).get("cid");

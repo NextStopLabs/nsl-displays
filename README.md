@@ -43,7 +43,7 @@ This README is the wiki for the project. `plan.md` is the build plan, `format.md
 
 ## 1. What this is
 
-- **Portal** at `nsldisplays.com/portal`: multi-user web app. Build programs (services → destinations → stops), upload/generate audio with Piper, design what each LED board shows, pair controllers, push programs, remote-control a bus.
+- **Portal** at `nsldisplays.com/cloud`: multi-user web app. Build programs (services → destinations → stops), upload/generate audio with Piper, design what each LED board shows, pair controllers, push programs, remote-control a bus.
 - **Bus controller**: a main Raspberry Pi 4 at the front of the bus. Runs the service: plays announcements, drives the front LED sign, tells the side/rear signs what to show, reads the USB keypad, hosts the local controller page.
 - **Two receiver Pis**: one at the side sign, one at the rear sign. They drive their local panels and mirror the main Pi's state. The portal still sees **one controller per bus**.
 - **Program file** (`.nslprog`): a single SQLite file per published program version. Holds services, 1–8 digit destination codes, stops, displays, board layouts, audio references. Audio travels as separate hash-named FLAC files. Full spec in `format.md`.

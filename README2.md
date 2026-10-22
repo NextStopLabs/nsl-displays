@@ -3,7 +3,7 @@
 Canonical end-to-end setup. The old `README.md` sections are reference material;
 **this file is the one to follow** for a fresh install.
 
-Portal: **https://nsldisplays.com/portal**
+Portal: **https://nsldisplays.com/cloud**
 Health: **https://nsldisplays.com/portal/health**
 
 Local-only URLs (unchanged - these are device networks, not the internet):

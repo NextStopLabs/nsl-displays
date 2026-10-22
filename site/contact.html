@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contact — NSL Displays</title>
+  <meta name="description" content="Get a quote for LED destination boards, controllers and next-stop audio. Tell us about your fleet.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <!-- Surface in the NSL world (see index.html contract): Persuade, contact/quote. -->
+  <header class="site">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="index.html"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+      <div class="nav-links">
+        <a href="displays.html">Boards</a>
+        <a href="controller.html">Controller</a>
+        <a href="cloud.html">Cloud</a>
+        <a href="audio.html">Audio</a>
+        <a href="/cloud/static/">Log in</a>
+        <a class="btn btn-primary btn-sm" href="contact.html" style="margin-left:8px">Get a quote</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap" style="max-width:760px">
+        <p class="eyebrow">Contact</p>
+        <h1>Get a quote.</h1>
+        <p class="lede">Tell us about the fleet &mdash; how many buses, which boards, when you need them. We&rsquo;ll come back with a quote and a plan.</p>
+        <div class="cta-row" style="margin-top:26px">
+          <a class="btn btn-primary" href="mailto:hello@nsldisplays.com?subject=Quote%20request%20%E2%80%94%20bus%20displays">hello@nsldisplays.com</a>
+        </div>
+        <form class="quote" data-quote="hello@nsldisplays.com">
+          <div class="field-2">
+            <div><label for="q-name">Your name</label><input id="q-name" name="name" autocomplete="name"></div>
+            <div><label for="q-org">Organisation</label><input id="q-org" name="org" autocomplete="organization"></div>
+          </div>
+          <div class="field-2">
+            <div><label for="q-email">Email</label><input id="q-email" name="email" type="email" autocomplete="email"></div>
+            <div><label for="q-phone">Phone (optional)</label><input id="q-phone" name="phone" type="tel" autocomplete="tel"></div>
+          </div>
+          <div class="field-2">
+            <div><label for="q-fleet">Fleet size</label><input id="q-fleet" name="fleet" inputmode="numeric" placeholder="e.g. 12 buses"></div>
+            <div><label for="q-boards">Boards needed</label>
+              <select id="q-boards" name="boards">
+                <option>Front + side + rear</option>
+                <option>Front only</option>
+                <option>Front + side</option>
+                <option>Not sure yet</option>
+              </select>
+            </div>
+          </div>
+          <div><label for="q-details">Routes, timelines, anything else</label><textarea id="q-details" name="details" rows="5" placeholder="e.g. Two town services, need announcements in English, fitting over the winter."></textarea></div>
+          <div><button class="btn btn-primary" type="submit">Compose enquiry email</button></div>
+          <p class="lede" style="font-size:14px">This opens your email app with everything pre-filled &mdash; nothing is sent until you press send. Already running NSL? <a href="/cloud/static/">Log in to Cloud</a>.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="index.html" style="margin-bottom:14px"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+          <p style="color:var(--muted);font-size:14.5px;max-width:34ch">LED destination boards, driver controller, next-stop audio and cloud programming &mdash; one offline-first system for buses.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="displays.html">LED boards</a></li>
+            <li><a href="controller.html">NC1 controller</a></li>
+            <li><a href="cloud.html">Cloud portal</a></li>
+            <li><a href="audio.html">Next-stop audio</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Cloud</h4>
+          <ul>
+            <li><a href="/cloud/static/">Log in</a></li>
+            <li><a href="contact.html">Get a quote</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="mailto:hello@nsldisplays.com">hello@nsldisplays.com</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-note"><span>&copy; <span data-year>2026</span> NSL Displays</span><span>Boards &middot; Controller &middot; Cloud &middot; Audio</span></div>
+    </div>
+  </footer>
+  <script src="assets/site.js"></script>
+</body>
+</html>

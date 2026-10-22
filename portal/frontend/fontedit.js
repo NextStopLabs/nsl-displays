@@ -286,7 +286,7 @@
         const blob = new Blob([toFntText()], { type: "text/plain" });
         const fd = new FormData(); fd.append("file", blob, M().stem + ".Fnt");
         const token = localStorage.getItem("nsl_token") || "";
-        const r = await fetch((location.pathname.startsWith("/portal") ? "/portal" : "") + "/api/fonts",
+        const r = await fetch((location.pathname.startsWith("/portal") || location.pathname.startsWith("/cloud") ? "/portal" : "") + "/api/fonts",
           { method: "POST", headers: { "Authorization": "Bearer " + token }, body: fd });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.detail || ("HTTP " + r.status));

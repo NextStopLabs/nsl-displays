@@ -111,7 +111,7 @@ body.show-controls #controls{opacity:1;pointer-events:auto}
 /* GPS next-stop display, linked to the live service on the bus.
    Follows the controller's live state (service/destination/stop) via the
    portal API; Prev/Next sends stop_prev/stop_next to the bus. No times. */
-const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
+const PREFIX = (location.pathname.startsWith("/portal") || location.pathname.startsWith("/cloud")) ? "/portal" : "";
 const $ = (id) => document.getElementById(id);
 const screen = $("screen");
 const W = 1280, H = 720;

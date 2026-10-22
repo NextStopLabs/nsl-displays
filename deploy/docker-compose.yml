@@ -38,6 +38,7 @@ services:
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./images:/srv/images:ro
+      - ../site:/srv/site:ro
       - caddy-data:/data
       - caddy-config:/config
     environment:

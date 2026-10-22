@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NSL Displays — LED destination boards, controller &amp; cloud for buses</title>
+  <meta name="description" content="NSL Displays builds LED destination boards, the driver's NC1 controller, next-stop audio and the cloud that programs them — one offline-first system for your buses.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <!-- DIRECTION CONTRACT. THESIS: NSL is the operator's own display works — real boards, real controller, own cloud; refuse generic SaaS hero. OWN-WORLD: asphalt black, committed LED amber (#ffb000, glows/fields not accents), warm off-white ink, mono eyebrow labels, condensed heavy display type, LED dot-matrix motif. STORY: operator gets it in one viewport (live board cycling pages), believes via true specs, acts via Get a quote. FIRST VIEWPORT: nav left brand/right links; left column eyebrow+H1+lede+CTAs+stat strip; right live LED board canvas cycling P1/P2 every 3s. FORM: code-led Persuade, shared chrome across 6 static pages, zero external deps. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
+  <header class="site">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="index.html"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+      <div class="nav-links">
+        <a href="displays.html">Boards</a>
+        <a href="controller.html">Controller</a>
+        <a href="cloud.html">Cloud</a>
+        <a href="audio.html">Audio</a>
+        <a href="/cloud/static/">Log in</a>
+        <a class="btn btn-primary btn-sm" href="contact.html" style="margin-left:8px">Get a quote</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow">LED destination systems for buses</p>
+          <h1>Every bus, clearly boarded.</h1>
+          <p class="lede">NSL Displays builds the LED destination boards, the driver&rsquo;s controller, the next-stop announcements and the cloud that programs them &mdash; one offline-first system, from depot to departure.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="contact.html">Get a quote</a>
+            <a class="btn btn-ghost" href="displays.html">Explore the boards</a>
+          </div>
+          <div class="hero-meta">
+            <div><b>240&times;40</b><span>front board pixels</span></div>
+            <div><b>1&ndash;8</b><span>digit destination codes</span></div>
+            <div><b>0</b><span>internet needed on the bus</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="board-shell">
+            <canvas data-board='[{"num":"8","dest":"BURTON","via":"Branston"},{"num":"8","dest":"TOWN","via":"Station"}]' role="img" aria-label="Demo front board cycling between Burton via Branston and Town via Station"></canvas>
+            <div class="board-cap"><span class="live">Front board &middot; live demo</span><span data-board-page>P1 / P2</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">The system</p>
+        <h2>Four products. One bus.</h2>
+        <div class="cards">
+          <a class="card" href="displays.html">
+            <span class="code">240&middot;160&middot;80</span>
+            <h3>LED destination boards</h3>
+            <p>Front, side and rear amber signs with per-destination layouts, Hanover glyphs and rotating board pages.</p>
+            <span class="go">Boards &rarr;</span>
+          </a>
+          <a class="card" href="controller.html">
+            <span class="code">NC1</span>
+            <h3>Driver&rsquo;s controller</h3>
+            <p>Code entry, inserts, departure timer, overrides and announcements &mdash; on the bus, offline.</p>
+            <span class="go">Controller &rarr;</span>
+          </a>
+          <a class="card" href="cloud.html">
+            <span class="code">CLOUD</span>
+            <h3>Cloud portal</h3>
+            <p>Programs, codes, audio, layouts, pairing, remote control and over-the-air updates from a browser.</p>
+            <span class="go">Cloud &rarr;</span>
+          </a>
+          <a class="card" href="audio.html">
+            <span class="code">PA</span>
+            <h3>Next-stop audio</h3>
+            <p>Next, approaching and terminus announcements with generated voices and your own clips.</p>
+            <span class="go">Audio &rarr;</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">How it works</p>
+        <h2>Design once. Every bus follows.</h2>
+        <div class="steps">
+          <div class="step">
+            <div><h3>Build in the cloud</h3>
+            <p>Services, destinations, 1&ndash;8 digit codes, stops, announcements and board layouts &mdash; designed with a live LED preview and published as one program file.</p></div>
+          </div>
+          <div class="step">
+            <div><h3>Sync over hotspot</h3>
+            <p>The bus pulls its program, audio and software the next time it sees the internet. Afterwards it needs nothing &mdash; the depot Wi-Fi, a phone hotspot, any connection will do.</p></div>
+          </div>
+          <div class="step">
+            <div><h3>Depart with the boards</h3>
+            <p>The driver keys a code, the front, side and rear signs follow together. Drop the signal and the signs hold their last frame instead of going dark.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <p class="eyebrow">Why operators choose NSL</p>
+        <h2>Built for the bus, not the demo room.</h2>
+        <div class="grid-3">
+          <div class="card"><h3>Offline-first</h3><p>The bus runs entirely from local cache. Internet is only needed to sync something new.</p></div>
+          <div class="card"><h3>Real Hanover glyphs</h3><p>Boards render true 1:1 Hanover bitmap letterforms &mdash; the same shapes drivers and passengers already read.</p></div>
+          <div class="card"><h3>Hold last frame</h3><p>Side and rear signs keep showing their board if the bus LAN drops, instead of blanking mid-service.</p></div>
+        </div>
+        <div class="cta-band">
+          <h2>Tell us about your fleet.</h2>
+          <p>Board sizes, bus count, timelines &mdash; we&rsquo;ll come back with a quote.</p>
+          <a class="btn btn-primary" href="contact.html">Get a quote</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <a class="brand" href="index.html" style="margin-bottom:14px"><img src="assets/nsl-logo.png" alt="NSL Displays"><b>NSL <span>Displays</span></b></a>
+          <p style="color:var(--muted);font-size:14.5px;max-width:34ch">LED destination boards, driver controller, next-stop audio and cloud programming &mdash; one offline-first system for buses.</p>
+        </div>
+        <div>
+          <h4>Products</h4>
+          <ul>
+            <li><a href="displays.html">LED boards</a></li>
+            <li><a href="controller.html">NC1 controller</a></li>
+            <li><a href="cloud.html">Cloud portal</a></li>
+            <li><a href="audio.html">Next-stop audio</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Cloud</h4>
+          <ul>
+            <li><a href="/cloud/static/">Log in</a></li>
+            <li><a href="contact.html">Get a quote</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <ul>
+            <li><a href="mailto:hello@nsldisplays.com">hello@nsldisplays.com</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-note"><span>&copy; <span data-year>2026</span> NSL Displays</span><span>Boards &middot; Controller &middot; Cloud &middot; Audio</span></div>
+    </div>
+  </footer>
+  <script src="assets/site.js"></script>
+</body>
+</html>

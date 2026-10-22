@@ -1,6 +1,6 @@
 /* NSL Portal app - talks to /api (same prefix as page URL). No placeholders; labels above inputs. */
 "use strict";
-const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
+const PREFIX = (location.pathname.startsWith("/portal") || location.pathname.startsWith("/cloud")) ? "/portal" : "";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 /* list order everywhere: services by number, destinations by code (numeric-aware) */
