@@ -182,7 +182,8 @@ class Core:
             return {"services": []}
         try:
             services = []
-            for svc in pc.execute("SELECT * FROM services ORDER BY position"):
+            for row in pc.execute("SELECT * FROM services ORDER BY position"):
+                svc = dict(row)
                 dests = [dict(d) for d in pc.execute(
                     "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
                     (svc["id"],))]
