@@ -353,11 +353,19 @@ class Agent:
                          con.execute("SELECT program_id, version, status FROM installed_programs")]
             outbox = [dict(zip(["id", "kind", "payload"], r)) for r in
                       con.execute("SELECT id, kind, payload FROM outbox WHERE sent_at IS NULL LIMIT 100")]
-            st = con.execute("SELECT program_id, program_version, service_id, destination_id,"
-                             " stop_id, override_text, volume, muted FROM state WHERE id=1").fetchone()
-            active = ({"program_id": st[0], "program_version": st[1], "service_id": st[2],
-                       "destination_id": st[3], "stop_id": st[4], "override_text": st[5],
-                       "volume": st[6], "muted": st[7]} if st else None)
+            try:
+                st = con.execute("SELECT program_id, program_version, service_id, destination_id,"
+                                 " stop_id, override_text, volume, muted, insert_destination_id FROM state WHERE id=1").fetchone()
+                active = ({"program_id": st[0], "program_version": st[1], "service_id": st[2],
+                           "destination_id": st[3], "stop_id": st[4], "override_text": st[5],
+                           "volume": st[6], "muted": st[7],
+                           "insert_destination_id": st[8] if len(st) > 8 else None} if st else None)
+            except Exception:
+                st = con.execute("SELECT program_id, program_version, service_id, destination_id,"
+                                 " stop_id, override_text, volume, muted FROM state WHERE id=1").fetchone()
+                active = ({"program_id": st[0], "program_version": st[1], "service_id": st[2],
+                           "destination_id": st[3], "stop_id": st[4], "override_text": st[5],
+                           "volume": st[6], "muted": st[7]} if st else None)
         finally:
             con.close()
         body = json.dumps({"installed": installed, "events": outbox, "state": active,

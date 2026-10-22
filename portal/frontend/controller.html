@@ -597,7 +597,7 @@ async function refresh() {
   if (!state.cid) { render(); return; }
   try {
     state.live = await api("/api/controllers/" + state.cid + "/live") || {};
-    state.current = { service: state.live.service || {}, destination: state.live.destination || {} };
+    state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null };
     offline.textContent = state.live.online ? "" : (state.live.stale ? "bus offline / stale state" : "");
     if (!state.services.length) {
       try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; } catch(e){}
@@ -694,6 +694,17 @@ function render() {
     hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
     return;
   }
+  if (state.mode === "insert") {
+    const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
+    const curIns = cur.insert ? `INS ${esc(cur.insert.code || "")}` : "NO INSERT";
+    screen.innerHTML = `<div class="hv-flex">
+      <div class="line"><span class="small dim">${curIns}</span><span class="small">INSERT CODE</span></div>
+      <div class="line"><span class="big">${esc(code)}</span><span class="entry">${entry}</span></div>
+      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
+    </div>`;
+    hint.textContent = "Type code · ENT = insert after screens · ENT empty = clear · X = cancel";
+    return;
+  }
   if (state.mode === "services") {
     screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="small dim">SELECT SERVICE</div>
@@ -724,11 +735,14 @@ function render() {
     return;
   }
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
+  const insTag = cur.insert ? ` +${esc(cur.insert.code || "INS")}` : "";
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
     <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
-    <div class="hv-right">${esc(code)}</div>`;
-  hint.textContent = "D = type code · ▲▼ = services · ENT = select";
+    <div class="hv-right">${esc(code)}${insTag}</div>`;
+  hint.textContent = cur.insert
+    ? `I = change insert (${cur.insert.code}) · ENT empty clears · D = type code`
+    : "D = type code · I = insert page · ▲▼ = services · ENT = select";
 }
 
 /* ---------- actions (logic unchanged) ---------- */
@@ -737,17 +751,22 @@ function enterCode() {
   state.pending = null;
   state.mode = "code"; state.code = []; state.codeError = ""; render();
 }
+function enterInsert() {
+  if (!state.cid) return;
+  state.pending = null;
+  state.mode = "insert"; state.code = []; state.codeError = ""; render();
+}
 function appendDigit(n) {
-  if (state.mode !== "code") return;
+  if (state.mode !== "code" && state.mode !== "insert") return;
   if (state.code.length >= MAX_CODE) state.code.shift();
   state.code.push(n); state.codeError = ""; render();
 }
 function backspace() {
-  if (state.mode !== "code") return;
+  if (state.mode !== "code" && state.mode !== "insert") return;
   state.code.pop(); state.codeError = ""; render();
 }
 function cancelCode() {
-  if (state.mode === "code") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "code" || state.mode === "insert") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
   if (state.mode === "services") { state.mode = "view"; state.pending = null; render(); }
 }
@@ -755,6 +774,35 @@ async function confirm() {
   if (!state.cid) {
     // bus-picker mode: ENT/► selects the highlighted bus
     if (state.controllers.length) selectBus(state.selBus);
+    return;
+  }
+  if (state.mode === "insert") {
+    const ci = state.code.join("");
+    if (ci.length === 0) {
+      try {
+        await cmdPath("insert_clear", {});
+        state.mode = "view"; state.code = []; state.codeError = "";
+        await refresh();
+      } catch(e) {
+        state.codeError = "ERROR";
+        render();
+      }
+      return;
+    }
+    if (!state.services.length) {
+      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; } catch(e){}
+    }
+    const hitI = lookupCode(ci);
+    const keepI = state.code.slice();
+    try {
+      await cmdPath("insert_code", {code:ci});
+      state.mode = "view"; state.code = []; state.codeError = "";
+      await refresh();
+    } catch(e) {
+      state.mode = "insert"; state.code = keepI;
+      state.codeError = hitI ? "ERROR" : "NOT FOUND";
+      render();
+    }
     return;
   }
   if (state.mode === "code") {
@@ -810,7 +858,7 @@ function move(dir) {
     render();
     return;
   }
-  if (state.mode === "code") {
+  if (state.mode === "code" || state.mode === "insert") {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
   }
@@ -841,6 +889,7 @@ document.body.addEventListener("click", (e) => {
   const btn = b.dataset.btn;
   if (num !== undefined) { appendDigit(num); return; }
   if (btn === "d") enterCode();
+  else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (["up","down","left","right"].includes(btn)) move(btn);
@@ -879,6 +928,7 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   flash(document.querySelector(`button[data-btn="${btn}"]`));
   if (btn === "d") enterCode();
+  else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (btn === "bs") backspace();

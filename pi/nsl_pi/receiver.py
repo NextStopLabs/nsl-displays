@@ -40,7 +40,8 @@ class Receiver:
         return True
 
     def render(self, snapshot: dict):
-        from .renderer import autofit_layout, board_position_for_slot, fields_for_slot, render_frame, slot_for_layout
+        from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
+                               fields_for_slot, render_frame, slot_for_layout)
         import time as _t
         now = _t.time()
         base = snapshot.get("fields", {})
@@ -50,6 +51,9 @@ class Receiver:
         svc_number = service.get("number", "") if isinstance(service, dict) else ""
         override = snapshot.get("override") or ""
         layouts = snapshot.get("layouts", {})
+        insert = snapshot.get("insert") or None
+        if insert and not insert.get("destination"):
+            insert = None
         layout = None
         if self.display_name in layouts:
             layout = layouts[self.display_name]
@@ -57,6 +61,57 @@ class Receiver:
                 layout = json.loads(layout)
         if layout is None:
             layout = autofit_layout(self.width, self.height)
+        if insert and destination:
+            from .renderer import autofit_layout as _af
+            ins_pages = insert.get("pages") or []
+            ins_layouts = insert.get("layouts") or {}
+            kind, idx, _total = combined_slot(
+                layout, now, len(pages) if pages else 1,
+                len(ins_pages) if ins_pages else 1)
+            if kind == "insert":
+                ins_layout = ins_layouts.get(self.display_name)
+                if isinstance(ins_layout, str):
+                    ins_layout = json.loads(ins_layout)
+                if ins_layout is None:
+                    for k, v in ins_layouts.items():
+                        if k.startswith("template:"):
+                            ins_layout = json.loads(v) if isinstance(v, str) else dict(v)
+                            ins_layout["width"], ins_layout["height"] = self.width, self.height
+                            break
+                if ins_layout is None:
+                    ins_layout = _af(self.width, self.height)
+                ins_svc = insert.get("service") or {}
+                ins_num = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
+                ins_dest = insert.get("destination") or {}
+                if ins_pages and ins_dest:
+                    ordered = sorted(ins_pages, key=lambda p: int(p.get("position", 0) or 0))
+                    bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
+                    flds = fields_for_slot(ins_dest, ins_num, ins_layout, now, ins_pages)
+                    frame = render_frame(ins_layout, flds, override, now=now,
+                                         pages=ins_pages, board_position=bpos)
+                else:
+                    frame = render_frame(ins_layout, insert.get("fields", {}), override)
+                if self.virtual_dir:
+                    import os
+                    os.makedirs(self.virtual_dir, exist_ok=True)
+                    frame.save(os.path.join(self.virtual_dir, f"{self.display_name}.png"))
+                return frame
+            if pages and destination:
+                ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
+                bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
+                fields = fields_for_slot(destination, svc_number, layout, now, pages)
+                for k, v in base.items():
+                    if k.startswith("__"):
+                        fields[k] = v
+                frame = render_frame(layout, fields, override, now=now, pages=pages,
+                                     board_position=bpos)
+            else:
+                frame = render_frame(layout, base, override)
+            if self.virtual_dir:
+                import os
+                os.makedirs(self.virtual_dir, exist_ok=True)
+                frame.save(os.path.join(self.virtual_dir, f"{self.display_name}.png"))
+            return frame
         if pages and destination:
             slot = slot_for_layout(layout, now)
             fields = fields_for_slot(destination, svc_number, layout, now, pages)

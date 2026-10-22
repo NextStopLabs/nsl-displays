@@ -75,7 +75,8 @@ class DisplayDriver:
         nsl-display renders them) - drawing them here would composite several
         frames at the same origin, i.e. garbled flickering text.
         """
-        from .renderer import autofit_layout, board_position_for_slot, fields_for_slot, render_frame, slot_for_layout
+        from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
+                               fields_for_slot, render_frame, slot_for_layout)
         import json as _j
         import time as _t
         fields = snapshot.get("fields", {})
@@ -88,9 +89,41 @@ class DisplayDriver:
         state = snapshot.get("state", {})
         gpio_overlay = snapshot.get("gpio_overlay") or {}
         gpio_boards = snapshot.get("gpio_boards") or {}
+        insert = snapshot.get("insert") or None
+        # A stale insert (destination deleted after it was set) never blanks
+        # the boards: treat as no insert until the driver/user picks again.
+        if insert and not insert.get("destination"):
+            insert = None
+
+        def _resolve(w, h, _layouts, prog_display, display_name):
+            cand = _layouts.get(prog_display) or _layouts.get(display_name)
+            if cand:
+                return _j.loads(cand) if isinstance(cand, str) else cand
+            for k, v in _layouts.items():
+                if k.startswith("template:"):
+                    lay = _j.loads(v) if isinstance(v, str) else v
+                    lay = dict(lay)
+                    lay["width"], lay["height"] = w, h
+                    return lay
+            return autofit_layout(w, h)
+
+        def _page_position(_pages, idx: int) -> int:
+            try:
+                ordered = sorted(_pages, key=lambda p: int(p.get("position", 0) or 0))
+                if not ordered:
+                    return 0
+                return int(ordered[idx % len(ordered)].get("position", 0) or 0)
+            except Exception:
+                return 0
 
         def render_board(out, w, h, fields, pages, destination, service, layouts, override):
-            """Render one output's frame from board bits (normal or GPIO board)."""
+            """Render one output's frame from board bits (normal or GPIO board).
+
+            When an insert is active its pages are appended after the normal
+            screens: normal 1..N, then insert 1..M, then loop. The insert
+            renders with its own destination layouts so a via board looks
+            designed, not forced into the main layout.
+            """
             layout = None
             prog_display = out.get("program_display") or ""
             # layouts keyed by display NAME (front/side/rear); fallback to default
@@ -109,6 +142,35 @@ class DisplayDriver:
             if layout is None:
                 layout = autofit_layout(w, h)
             svc_number = service.get("number", "") if isinstance(service, dict) else ""
+            if insert and destination:
+                ins_pages = insert.get("pages") or []
+                kind, idx, _total = combined_slot(
+                    layout, now, len(pages) if pages else 1,
+                    len(ins_pages) if ins_pages else 1)
+                if kind == "insert":
+                    ins_layout = _resolve(w, h, insert.get("layouts") or {},
+                                          prog_display, out.get("display_name"))
+                    ins_svc = insert.get("service") or {}
+                    ins_svc_number = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
+                    ins_dest = insert.get("destination") or {}
+                    if ins_pages and ins_dest:
+                        page_fields = fields_for_slot(
+                            ins_dest, ins_svc_number, ins_layout, now, ins_pages)
+                        return render_frame(
+                            ins_layout, page_fields, override, now=now,
+                            pages=ins_pages, board_position=_page_position(ins_pages, idx))
+                    return render_frame(ins_layout, insert.get("fields", {}), override)
+                # main slot inside the combined loop
+                if pages and destination:
+                    page_fields = fields_for_slot(
+                        destination, svc_number, layout, now, pages)
+                    for k, v in fields.items():
+                        if k.startswith("__"):
+                            page_fields[k] = v
+                    return render_frame(layout, page_fields, override,
+                                        now=now, pages=pages,
+                                        board_position=_page_position(pages, idx))
+                return render_frame(layout, fields, override)
             if pages and destination:
                 slot = slot_for_layout(layout, now)
                 page_fields = fields_for_slot(

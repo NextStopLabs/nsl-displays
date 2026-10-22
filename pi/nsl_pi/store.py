@@ -37,10 +37,17 @@ def init_controller_db(path: str, controller_name: str = "", role: str = "front"
     fresh = not os.path.exists(path)
     con = _db_connect(path)
     con.executescript(CONTROLLER_DB_DDL)
+    # Migration for pre-insert databases: state gains insert_destination_id.
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
+        if "insert_destination_id" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN insert_destination_id TEXT DEFAULT NULL")
+    except Exception:
+        pass
     if fresh:
         import json
         ap = f"NSL-{controller_name}" if controller_name else "NSL-setup"
-        con.execute("INSERT OR IGNORE INTO state VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?)", (_utcnow(),))
+        con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at, insert_destination_id) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?,NULL)", (_utcnow(),))
         con.execute(
             "INSERT OR IGNORE INTO controller_config (id, version, matrix_options, audio_device, ap_name, startup_mode, release_channel, portal_url, controller_name, updated_at) VALUES (1,1,?,?,?,?,?,?,?,?)",
             (json.dumps({}), "default", ap, "restore", "stable",

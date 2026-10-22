@@ -20,7 +20,19 @@ ACTIONS = {
     "destination_code", "override_apply", "override_clear",
     "volume_up", "volume_down", "volume_mute",
     "net_update_mode", "net_ap", "system_apply_pending",
+    "insert_code", "insert_destination", "insert_clear",
 }
+
+
+def _ensure_insert_column(con: sqlite3.Connection):
+    """Migration for controller.db files created before insert support."""
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
+        if "insert_destination_id" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN insert_destination_id TEXT DEFAULT NULL")
+            con.commit()
+    except Exception:
+        pass
 
 
 def _utcnow() -> str:
@@ -29,7 +41,8 @@ def _utcnow() -> str:
 
 
 def ensure_state_row(con: sqlite3.Connection):
-    con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?)",
+    _ensure_insert_column(con)
+    con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at, insert_destination_id) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?,NULL)",
                 (_utcnow(),))
 
 
@@ -56,6 +69,7 @@ class Core:
         os.makedirs(programs_dir, exist_ok=True)
         from .db import connect as _db_connect
         self._con = _db_connect(controller_db, row_factory=sqlite3.Row)
+        _ensure_insert_column(self._con)
         self._con.executescript("""
         CREATE TABLE IF NOT EXISTS gpio_overlays (
           target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',
@@ -310,6 +324,72 @@ class Core:
         self._con.execute("INSERT INTO command_log (source, command, user_id, at) VALUES (?,?,?,?)",
                           (source, command, user_id, _utcnow()))
 
+    def _clear_insert(self):
+        try:
+            self._con.execute("UPDATE state SET insert_destination_id=NULL WHERE id=1")
+        except Exception:
+            pass
+
+    # ---- insert (temp extra board page) ----
+    def set_insert_destination(self, destination_id: str, source: str = "local",
+                               user_id: str | None = None) -> dict:
+        """Set a temp insert page by destination id. Survives stop changes,
+        cleared by any destination/program change or insert_clear."""
+        st = self.state()
+        if not st["program_id"]:
+            raise ValueError("INVALID")
+        pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            raise ValueError("INVALID")
+        try:
+            dest = pc.execute("SELECT * FROM destinations WHERE id=?", (destination_id,)).fetchone()
+            if not dest:
+                raise ValueError("INVALID")
+            if destination_id == st["destination_id"]:
+                raise ValueError("INVALID")
+            self._con.execute("UPDATE state SET insert_destination_id=?, updated_at=? WHERE id=1",
+                              (destination_id, _utcnow()))
+            self._log(source, f"insert_destination {destination_id}", user_id)
+            self._con.commit()
+        finally:
+            pc.close()
+        self._emit("state")
+        return self.state()
+
+    def set_insert_code(self, code: str, source: str = "local", user_id: str | None = None) -> dict:
+        """Set the insert page by destination code in the ACTIVE program."""
+        code = (code or "").strip()
+        if not (1 <= len(code) <= 8) or not code.isdigit():
+            raise ValueError("INVALID")
+        st = self.state()
+        if not st["program_id"]:
+            raise ValueError("INVALID")
+        pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            raise ValueError("INVALID")
+        try:
+            dest = pc.execute("SELECT * FROM destinations WHERE code=?", (code,)).fetchone()
+            if not dest:
+                raise ValueError("INVALID")
+            if dest["id"] == st["destination_id"]:
+                raise ValueError("INVALID")
+            self._con.execute("UPDATE state SET insert_destination_id=?, updated_at=? WHERE id=1",
+                              (dest["id"], _utcnow()))
+            self._log(source, f"insert_code {code}", user_id)
+            self._con.commit()
+        finally:
+            pc.close()
+        self._emit("state")
+        return self.state()
+
+    def clear_insert(self, source: str = "local", user_id: str | None = None) -> dict:
+        self._con.execute("UPDATE state SET insert_destination_id=NULL, updated_at=? WHERE id=1",
+                          (_utcnow(),))
+        self._log(source, "insert_clear", user_id)
+        self._con.commit()
+        self._emit("state")
+        return self.state()
+
     # ---- selection ----
     def select_program(self, program_id: str, source: str = "local", user_id: str | None = None) -> dict:
         """Select program: picks active installed version, first destination/stop, clears override."""
@@ -329,7 +409,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                 (program_id, version, dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"program_select {program_id}@{version}", user_id)
             self._con.commit()
@@ -357,7 +437,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_code {code}", user_id)
             self._con.commit()
@@ -377,7 +457,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (destination_id,)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], destination_id, stop["id"] if stop else None, _utcnow()))
             self._log(source, f"destination_select {destination_id}", user_id)
             self._con.commit()
@@ -519,12 +599,17 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (st["destination_id"],)).fetchone()
                     new_stop = first["id"] if first else None
-                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                                       (version, new_stop, _utcnow()))
                 else:
-                    # same stop: keep override; (upgrade never clears it)
-                    self._con.execute("UPDATE state SET program_version=?, updated_at=? WHERE id=1",
-                                      (version, _utcnow()))
+                    # same stop: keep override; (upgrade never clears it).
+                    # Keep the insert only if that destination still exists.
+                    ins = st.get("insert_destination_id")
+                    keep_ins = None
+                    if ins and pc.execute("SELECT 1 FROM destinations WHERE id=?", (ins,)).fetchone():
+                        keep_ins = ins
+                    self._con.execute("UPDATE state SET program_version=?, insert_destination_id=?, updated_at=? WHERE id=1",
+                                      (version, keep_ins, _utcnow()))
             else:
                 # different program or destination gone -> first destination/stop, clear override
                 dest = pc.execute("SELECT * FROM destinations ORDER BY position LIMIT 1").fetchone()
@@ -533,12 +618,12 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (dest["id"],)).fetchone()
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                         (program_id, version, dest["service_id"], dest["id"],
                          first["id"] if first else None, _utcnow()))
                 else:
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, updated_at=? WHERE id=1",
                         (program_id, version, _utcnow()))
             self._con.execute("UPDATE installed_programs SET status='superseded' WHERE program_id=? AND status='active'",
                               (program_id,))
@@ -568,6 +653,12 @@ class Core:
             return self.select_code(cmd.get("code", ""), source=source, user_id=user_id)
         if action == "select_destination":
             return self.select_destination(cmd.get("destination_id", ""), source=source, user_id=user_id)
+        if action == "insert_code":
+            return self.set_insert_code(cmd.get("code", ""), source=source, user_id=user_id)
+        if action == "insert_destination":
+            return self.set_insert_destination(cmd.get("destination_id", ""), source=source, user_id=user_id)
+        if action == "insert_clear":
+            return self.clear_insert(source=source, user_id=user_id)
         if action == "select_program":
             return self.select_program(cmd.get("program_id", ""), source=source, user_id=user_id)
         if action in ("stop_next", "stop_prev", "stop_first"):
@@ -682,6 +773,47 @@ class Core:
                 pass  # text fallback stays in gpio_overlay
         return out
 
+    def _insert_snapshot(self, pc, st: dict, names: dict) -> dict | None:
+        """Temp insert page bits (same shape as the main destination).
+
+        Returns None when no insert is set, it targets the current
+        destination, or the destination vanished (stale id self-heals on
+        next snapshot without crashing the boards).
+        """
+        ins_id = (st.get("insert_destination_id") or "").strip() if isinstance(st, dict) else ""
+        if not ins_id or ins_id == st.get("destination_id"):
+            return None
+        try:
+            dest = pc.execute("SELECT * FROM destinations WHERE id=?", (ins_id,)).fetchone()
+        except Exception:
+            return None
+        if not dest:
+            return None
+        dest = dict(dest)
+        try:
+            svc = pc.execute("SELECT * FROM services WHERE id=?", (dest["service_id"],)).fetchone()
+        except Exception:
+            svc = None
+        svc = dict(svc) if svc else None
+        from .renderer import resolve_fields
+        fields = resolve_fields(dest, svc["number"] if svc else "")
+        try:
+            pages = [dict(r) for r in pc.execute(
+                "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
+                (dest["id"],))]
+        except Exception:
+            pages = []
+        layouts: dict = {}
+        try:
+            for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
+                layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
+            for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
+                layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
+        except Exception:
+            pass
+        return {"fields": fields, "pages": pages, "layouts": layouts,
+                "destination": dest, "service": svc}
+
     def display_snapshot(self) -> dict:
         """Fields + override + layout ids for display driver / receivers."""
         # Always end the read transaction before returning. In WAL mode a
@@ -695,19 +827,19 @@ class Core:
                 # no program selected: still show an active override (manual message
                 # must reach the boards with or without program context)
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
             pc = self._open_prog(st["program_id"], st["program_version"])
             if pc is None:
                 # installed row without its bundle (deleted mid-sync?) - empty, not a crash
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
             try:
                 dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
                 svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
                 stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
                 if not dest:
                     return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None}
                 from .renderer import resolve_fields
                 fields = resolve_fields(dict(dest), svc["number"] if svc else "")
                 try:
@@ -727,10 +859,12 @@ class Core:
                     layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
                 for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
                     layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
+                insert = self._insert_snapshot(pc, st, names)
                 return {"state": st, "fields": fields, "pages": pages, "destination": dict(dest),
                         "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                         "layouts": layouts, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards,
+                        "insert": insert}
             finally:
                 pc.close()
         finally:

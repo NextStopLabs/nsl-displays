@@ -185,7 +185,8 @@ CREATE TABLE IF NOT EXISTS state (
   override_set_at  TEXT,
   volume           INTEGER NOT NULL DEFAULT 80,
   muted            INTEGER NOT NULL DEFAULT 0,
-  updated_at       TEXT NOT NULL
+  updated_at       TEXT NOT NULL,
+  insert_destination_id TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS outbox (

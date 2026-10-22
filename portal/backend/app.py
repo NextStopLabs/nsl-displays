@@ -1941,7 +1941,7 @@ def device_heartbeat(body: dict, authorization: str | None = Header(default=None
     if "state" in body and isinstance(body["state"], dict):
         keep = {k: body["state"].get(k) for k in
                 ("program_id", "program_version", "service_id", "destination_id",
-                 "stop_id", "override_text", "volume", "muted")}
+                 "stop_id", "override_text", "volume", "muted", "insert_destination_id")}
         con.execute("UPDATE controllers SET live_state=? WHERE id=?", (json.dumps(keep), c["id"]))
     for ev in body.get("events", []):
         con.execute("INSERT INTO command_log (controller_id, user_id, source, command, at) VALUES (?,?,?,?,?)",
@@ -2131,7 +2131,7 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
     out: dict = {"controller_id": cid, "online": online, "last_seen_at": c["last_seen_at"],
                  "stale": not online,
                  "program": None, "service": None, "destination": None,
-                 "stop": None, "next_stop": None,
+                 "stop": None, "next_stop": None, "insert": None,
                  "override": live.get("override_text"),
                  "volume": live.get("volume", 80), "muted": bool(live.get("muted", 0))}
     pid, ver = live.get("program_id"), live.get("program_version")
@@ -2179,6 +2179,12 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
                         nxt = stops[idx + 1]
                         out["next_stop"] = {"id": nxt["id"], "position": nxt["position"],
                                             "name": nxt["board_text"] or nxt["name"]}
+                if live.get("insert_destination_id"):
+                    ins = bc.execute("SELECT id, code, name, via, dest FROM destinations WHERE id=?",
+                                     (live["insert_destination_id"],)).fetchone()
+                    if ins:
+                        out["insert"] = {"id": ins["id"], "code": ins["code"], "name": ins["name"],
+                                         "via": ins["via"], "dest": ins["dest"]}
     finally:
         bc.close()
     return out

@@ -133,6 +133,26 @@ def slot_for_layout(layout: dict | None, now: float | None) -> int:
     return int(t // secs) if secs > 0 else 0
 
 
+def combined_slot(layout: dict | None, now: float | None,
+                  n_main: int, n_insert: int) -> tuple[str, int, int]:
+    """Map wall-clock to the combined main + insert rotation.
+
+    Normal board pages play first, then the insert pages, then the loop
+    repeats. Returns ``(kind, index, total)`` where kind is ``"main"`` or
+    ``"insert"`` and index is the 0-based offset inside that group.
+    Without an insert this is exactly the legacy main-only rotation.
+    """
+    n_main = max(1, int(n_main or 1))
+    n_insert = max(0, int(n_insert or 0))
+    if n_insert <= 0:
+        return ("main", slot_for_layout(layout, now) % n_main, n_main)
+    total = n_main + n_insert
+    slot = slot_for_layout(layout, now) % total
+    if slot < n_main:
+        return ("main", slot, total)
+    return ("insert", slot - n_main, total)
+
+
 def element_shows_on(el: dict, board_position: int) -> bool:
     """Whether a layout element draws on the given 1-based board page.
 

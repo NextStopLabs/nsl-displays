@@ -340,6 +340,7 @@ NEXT STOP:           [+]  (default map, user-definable)
 PREV STOP:           [-]
 ANNOUNCE NEXT STOP:  [*]
 CLEAR OVERRIDE:      [/]
+INSERT PAGE:         [I] on the controller screen, then type a destination code ─► plays after the normal screens, loops until the destination changes (ENT with no digits clears it)
 UPDATE MODE:         [.]  (join hotspot 5 min - turn hotspot on first)
 VOLUME:              keypad map or local UI / portal
 ```
