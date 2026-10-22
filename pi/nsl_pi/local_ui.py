@@ -228,13 +228,17 @@ def api_update_trigger(body: dict):
     """
     import os as _os
     import urllib.error as _urlerr
+    from . import pairing as _P
     from .agent import Agent
     from .store import init_controller_db
     base = _os.environ.get("NSL_BASE", "/var/lib/nsl")
     db = os.path.join(base, "controller.db")
     init_controller_db(db)
-    token = _os.environ.get("NSL_TOKEN")
-    portal = _os.environ.get("PORTAL_URL", "https://nsldisplays.com/portal")
+    # Same lookup as the agent: env first, then the pairing file the
+    # nsl-pairing service wrote. NSL_TOKEN alone is not reliable here -
+    # the local-ui service may not carry the agent's drop-in.
+    token = _os.environ.get("NSL_TOKEN") or _P.get_token()
+    portal = _P.get_portal_url()
     if not token:
         raise HTTPException(409, "bus not paired - pair it first")
     ag = Agent(portal, base, token)
