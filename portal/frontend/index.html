@@ -62,6 +62,7 @@
           <button class=nav-item data-section=codes>Codes</button>
           <button class=nav-item data-section=audio>Audio &amp; Voices</button>
           <button class=nav-item data-section=tfl>Audio creator</button>
+          <button class=nav-item data-section=fonts>Fonts</button>
         </nav>
       </div>
       <div class=section>
@@ -69,6 +70,7 @@
         <nav class=nav>
           <button class=nav-item data-section=controllers>Controllers</button>
           <button class=nav-item data-section=remote>Remote control</button>
+          <button class=nav-item data-section=nextstop>Next stop</button>
           <button class=nav-item data-section=pins>GPIO pins</button>
         </nav>
       </div>
@@ -256,6 +258,12 @@
           </div>
         </section>
 
+        <section id=tab-nextstop style="display:none">
+        </section>
+
+        <section id=tab-fonts style="display:none">
+        </section>
+
         <section id=tab-pins style="display:none">
           <div class=group><div class=grouptitle>GPIO pins - free vs reserved (Raspberry Pi 4B, 40-pin header)</div>
             <p class=hint>Grey pins are taken by the LED matrix (HUB75) and can't be used for buttons. Green pins are free GPIOs. Black/red are power/ground, brown is the EEPROM ID pair - none of those are usable either. Pick a controller to use its matrix mapping; otherwise the default (regular, parallel 1) is shown.</p>
@@ -282,5 +290,8 @@
 </div>
 
 <script src="layout.js"></script>
+<script src="nextstop.js"></script>
+<script src="fonts.js"></script>
+<script src="fontedit.js"></script>
 <script src="app.js"></script>
 </body></html>

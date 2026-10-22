@@ -360,7 +360,9 @@ async function doCreate() {
 
 // ---------- sidebar navigation ----------
 function showSection(name) {
-  ["programs", "codes", "controllers", "audio", "tfl", "remote", "pins"].forEach((n) => { $("tab-" + n).style.display = (n === name) ? "" : "none"; });
+  ["programs", "codes", "controllers", "audio", "tfl", "remote", "nextstop", "fonts", "pins"].forEach((n) => { $("tab-" + n).style.display = (n === name) ? "" : "none"; });
+  if (name === "nextstop" && window.NextStopTab) NextStopTab.init();
+  if (name === "fonts" && window.FontsTab) FontsTab.init();
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("on", b.dataset.section === name));
 }
 document.querySelectorAll(".nav-item").forEach((t) => t.addEventListener("click", () => {

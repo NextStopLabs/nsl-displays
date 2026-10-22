@@ -101,6 +101,12 @@ def get_font(font_id: str, directory: str | None = None) -> dict:
     return _cache[key]
 
 
+def invalidate(font_id: str, directory: str | None = None):
+    """Drop one cached font (after upload/overwrite) so readers see the file."""
+    stem = font_id[4:] if font_id.startswith("han-") else font_id
+    _cache.pop((directory or fonts_dir()) + "\x00" + stem.lower(), None)
+
+
 def warn_once_unknown(font_id: str):
     """One log line per unknown id (services run for weeks; never spam)."""
     if font_id not in _warned_missing:

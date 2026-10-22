@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#57ad52">
+<title>Next stop display</title>
+<style>
+:root{
+  --panel:#ffffff; --dest:#2a2a2a; --stops:#333333; --dots:#555a66; --line:#d4d8e0;
+  --strip:#57ad52; --strip-text:#ffffff; --band:#ffffff;
+  --tab:#3d3a38; --tab-text:#ffffff; --message:#2a2a2a; --bus:#57ad52; --welcome:#2f96e8; --bezel:#0b0b0d;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bezel);font-family:"Museo Sans",system-ui,sans-serif;color:#222;-webkit-font-smoothing:antialiased;overflow:hidden}
+#stage{position:fixed;inset:0;overflow:hidden}
+#screen{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center;overflow:hidden;background:var(--panel);user-select:none}
+#screen .t{position:absolute;line-height:1;white-space:nowrap}
+.layer{position:absolute;left:0;top:0;width:1280px;height:100%}
+#screen{--strip-top:437px;--strip-h:100px;--band-top:537px}
+.panel{position:absolute;left:0;top:0;width:1280px;height:var(--strip-top);background:var(--panel);overflow:hidden}
+.strip{position:absolute;left:0;top:var(--strip-top);width:1280px;height:var(--strip-h);background:var(--strip);color:var(--strip-text)}
+.band{position:absolute;left:0;top:var(--band-top);width:1280px;bottom:0;background:var(--band);overflow:hidden}
+#stripText{left:46px;top:21px;font-weight:700;font-size:62px}
+#nextName{left:46px;top:51px;font-weight:900;font-size:85px}
+#line{position:absolute;left:72px;width:8px;top:72px;height:380px;background:var(--line)}
+#dashes{position:absolute;left:66px;width:20px;top:152px;height:42px;display:none;
+  background:linear-gradient(var(--panel) 0 8px,transparent 8px 14px,var(--panel) 14px 26px,transparent 26px 32px,var(--panel) 32px 42px)}
+#dashes.on{display:block}
+#ring{position:absolute;left:54px;top:50.5px;width:44px;height:44px;border-radius:50%;border:8px solid var(--dots);background:var(--panel);box-shadow:0 0 0 7px var(--panel)}
+#ring::after{content:"";position:absolute;left:50%;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:var(--dots)}
+#destName{left:136px;top:41px;font-weight:900;font-size:69px;color:var(--dest)}
+#routeNum{left:136px;top:120px;font-weight:500;font-size:44px;color:var(--dots)}
+#tab{position:absolute;left:1004px;top:0;width:240px;height:93px;background:var(--tab);border-radius:0 0 25px 25px;color:var(--tab-text)}
+#tab::before,#tab::after{content:"";position:absolute;top:0;width:10px;height:10px}
+#tab::before{left:-10px;background:radial-gradient(circle at 0 100%,transparent 9.5px,var(--tab) 10px)}
+#tab::after{right:-10px;background:radial-gradient(circle at 100% 100%,transparent 9.5px,var(--tab) 10px)}
+#clock{left:0;right:0;top:21.8px;text-align:center;font-size:49px;font-weight:900}
+#clock span{font-weight:500}
+.stop{position:absolute;left:0;top:0;width:1280px;height:0;color:var(--stops);font-weight:500;will-change:transform}
+.stop .dot{position:absolute;border-radius:50%;background:var(--dots)}
+.stop .nm{position:absolute;left:130px;line-height:1;white-space:nowrap}
+#thanks{display:none;color:var(--message);font-weight:300;font-size:57px}
+#thanks .t{left:55px}
+#thanks b{font-weight:900}
+#busPic{position:absolute;left:809px;top:146px;width:361px;height:229px;display:none}
+#busPic svg{width:100%;height:100%}
+#screen.terminus #destName,#screen.terminus #routeNum,#screen.terminus #route{display:none}
+#screen.terminus #thanks,#screen.terminus #busPic{display:block}
+#welcome{display:none;position:absolute;inset:0;z-index:2;background:var(--panel);color:var(--welcome)}
+#screen.idle #welcome{display:block}
+#screen.idle #tab{z-index:3}
+#welcomeTo{left:0;right:0;top:74.4px;text-align:center;font-weight:300;font-size:84px}
+#welcomeName{left:0;right:0;top:204px;text-align:center;font-weight:900;font-size:180px;letter-spacing:-2px}
+#welcomeBus{position:absolute;left:260px;top:362px;width:760px;height:254px}
+#welcomeBus svg{width:100%;height:100%}
+#note{position:absolute;left:136px;top:250px;right:60px;font-size:34px;font-weight:500;color:var(--stops);opacity:.55;line-height:1.3;white-space:normal}
+#statusBar{position:absolute;left:12px;top:6px;z-index:3;font-size:17px;font-weight:500;color:#8b909b;pointer-events:none;white-space:nowrap}
+#controls{position:fixed;left:12px;top:12px;display:flex;gap:8px;z-index:5;opacity:0;transition:opacity .3s;pointer-events:none;flex-wrap:wrap;max-width:96vw}
+body.show-controls #controls{opacity:1;pointer-events:auto}
+#controls a,#controls button,#controls select{font:500 15px "Museo Sans",system-ui,sans-serif;color:#fff;background:rgba(30,30,34,.82);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:9px 15px;text-decoration:none;cursor:pointer}
+#controls button.on{background:#2e7d32;border-color:#2e7d32}
+#controls button:disabled{opacity:.45}
+#tapHint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);font:500 15px "Museo Sans",system-ui;color:#fff;background:rgba(30,30,34,.82);padding:9px 16px;border-radius:999px;z-index:5;display:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="screen">
+    <div id="statusBar"></div>
+    <div class="panel">
+      <div id="route">
+        <div id="line"></div>
+        <div id="dashes"></div>
+        <div id="ring"></div>
+        <div id="list"></div>
+      </div>
+      <div id="destName" class="t"></div>
+      <div id="routeNum" class="t"></div>
+      <div id="thanks">
+        <div class="t" style="top:87px">thanks for travelling with</div>
+        <div class="t" style="top:160px">us on <b id="thanksName">nsl</b><span>,</span></div>
+        <div class="t" style="top:234px">we look forward to</div>
+        <div class="t" style="top:307px">seeing you again soon</div>
+      </div>
+      <div id="busPic"></div>
+      <div id="note" class="t"></div>
+    </div>
+    <div id="tab"><div id="clock" class="t"></div></div>
+    <div class="strip"><div class="layer"><div id="stripText" class="t">the next stop is</div></div></div>
+    <div class="band"><div class="layer"><div id="nextName" class="t"></div></div></div>
+    <div id="welcome">
+      <div id="welcomeTo" class="t">welcome to</div>
+      <div id="welcomeName" class="t"></div>
+      <div id="welcomeBus"></div>
+    </div>
+  </div>
+</div>
+<div id="controls">
+  <a href="index.html">← Portal</a>
+  <select id="busSel"><option value="">select bus…</option></select>
+  <button type="button" id="prevBtn">◀ Prev</button>
+  <button type="button" id="nextBtn">Next ▶</button>
+  <button type="button" id="soundBtn">Sound off</button>
+  <button type="button" id="fsBtn">Full screen</button>
+</div>
+<div id="tapHint">Tap anywhere to turn announcements on</div>
+<script>
+"use strict";
+/* GPS next-stop display, linked to the live service on the bus.
+   Follows the controller's live state (service/destination/stop) via the
+   portal API; Prev/Next sends stop_prev/stop_next to the bus. No times. */
+const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
+const $ = (id) => document.getElementById(id);
+const screen = $("screen");
+const W = 1280, H = 720;
+const fit = () => { screen.style.transform = `translate(-50%,-50%) scale(${Math.min(innerWidth/W, innerHeight/H)})`; };
+addEventListener("resize", fit); fit();
+
+const BUS_SVG = `<svg viewBox="0 0 361 229" aria-hidden="true">
+<ellipse cx="185" cy="206" rx="168" ry="12" fill="#000" opacity=".18"/>
+<path d="M24 66c0-20 14-34 34-34h236c18 0 30 8 37 24l18 44c3 8 5 16 5 25v57c0 11-9 20-20 20H44c-11 0-20-9-20-20z" fill="var(--bus)"/>
+<path d="M24 150h310v32c0 11-9 20-20 20H44c-11 0-20-9-20-20z" fill="#000" opacity=".16"/>
+<path d="M40 54c0-6 5-10 10-10h242c10 0 17 5 21 14l15 40c2 5-2 10-7 10H40z" fill="#1d2230"/>
+<rect x="112" y="44" width="5" height="64" fill="var(--bus)"/><rect x="190" y="44" width="5" height="64" fill="var(--bus)"/>
+<rect x="252" y="114" width="40" height="64" rx="4" fill="#1d2230"/>
+<circle cx="92" cy="186" r="26" fill="#1b1b1f"/><circle cx="92" cy="186" r="11" fill="#9aa0a8"/>
+<circle cx="282" cy="186" r="26" fill="#1b1b1f"/><circle cx="282" cy="186" r="11" fill="#9aa0a8"/></svg>`;
+$("busPic").innerHTML = BUS_SVG;
+$("welcomeBus").innerHTML = BUS_SVG;
+
+const state = { cid: new URLSearchParams(location.search).get("cid") || null,
+  live: {}, stops: [], destId: null, announcedId: null, canCmd: true };
+let soundWanted = false;
+
+/* ---------- API ---------- */
+async function api(path, body) {
+  const token = localStorage.getItem("nsl_token") || "";
+  const opts = body
+    ? { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token }, body: JSON.stringify(body) }
+    : { headers: { "Authorization": "Bearer " + token } };
+  const r = await fetch(PREFIX + path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || ("HTTP " + r.status));
+  return r.json().catch(() => null);
+}
+async function loadBuses() {
+  const org = localStorage.getItem("nsl_org") || "";
+  const token = localStorage.getItem("nsl_token") || "";
+  if (!token || !org) { status("sign in on the portal first, then reopen this display"); return; }
+  try {
+    const res = await api("/api/controllers?organisation_id=" + encodeURIComponent(org));
+    const ctrls = res.controllers || [];
+    $("busSel").innerHTML = `<option value="">select bus…</option>` +
+      ctrls.map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id.slice(0, 8))} ${c.online ? "●" : "○"}</option>`).join("");
+    const saved = localStorage.getItem("nsl_cid") || "";
+    if (state.cid && ctrls.some((c) => c.id === state.cid)) $("busSel").value = state.cid;
+    else if (saved && ctrls.some((c) => c.id === saved)) { state.cid = saved; $("busSel").value = saved; }
+    else if (ctrls.length === 1) selectBus(ctrls[0].id);
+  } catch (e) { status(String(e.message || e)); }
+}
+function selectBus(cid) {
+  state.cid = cid || null; state.destId = null; state.stops = [];
+  try { if (cid) localStorage.setItem("nsl_cid", cid); else localStorage.removeItem("nsl_cid"); } catch (e) {}
+  const url = new URL(location.href);
+  if (cid) url.searchParams.set("cid", cid); else url.searchParams.delete("cid");
+  history.replaceState(null, "", url);
+  refresh();
+}
+async function refresh() {
+  if (!state.cid) { renderIdle("Select a bus", "Choose a bus above to follow its live service."); return; }
+  if (new URLSearchParams(location.search).has("demo")) return renderDemo();
+  try {
+    state.live = await api("/api/controllers/" + state.cid + "/live") || {};
+    const d = (state.live.destination || {}).id || null;
+    if (d !== state.destId) {
+      state.destId = d; state.announcedId = null;
+      try {
+        const s = await api("/api/controllers/" + state.cid + "/stops");
+        state.stops = (s && s.stops) || [];
+      } catch (e) { state.stops = []; }
+    }
+    const flag = state.live.online ? (state.live.stale ? "stale" : "live") : "offline";
+    status(state.live.online ? (state.live.stale ? "bus offline - last known" : "") : "bus offline - last known");
+    render();
+  } catch (e) { status(String(e.message || e)); }
+}
+async function sendCmd(cmd) {
+  if (!state.cid) return;
+  try {
+    await api("/api/controllers/" + state.cid + "/command", { command: cmd });
+    setTimeout(refresh, 400);
+  } catch (e) {
+    if (/403|forbidden/i.test(String(e.message))) { state.canCmd = false; syncCmdUI(); }
+    status(String(e.message || e));
+  }
+}
+
+/* ---------- rendering (measured from the reference) ---------- */
+const SLOT = {
+  enter: { y: 178, fs: 25, d: 18 }, far: { y: 258, fs: 45, d: 28 },
+  near: { y: 365, fs: 60, d: 38 }, single: { y: 304, fs: 60, d: 38 },
+};
+const CURVE = [[0,0],[0.067,0.29],[0.2,0.43],[0.333,0.58],[0.533,0.64],[0.867,0.73],[1.2,0.84],[1.533,0.95],[1.733,0.98],[1.867,1]];
+const lerp = (a, b, p) => a + (b - a) * p;
+function curveAt(t) { if (t <= 0) return 0; for (let k = 1; k < CURVE.length; k++) { if (t <= CURVE[k][0]) { const [t0,p0]=CURVE[k-1],[t1,p1]=CURVE[k]; return lerp(p0,p1,(t-t0)/(t1-t0)); } } return 1; }
+const list = $("list");
+const items = new Map();
+let anim = null;
+function paint(it, s) { it.cur = s;
+  it.dot.style.cssText = `left:${76-s.d/2}px;top:${s.y-s.d/2}px;width:${s.d}px;height:${s.d}px;box-shadow:0 0 0 ${Math.max(4,s.d*0.22).toFixed(1)}px var(--panel)`;
+  it.nm.style.fontSize = s.fs + "px";
+  it.nm.style.top = (s.y + 0.35*s.fs + 2 - 0.84*s.fs) + "px"; }
+function makeItem(name, slot) { const el = document.createElement("div"); el.className = "stop";
+  el.innerHTML = '<span class="dot"></span><span class="nm"></span>';
+  const it = { el, dot: el.firstChild, nm: el.lastChild }; it.nm.textContent = name;
+  list.appendChild(el); paint(it, { ...SLOT[slot] }); return it; }
+function clearList() { if (anim) { cancelAnimationFrame(anim.raf); anim = null; } for (const [,it] of items) it.el.remove(); items.clear(); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function status(t) { $("statusBar").textContent = t || ""; }
+function label(s) { return (s && (s.board_text || s.name)) || ""; }
+
+function render() {
+  const live = state.live || {};
+  const dest = live.destination || {}, svc = live.service || {};
+  if (!dest.id) return renderIdle(svc.number || "—", "No destination on the bus - select one on the controller.");
+  const stops = state.stops.length ? state.stops : null;
+  // current index from live stop position (1-based)
+  let idx = 0;
+  if (live.stop && live.stop.position) idx = Math.max(0, live.stop.position - 1);
+  if (!stops) { // stops not loaded yet: show destination + current stop only
+    return renderSimple(dest, svc, live.stop ? label(live.stop) : "");
+  }
+  idx = Math.min(idx, stops.length - 1);
+  const cur = stops[idx];
+  screen.classList.remove("idle", "terminus");
+  $("note").textContent = "";
+  setDest(dest.dest || dest.name || "");
+  $("routeNum").textContent = svc.number || "";
+  fitText($("routeNum"), 44, 700, 24, 120 + 0.84*44);
+  const up = stops.slice(idx);
+  const more = up.length - 1; // stops after the next one
+  $("dashes").classList.toggle("on", more > 2);
+  // slots for the stops after cur (max two shown)
+  const shown = new Map();
+  if (up.length === 1) shown.set(idx, "single");
+  else { if (up[1]) shown.set(idx + 1, "near"); if (up[2] && more > 2) shown.set(idx + 2, "far"); else if (up[2]) shown.set(idx + 2, "near"); }
+  for (const [k, it] of [...items]) if (!shown.has(k)) { it.el.remove(); items.delete(k); }
+  const first = !anim;
+  const from = {}, to = {};
+  for (const [k, slot] of shown) { from[k] = items.has(k) ? { ...items.get(k).cur } : { ...SLOT.enter }; to[k] = { ...SLOT[slot] }; }
+  const final = cur.is_terminus && idx === stops.length - 1;
+  $("stripText").textContent = final ? "the next & final stop is" : "the next stop is";
+  setBand(label(cur));
+  if (state.announcedId !== cur.id) { state.announcedId = cur.id; announce("The next stop is " + label(cur)); }
+  if (first) { for (const [k, slot] of shown) { if (!items.has(k)) items.set(k, makeItem(label(stops[k]), slot)); else paint(items.get(k), { ...SLOT[slot] }); } return; }
+  const t0 = performance.now(), DUR = 1867;
+  if (anim) cancelAnimationFrame(anim.raf);
+  const step = (now) => { const p = curveAt((now - t0) / 1000);
+    for (const [k] of shown) { let it = items.get(k); if (!it) it = items.set(k, makeItem(label(stops[k]), "enter")).get(k);
+      paint(it, { y: lerp(from[k].y, to[k].y, p), fs: lerp(from[k].fs, to[k].fs, p), d: lerp(from[k].d, to[k].d, p) }); }
+    if ((now - t0) / 1000 < DUR / 1000) anim = { raf: requestAnimationFrame(step) };
+    else { anim = null; for (const [k, slot] of shown) paint(items.get(k), { ...SLOT[slot] }); } };
+  anim = { raf: requestAnimationFrame(step) };
+}
+function renderSimple(dest, svc, curName) {
+  clearList(); screen.classList.remove("idle", "terminus"); $("note").textContent = "";
+  setDest(dest.dest || dest.name || ""); $("routeNum").textContent = svc.number || "";
+  $("dashes").classList.remove("on");
+  $("stripText").textContent = "the next stop is"; setBand(curName);
+}
+function renderIdle(title, note) {
+  clearList(); screen.classList.add("idle"); screen.classList.remove("terminus");
+  $("welcomeName").textContent = title || "nsl"; $("note").textContent = note || "";
+}
+const mctx = document.createElement("canvas").getContext("2d");
+function fitText(el, maxPx, maxW, minPx, baseline) {
+  let fs = maxPx; mctx.font = `900 ${fs}px "Museo Sans",system-ui,sans-serif`;
+  const fam = (f) => `900 ${f}px "Museo Sans",system-ui,sans-serif`;
+  while (mctx.measureText(el.textContent).width > maxW && fs > minPx) { fs -= 2; mctx.font = fam(fs); }
+  el.style.fontSize = fs + "px";
+  if (baseline) el.style.top = (baseline - 0.84 * fs) + "px";
+}
+function setDest(name) { const el = $("destName"); el.textContent = name; fitText(el, 69, 1004 - 136 - 28, 34, 41 + 0.84 * 69); }
+function setBand(name) { const el = $("nextName"); el.textContent = name; fitText(el, 85, 1190, 44, 51 + 0.84 * 85); }
+function renderDemo() {
+  state.live = { online: true, destination: { id: "demo", dest: "City Centre" }, service: { number: "100" },
+    stop: { id: "s2", position: 2 } };
+  state.stops = [{ id: "s1", position: 1, name: "Station Road", board_text: "Station Road" },
+    { id: "s2", position: 2, name: "High Street", board_text: "High Street" },
+    { id: "s3", position: 3, name: "Market Place", board_text: "Market Place" },
+    { id: "s4", position: 4, name: "City Centre", board_text: "City Centre", is_terminus: 1 }];
+  render();
+}
+
+/* ---------- sound ---------- */
+function announce(text) { if (!soundWanted || !("speechSynthesis" in window)) return;
+  try { speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = "en-GB"; u.rate = 0.95;
+    speechSynthesis.speak(u); } catch (e) {} }
+
+/* ---------- controls ---------- */
+let hideT;
+const poke = () => { document.body.classList.add("show-controls"); clearTimeout(hideT); hideT = setTimeout(() => document.body.classList.remove("show-controls"), 3000); };
+addEventListener("mousemove", poke); addEventListener("touchstart", poke, { passive: true }); poke();
+function syncCmdUI() { $("prevBtn").disabled = $("nextBtn").disabled = !state.cid || !state.canCmd; }
+$("busSel").addEventListener("change", () => selectBus($("busSel").value || null));
+$("prevBtn").onclick = (e) => { e.stopPropagation(); sendCmd("stop_prev"); };
+$("nextBtn").onclick = (e) => { e.stopPropagation(); sendCmd("stop_next"); };
+$("soundBtn").onclick = (e) => { e.stopPropagation(); soundWanted = !soundWanted;
+  $("soundBtn").textContent = soundWanted ? "Sound on" : "Sound off";
+  if (!soundWanted && "speechSynthesis" in window) speechSynthesis.cancel(); };
+$("fsBtn").onclick = (e) => { e.stopPropagation(); toggleFs(); };
+screen.addEventListener("dblclick", toggleFs);
+addEventListener("keydown", (e) => { if (e.key === "f") toggleFs(); if (e.key === "ArrowRight") sendCmd("stop_next"); if (e.key === "ArrowLeft") sendCmd("stop_prev"); });
+function toggleFs() { if (document.fullscreenElement) document.exitFullscreen?.(); else document.documentElement.requestFullscreen?.().catch(() => {}); }
+const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Europe/London" });
+function tickClock() { const p = clockFmt.formatToParts(new Date()), g = (t) => (p.find((x) => x.type === t) || {}).value || "";
+  $("clock").innerHTML = `${g("hour")}:${g("minute")}<span>${g("dayPeriod").toLowerCase().replace(/[.\s]/g, "")}</span>`; }
+setInterval(tickClock, 1000); tickClock();
+setInterval(refresh, 2000);
+syncCmdUI(); loadBuses().then(refresh);
+</script>
+</body>
+</html>

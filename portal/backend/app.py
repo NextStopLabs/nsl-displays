@@ -1234,6 +1234,53 @@ def get_font(fid: str, u: dict = Depends(current_user)):
     return {"id": f["id"], "height": f["height"], "maxwidth": f["maxwidth"],
             "glyphs": {str(k): [v[0], *v[1]] for k, v in f["glyphs"].items()}}
 
+
+@app.post("/api/fonts")
+def upload_font(file: UploadFile = File(...), u: dict = Depends(current_user)):
+    """Save a Hanover .Fnt file so layouts can use it immediately.
+
+    Validates with the same parser the Pi uses, then writes to the fonts
+    directory and drops the cached copy. Owner/editor only.
+    """
+    import re as _re
+    import tempfile as _tf
+    # role from any org the user can edit
+    rows = db().execute(
+        "SELECT 1 FROM memberships WHERE user_id=? AND role IN ('owner','editor')", (u["id"],)).fetchone()
+    if not rows:
+        raise HTTPException(403, "editor role required")
+    name = (file.filename or "").strip()
+    if not name.lower().endswith(".fnt"):
+        raise HTTPException(400, "only .Fnt files accepted")
+    stem = os.path.splitext(os.path.basename(name))[0]
+    if not _re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", stem):
+        raise HTTPException(400, "bad file name (letters, digits, _ . - only)")
+    raw = file.file.read()
+    if len(raw) > 1_000_000:
+        raise HTTPException(400, "file too large (max 1 MB)")
+    from nsl_pi import hanover as _han
+    with _tf.NamedTemporaryFile(suffix=".Fnt", delete=False) as t:
+        t.write(raw)
+        tmp = t.name
+    try:
+        parsed = _han.parse_font(tmp)
+    except Exception as e:
+        raise HTTPException(400, f"not a valid .Fnt file: {e}")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    d = _han.fonts_dir()
+    os.makedirs(d, exist_ok=True)
+    dest = os.path.join(d, stem + ".Fnt")
+    overwritten = os.path.exists(dest)
+    with open(dest, "wb") as f:
+        f.write(raw)
+    _han.invalidate(stem, d)
+    return {"id": "han-" + stem, "height": parsed["height"], "maxwidth": parsed["maxwidth"],
+            "overwritten": overwritten, "saved_to": dest}
+
 # ---------- audio + voices (upload / Piper stub) ----------
 def _slugify_clip(name: str) -> str:
     import re as _re
@@ -2135,6 +2182,39 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
     finally:
         bc.close()
     return out
+
+
+@app.get("/api/controllers/{cid}/stops")
+def controller_stops(cid: str, u: dict = Depends(current_user)):
+    """Ordered stop list for the bus's live destination, from the published
+    bundle the bus reports running. No times - just the service's stops."""
+    con = db()
+    c = con.execute("SELECT * FROM controllers WHERE id=?", (cid,)).fetchone()
+    if not c:
+        raise HTTPException(404, "no controller")
+    require_role(u["id"], c["organisation_id"], "owner", "editor", "viewer")
+    try:
+        live = json.loads(c["live_state"] or "null") or {}
+    except Exception:
+        live = {}
+    pid, ver, did = live.get("program_id"), live.get("program_version"), live.get("destination_id")
+    if not pid or ver is None or not did:
+        return {"destination_id": did, "stops": []}
+    bundle = os.path.join(STORAGE_DIR, "programs", pid, f"{ver}.nslprog")
+    if not os.path.exists(bundle):
+        return {"destination_id": did, "stops": []}
+    import sqlite3 as _s
+    bc = _s.connect(f"file:{bundle}?mode=ro", uri=True)
+    try:
+        bc.row_factory = _s.Row
+        stops = [{"id": r["id"], "position": r["position"], "name": r["name"],
+                  "board_text": r["board_text"] or r["name"],
+                  "is_terminus": bool(r["is_terminus"])}
+                 for r in bc.execute("SELECT id, position, name, board_text, is_terminus FROM stops "
+                                      "WHERE destination_id=? ORDER BY position", (did,))]
+        return {"destination_id": did, "stops": stops}
+    finally:
+        bc.close()
 
 
 @app.get("/api/controllers/{cid}/browse")
