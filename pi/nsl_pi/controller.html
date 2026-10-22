@@ -435,6 +435,17 @@
       font-size: 12px;
       letter-spacing: -.2px;
     }
+
+    /* contextual lighting: keys that do nothing on the current screen go
+       dim, the next expected key of the R-X-ENT sequence gets a glow */
+    .key.off {
+      opacity: .28;
+      filter: saturate(.3);
+    }
+    .key.lit {
+      box-shadow: 0 0 14px rgba(255, 190, 60, .95), 0 0 0 1.5px #2a2d32,
+        inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 -2px 3px rgba(190, 110, 10, .35);
+    }
   </style>
 </head>
 
@@ -681,6 +692,45 @@ function renderBoard(cur) {
 
 /* ---------- render ---------- */
 function render() {
+  renderScreen();
+  paintKeys();
+}
+
+/* keys that do something on the current screen stay bright, the rest dim.
+   Digits are tagged n0..n9, the rest by their data-btn name. */
+function activeKeys() {
+  const nums = ["n0","n1","n2","n3","n4","n5","n6","n7","n8","n9"];
+  switch (state.mode) {
+    case "code":
+    case "insert": return new Set([...nums, "x", "ent"]);
+    case "services": return new Set(["up", "down", "right", "ent", "x"]);
+    case "destinations": return new Set(["up", "down", "left", "ent", "x"]);
+    case "admin": return new Set(["up", "down", "left", "right", "ent", "x"]);
+    case "programs": return new Set(["up", "down", "left", "ent", "x"]);
+    default: {
+      // cloud bus-picker (no bus chosen yet): only list navigation works
+      if (state.cid === null) return new Set(["up", "down", "ent"]);
+      const s = new Set(["d", "i", "r", "up", "down"]);
+      if (state.seq.length === 1 && state.seq[0] === "r") s.add("x");
+      if (state.seq.length === 2 && state.seq[0] === "r" && state.seq[1] === "x") s.add("ent");
+      return s;
+    }
+  }
+}
+function paintKeys() {
+  let active;
+  try { active = activeKeys(); } catch(e) { return; }
+  const seqNext = state.mode === "view" &&
+    ((state.seq.length === 1 && state.seq[0] === "r") ||
+     (state.seq.length === 2 && state.seq[0] === "r" && state.seq[1] === "x"));
+  document.querySelectorAll("button.key").forEach(b => {
+    const k = b.dataset.num !== undefined ? "n" + b.dataset.num : b.dataset.btn;
+    b.classList.toggle("off", !active.has(k));
+    b.classList.toggle("lit", !!seqNext && ((state.seq.length === 1 && k === "x") ||
+                                            (state.seq.length === 2 && k === "ent")));
+  });
+}
+function renderScreen() {
   const cur = state.current || {};
   const dest = cur.destination || {};
   const svc = cur.service || {};
