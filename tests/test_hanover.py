@@ -49,6 +49,17 @@ def test_hanover_render_deterministic(tmp_path):
     hanover.draw_text(b, f, "é☃", 0, 0)
 
 
+def test_logo_and_movia_fonts_render():
+    """Non-numeric Hanover names (LOGO, movia18) parse and render."""
+    from PIL import Image
+    for fid in ("han-LOGO", "han-movia18"):
+        f = hanover.get_font(fid, FONTS_DIR)
+        img = Image.new("RGB", (240, 40), (0, 0, 0))
+        hanover.draw_text(img, f, "AB", 0, 0)
+        assert f["height"] > 0 and f["maxwidth"] > 0
+        assert sum(1 for px in img.getdata() if px[:3] != (0, 0, 0)) > 10
+
+
 def test_hanover_layout_end_to_end():
     from nsl_pi.renderer import render_frame, autofit_layout
     lay = dict(autofit_layout(240, 40))

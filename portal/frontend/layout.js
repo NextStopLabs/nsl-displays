@@ -358,17 +358,19 @@ const LayoutEditor = (() => {
   // ---------- properties panel ----------
   function fontSizeKey(font) {
     if (FONTS.includes(font)) return font;
-    const m = (font || "").match(/^han-(\d{2})/);
+    // Hanover font ids: han-<stem>. Numeric prefix gives the size group;
+    // stems with no digits (e.g. LOGO) keep their full id as the group.
+    const m = (font || "").match(/^han-.*?\b(\d+)/);
     return m ? "han-" + m[1] : (font || "");
   }
   function fontSizeOptions(selectedFont) {
     const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith("han-"));
     const groups = new Map();
     for (const f of han) {
-      const m = f.match(/^han-(\d{2})(.+)$/);
-      if (m) {
-        const key = "han-" + m[1];
-        if (!groups.has(key)) groups.set(key, `Hanover ${m[1]} px`);
+      const key = fontSizeKey(f);
+      if (!groups.has(key)) {
+        const digits = key.match(/^han-(\d+)$/);
+        groups.set(key, digits ? `Hanover ${digits[1]} px` : key.replace("han-", "Hanover "));
       }
     }
     const sizes = [
@@ -388,18 +390,23 @@ const LayoutEditor = (() => {
     if (FONTS.includes(size)) {
       return `<option value="${esc(size)}" selected>${esc(size)}</option>`;
     }
-    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
-    const m = (selectedFont || "").match(/^han-\d{2}(.+)$/);
-    const currentStyle = m ? m[1] : "";
+    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && fontSizeKey(f) === size);
+    const currentStyle = styleSuffix(selectedFont);
     return han.map((f) => {
-      const sm = f.match(/^han-\d{2}(.+)$/);
-      const label = sm ? sm[1] : f;
-      return `<option value="${esc(f)}"${label === currentStyle ? " selected" : ""}>${esc(label)}</option>`;
+      const label = styleSuffix(f) || f;
+      return `<option value="${esc(f)}"${f === selectedFont ? " selected" : ""}>${esc(label)}</option>`;
     }).join("");
+  }
+  function styleSuffix(font) {
+    // Return the part after the size digits, or the stem if there are no digits.
+    const m = font.match(/^han-.*?\b(\d+)(.*)$/);
+    if (m) return m[2] || font;
+    const stem = font.replace(/^han-/, "");
+    return stem || font;
   }
   function stylesForSize(size) {
     if (FONTS.includes(size)) return [size];
-    return (ed.hanIds || []).filter((f) => typeof f === "string" && f.startsWith(size));
+    return (ed.hanIds || []).filter((f) => typeof f === "string" && fontSizeKey(f) === size);
   }
   function renderProps() {
     const box = document.getElementById("lay-props");
