@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import urllib.error
 import urllib.request
 
 MANIFEST_PATH = "manifest.json"
@@ -70,6 +71,20 @@ class Agent:
         start = os.path.getsize(dest) if (resume and os.path.exists(dest)) else 0
         if url.startswith("/"):
             url = self.portal_url + url
+        # 416 recovery: the local partial is already complete (or newer than
+        # the server file). If its hash matches, we are done; otherwise the
+        # partial is stale/corrupt - discard it and download fresh instead of
+        # re-requesting the same unsatisfiable range forever.
+        if start and sha256:
+            try:
+                h0 = hashlib.sha256()
+                with open(dest, "rb") as f:
+                    for ch in iter(lambda: f.read(65536), b""):
+                        h0.update(ch)
+                if h0.hexdigest() == sha256.lower():
+                    return dest
+            except OSError:
+                start = 0
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         if start:
             headers["Range"] = f"bytes={start}-"
@@ -80,21 +95,51 @@ class Agent:
                 for ch in iter(lambda: f.read(65536), b""):
                     h.update(ch)
         mode = "ab" if start else "wb"
-        with urllib.request.urlopen(req, timeout=60) as r:
-            # Server without Range support answers 200 with the full body.
-            # Appending that to a partial file corrupts it forever, so restart.
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                # Server without Range support answers 200 with the full body.
+                # Appending that to a partial file corrupts it forever, so restart.
+                try:
+                    status = getattr(r, "status", 200)
+                except Exception:
+                    status = 200
+                if start and status != 206:
+                    h = hashlib.sha256()
+                    mode = "wb"
+                with open(dest, mode) as f:
+                    for chunk in iter(lambda: r.read(65536), b""):
+                        h.update(chunk)
+                        f.write(chunk)
+        except urllib.error.HTTPError as e:
+            if getattr(e, "code", None) == 416 and start:
+                # Requested range beyond EOF: local file is complete or
+                # larger than the server object. Re-check hash (server may
+                # have answered 416 with zero body while our pre-check raced
+                # a concurrent writer); else discard and fetch fresh.
+                try:
+                    h1 = hashlib.sha256()
+                    with open(dest, "rb") as f:
+                        for ch in iter(lambda: f.read(65536), b""):
+                            h1.update(ch)
+                    if sha256 and h1.hexdigest() == sha256.lower():
+                        return dest
+                except OSError:
+                    pass
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
+                if resume:
+                    return self.download(url, dest, sha256, resume=False)
+                raise ValueError(f"range not satisfiable for {dest} (local {start} bytes)")
+            raise
+        if sha256 and h.hexdigest() != sha256.lower():
+            # Remove the bad file so the next sync retries from scratch
+            # instead of resuming from a corrupt offset and hitting 416.
             try:
-                status = getattr(r, "status", 200)
-            except Exception:
-                status = 200
-            if start and status != 206:
-                h = hashlib.sha256()
-                mode = "wb"
-            with open(dest, mode) as f:
-                for chunk in iter(lambda: r.read(65536), b""):
-                    h.update(chunk)
-                    f.write(chunk)
-        if h.hexdigest() != sha256.lower():
+                os.remove(dest)
+            except OSError:
+                pass
             raise ValueError(f"hash mismatch for {dest}")
         return dest
 
