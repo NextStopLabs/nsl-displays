@@ -58,9 +58,187 @@ class Core:
         self._con.row_factory = sqlite3.Row
         self._con.execute("PRAGMA journal_mode = WAL")
         self._con.execute("PRAGMA foreign_keys = ON")
+        self._gpio_overlays: dict[str, dict] = {}
+        self._gpio_toggles: dict[str, bool] = {}
 
     def on_change(self, fn):
         self._listeners.append(fn)
+
+    # ---- GPIO display rules (per-program gpio_rules table) ----
+    def gpio_rules(self) -> list[dict]:
+        """Rules of the active program (empty when nothing selected)."""
+        st = self.state()
+        if not st["program_id"] or not st["program_version"]:
+            return []
+        pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            return []
+        try:
+            try:
+                rows = pc.execute("SELECT * FROM gpio_rules ORDER BY position").fetchall()
+            except Exception:
+                return []  # bundles published before gpio_rules existed
+            return [dict(r) for r in rows]
+        finally:
+            pc.close()
+
+    def _prune_gpio_overlays(self, now: float | None = None) -> None:
+        import time as _t
+        now = now if now is not None else _t.monotonic()
+        for target in [t for t, o in self._gpio_overlays.items()
+                       if o.get("expires_at") is not None and o["expires_at"] <= now]:
+            o = self._gpio_overlays[target]
+            if o.get("kind") == "toggle" and o.get("rule_id"):
+                self._gpio_toggles[o["rule_id"]] = False
+            del self._gpio_overlays[target]
+
+    def _clear_oneshot_gpio_overlays(self) -> None:
+        for target in [t for t, o in self._gpio_overlays.items() if not o.get("latched")]:
+            del self._gpio_overlays[target]
+
+    def _clear_all_gpio_overlays(self) -> None:
+        self._gpio_overlays.clear()
+        self._gpio_toggles.clear()
+
+    def _gpio_board_entry(self, r: dict) -> dict:
+        """Overlay entry for one rule: destination board ref + text fallback."""
+        return {"text": (r.get("board_text") or "").strip(),
+                "destination_id": (r.get("destination_id")
+                                   if (r.get("board_source") or "text") == "destination" else None),
+                "rule_id": r.get("id")}
+
+    def sync_gpio_levels(self, active_pins: set[int], now: float | None = None) -> dict:
+        """Reconcile latched ``while_active`` overlays with live pin levels.
+
+        Called by the input service after (re)connects and program changes so
+        a held switch (reverse gear, toggle on) re-asserts its board without
+        needing an edge. Returns the current overlay map.
+        """
+        import time as _t
+        now = now if now is not None else _t.monotonic()
+        self._prune_gpio_overlays(now)
+        want: dict[str, dict] = {}
+        for r in self.gpio_rules():
+            if r.get("trigger") != "while_active":
+                continue
+            entry = self._gpio_board_entry(r)
+            if not entry["text"] and not entry["destination_id"]:
+                continue
+            try:
+                pin = int(r["pin"])
+            except (TypeError, ValueError):
+                continue
+            if pin not in active_pins:
+                continue
+            target = r.get("target") or "all"
+            prev = want.get(target)
+            if prev is None or (r.get("position") or 0) < (prev.get("position") or 0):
+                want[target] = dict(entry, expires_at=None, latched=True, kind="level",
+                                    position=r.get("position") or 0)
+        # only level-follow entries are owned by the live pin state; toggle
+        # boards stay until their rule is tapped again (or the program changes)
+        for target in [t for t in self._gpio_overlays
+                       if self._gpio_overlays[t].get("latched")
+                       and self._gpio_overlays[t].get("kind", "level") == "level"
+                       and t not in want]:
+            del self._gpio_overlays[target]
+        self._gpio_overlays.update(want)
+        return self.gpio_overlay_map(now)
+
+    def gpio_overlay_map(self, now: float | None = None) -> dict[str, str]:
+        """Current overlay text per target (for display_snapshot)."""
+        self._prune_gpio_overlays(now)
+        return {t: o["text"] for t, o in self._gpio_overlays.items() if o.get("text")}
+
+    def _gpio_toggle_text(self, r: dict, entry: dict) -> str:
+        """Driver text for override effects: destination's driver message, else custom text."""
+        text = entry["text"]
+        if entry["destination_id"]:
+            board = self._gpio_board(entry["destination_id"])
+            if board and board["destination"].get("name"):
+                text = board["destination"]["name"]
+        return text
+
+    def _flip_gpio_toggle(self, r: dict, entry: dict, now: float,
+                          source: str = "gpio", user_id: str | None = None) -> bool:
+        """Flip one toggle rule's latched board. Returns True when turned on.
+
+        On: overlay boards latch on their target (stop changes don't clear
+        them); override effects apply the driver text. Off: our overlay entry
+        is removed (old board restores); overrides are cleared only when they
+        still hold the text we set, so a driver's own message is never wiped.
+        """
+        rid = r.get("id")
+        target = r.get("target") or "all"
+        on = not self._gpio_toggles.get(rid, False)
+        self._gpio_toggles[rid] = on
+        if on:
+            if (r.get("effect") or "overlay") == "override":
+                text = self._gpio_toggle_text(r, entry)
+                if text:
+                    self.apply_override(text, source=source, user_id=user_id)
+            else:
+                dur = int(r.get("duration_s") or 0)
+                self._gpio_overlays[target] = dict(
+                    entry, expires_at=(now + dur) if dur > 0 else None,
+                    latched=True, kind="toggle", position=r.get("position") or 0)
+        else:
+            cur = self._gpio_overlays.get(target)
+            if cur and cur.get("rule_id") == rid:
+                del self._gpio_overlays[target]
+            if (r.get("effect") or "overlay") == "override":
+                if self.state()["override_text"] == self._gpio_toggle_text(r, entry):
+                    self.clear_override(source=source, user_id=user_id)
+        return on
+
+    def apply_gpio_fired(self, fired: list[dict], now: float | None = None,
+                         source: str = "gpio", user_id: str | None = None) -> dict:
+        """Apply fired rule effects (press/long/double/on_active/on_release/toggle).
+
+        Overlay effects show a board (auto-cleared after ``duration_s`` when
+        set); override effects reuse the driver's override text. ``toggle``
+        flips a latched board on/off per tap (audio plays on switch-on).
+        Audio-only rules (no board text or board) just play their clip with
+        no board change. Returns ``{"announcement": [clip hashes],
+        "overlay": {...}}`` for the caller to speak through the PA.
+        """
+        import time as _t
+        now = now if now is not None else _t.monotonic()
+        clips: list[str] = []
+        for r in sorted(fired or [], key=lambda x: (x.get("position") or 0)):
+            entry = self._gpio_board_entry(r)
+            has_board = bool(entry["text"] or entry["destination_id"])
+            if (r.get("trigger") or "press") == "toggle":
+                if not has_board:
+                    # audio-only toggle: nothing to latch, play on every tap
+                    if r.get("audio") and r["audio"] not in clips:
+                        clips.append(r["audio"])
+                    continue
+                if self._flip_gpio_toggle(r, entry, now, source=source, user_id=user_id):
+                    if r.get("audio") and r["audio"] not in clips:
+                        clips.append(r["audio"])
+                continue
+            if r.get("audio") and r["audio"] not in clips:
+                clips.append(r["audio"])
+            if not has_board:
+                continue
+            if (r.get("effect") or "overlay") == "override":
+                # override shows driver text: the destination's driver message,
+                # else the rule's custom text
+                text = self._gpio_toggle_text(r, entry)
+                if text:
+                    self.apply_override(text, source=source, user_id=user_id)
+            else:
+                dur = int(r.get("duration_s") or 0)
+                self._gpio_overlays[r.get("target") or "all"] = dict(
+                    entry, expires_at=(now + dur) if dur > 0 else None,
+                    latched=False, kind="oneshot", position=r.get("position") or 0)
+        self._prune_gpio_overlays(now)
+        out: dict = {"announcement": clips, "overlay": self.gpio_overlay_map(now)}
+        if clips:
+            self._log(source, f"gpio_announce {' '.join(clips)}", user_id)
+            self._con.commit()
+        return out
 
     def _emit(self, event: str):
         for fn in self._listeners:
@@ -121,6 +299,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_all_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -148,6 +327,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_oneshot_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -167,6 +347,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_oneshot_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -219,6 +400,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_oneshot_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -247,6 +429,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_oneshot_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -329,6 +512,7 @@ class Core:
             self._con.commit()
         finally:
             pc.close()
+        self._clear_all_gpio_overlays()
         self._emit("state")
         return self.state()
 
@@ -406,23 +590,85 @@ class Core:
         finally:
             pc.close()
 
+    def _gpio_board(self, destination_id: str) -> dict | None:
+        """Resolve a GPIO board reference to render bits from the active bundle.
+
+        Returns ``{fields, pages, layouts, destination, service}`` or None when
+        the program/bundle/destination is gone (caller falls back to text).
+        """
+        if not destination_id:
+            return None
+        st = self.state()
+        if not st["program_id"] or not st["program_version"]:
+            return None
+        pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            return None
+        try:
+            try:
+                dest = pc.execute("SELECT * FROM destinations WHERE id=?", (destination_id,)).fetchone()
+            except Exception:
+                return None
+            if not dest:
+                return None
+            dest = dict(dest)
+            svc = pc.execute("SELECT * FROM services WHERE id=?", (dest["service_id"],)).fetchone()
+            svc = dict(svc) if svc else None
+            from .renderer import resolve_fields
+            fields = resolve_fields(dest, svc["number"] if svc else "")
+            try:
+                pages = [dict(r) for r in pc.execute(
+                    "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
+                    (dest["id"],))]
+            except Exception:
+                pages = []
+            layouts = {}
+            names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
+            for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
+                layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
+            for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
+                layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
+            return {"fields": fields, "pages": pages, "layouts": layouts,
+                    "destination": dest, "service": svc}
+        finally:
+            pc.close()
+
+    def gpio_board_map(self) -> dict[str, dict]:
+        """Current destination-board overlays per target (for display_snapshot)."""
+        self._prune_gpio_overlays()
+        out: dict[str, dict] = {}
+        for target, o in self._gpio_overlays.items():
+            if not o.get("destination_id"):
+                continue
+            board = self._gpio_board(o["destination_id"])
+            if board is not None:
+                out[target] = board
+            elif o.get("text"):
+                pass  # text fallback stays in gpio_overlay
+        return out
+
     def display_snapshot(self) -> dict:
         """Fields + override + layout ids for display driver / receivers."""
         st = self.state()
+        gpio_overlay = self.gpio_overlay_map()
+        gpio_boards = self.gpio_board_map()
         if not st["program_id"]:
             # no program selected: still show an active override (manual message
             # must reach the boards with or without program context)
-            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
+            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
+                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
         pc = self._open_prog(st["program_id"], st["program_version"])
         if pc is None:
             # installed row without its bundle (deleted mid-sync?) - empty, not a crash
-            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
+            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
+                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
         try:
             dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
             svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
             stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
             if not dest:
-                return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"]}
+                return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
             from .renderer import resolve_fields
             fields = resolve_fields(dict(dest), svc["number"] if svc else "")
             try:
@@ -444,6 +690,7 @@ class Core:
                 layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
             return {"state": st, "fields": fields, "pages": pages, "destination": dict(dest),
                     "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
-                    "layouts": layouts, "override": st["override_text"]}
+                    "layouts": layouts, "override": st["override_text"],
+                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
         finally:
             pc.close()

@@ -360,7 +360,7 @@ async function doCreate() {
 
 // ---------- sidebar navigation ----------
 function showSection(name) {
-  ["programs", "codes", "controllers", "audio", "tfl", "remote"].forEach((n) => { $("tab-" + n).style.display = (n === name) ? "" : "none"; });
+  ["programs", "codes", "controllers", "audio", "tfl", "remote", "pins"].forEach((n) => { $("tab-" + n).style.display = (n === name) ? "" : "none"; });
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("on", b.dataset.section === name));
 }
 document.querySelectorAll(".nav-item").forEach((t) => t.addEventListener("click", () => {
@@ -368,6 +368,7 @@ document.querySelectorAll(".nav-item").forEach((t) => t.addEventListener("click"
   LayoutEditor.stop();
   Preview.stop();
   if (t.dataset.section === "remote") refreshUpdateStatus();
+  if (t.dataset.section === "pins") loadPins();
 }));
 
 // ---------- programs ----------
@@ -448,6 +449,7 @@ function renderProgram() {
   h += `<button class=tab data-pdtab=displays>Displays</button>`;
   h += `<button class=tab data-pdtab=templates>Layouts</button>`;
   h += `<button class=tab data-pdtab=services>Services</button>`;
+  h += `<button class=tab data-pdtab=gpio>GPIO inputs</button>`;
   h += `<button class=tab data-pdtab=preview>Preview</button>`;
   h += `<button class=tab data-pdtab=publish>Publish &amp; Upload</button>`;
   h += `</div>`;
@@ -615,6 +617,73 @@ function renderProgram() {
   }
   h += `</div></section>`;
 
+  // ---- GPIO inputs tab (per-program pin rules: door, reverse, toggles) ----
+  h += `<section id=pdtab-gpio style="display:none">`;
+  h += `<div class=group><div class=grouptitle>GPIO input rules (${(p.gpio_rules || []).length})</div>`;
+  h += `<p class=hint>Wire a bus signal to a board + audio effect in <b>this program</b>. Examples: door pin <b>while active</b> → overlay “DOORS OPEN” on all boards, plus <b>on release</b> → play the “mind the doors” clip; reverse-gear pin <b>while active</b> → overlay “REVERSING” until you change gear; toggle switch <b>while active</b> → show a board while it is on. Momentary buttons use press / long / double, and <b>toggle</b> flips a board on with one press and back off with the next. Overlay boards auto-restore; override text stays like a driver message until the stop changes.</p>`;
+  h += `<div id=gpio-rules-list></div>`;
+  h += `<div class=group style="margin-top:14px"><div class=grouptitle>Add rule</div><div class=row>
+    <div style="flex:1;min-width:140px"><label for=gr-label>Label</label><input id=gr-label placeholder="e.g. Door"></div>
+    <div style="flex:0 0 170px"><label for=gr-pin>Pin (BCM)</label><select id=gr-pin></select></div>
+    <div style="flex:0 0 190px"><label for=gr-trigger>Trigger</label><select id=gr-trigger>
+      <option value="press">Press (momentary)</option>
+      <option value="long">Long press (hold)</option>
+      <option value="double">Double press</option>
+      <option value="on_active">On active (rising edge)</option>
+      <option value="while_active" selected>While active (latched)</option>
+      <option value="on_release">On release (falling edge)</option>
+      <option value="toggle">Toggle (press on / press off)</option>
+    </select></div></div>
+    <div class=row>
+    <div style="flex:0 0 220px"><label for=gr-effect>Board effect</label><select id=gr-effect>
+      <option value="overlay">Overlay board (auto-restores)</option>
+      <option value="override">Driver override (stays)</option>
+    </select></div>
+    <div style="flex:0 0 150px"><label for=gr-target>Boards</label><select id=gr-target></select></div>
+    <div style="flex:1;min-width:160px"><label for=gr-board>Board to show</label><select id=gr-board></select></div>
+    <div style="flex:1;min-width:160px" id=gr-text-wrap><label for=gr-text>Board text</label><input id=gr-text placeholder="e.g. DOORS OPEN"></div>
+    </div><div class=row>
+    <div class=col><label for=gr-audio>Audio clip (optional)</label><select id=gr-audio></select></div>
+    <div style="flex:0 0 120px"><label for=gr-dur>Show (s, 0 = stays)</label><input id=gr-dur type=number min=0 value=0></div>
+    <div style="flex:0 0 110px"><label for=gr-pull>Pull</label><select id=gr-pull><option value="up">up</option><option value="down">down</option><option value="none">none</option></select></div>
+    <div style="flex:0 0 130px"><label for=gr-al>Active level</label><select id=gr-al><option value="1">active low</option><option value="0">active high</option></select></div>
+    <div style="align-self:end"><button id=gr-add class=primary>Add rule</button></div>
+    </div><div class=err id=gr-err></div></div>`;
+  h += `<dialog id=gpio-dialog><form method=dialog>
+    <h3 style="margin-top:0">Edit GPIO rule</h3>
+    <div class=row>
+    <div style="flex:1;min-width:140px"><label for=ge-label>Label</label><input id=ge-label></div>
+    <div style="flex:0 0 170px"><label for=ge-pin>Pin (BCM)</label><select id=ge-pin></select></div>
+    <div style="flex:0 0 190px"><label for=ge-trigger>Trigger</label><select id=ge-trigger>
+      <option value="press">Press (momentary)</option>
+      <option value="long">Long press (hold)</option>
+      <option value="double">Double press</option>
+      <option value="on_active">On active (rising edge)</option>
+      <option value="while_active">While active (latched)</option>
+      <option value="on_release">On release (falling edge)</option>
+      <option value="toggle">Toggle (press on / press off)</option>
+    </select></div></div>
+    <div class=row>
+    <div style="flex:0 0 220px"><label for=ge-effect>Board effect</label><select id=ge-effect>
+      <option value="overlay">Overlay board (auto-restores)</option>
+      <option value="override">Driver override (stays)</option>
+    </select></div>
+    <div style="flex:0 0 150px"><label for=ge-target>Boards</label><select id=ge-target></select></div>
+    <div style="flex:1;min-width:160px"><label for=ge-board>Board to show</label><select id=ge-board></select></div>
+    <div style="flex:1;min-width:160px" id=ge-text-wrap><label for=ge-text>Board text</label><input id=ge-text></div>
+    </div>
+    <p class=hint style="margin:4px 0">Leave the board on “Custom text” with empty text for an audio-only rule - e.g. a welcome-aboard clip on door close with no board change.</p>
+    <div class=row>
+    <div class=col><label for=ge-audio>Audio clip (optional)</label><select id=ge-audio></select></div>
+    <div style="flex:0 0 120px"><label for=ge-dur>Show (s, 0 = stays)</label><input id=ge-dur type=number min=0 value=0></div>
+    <div style="flex:0 0 110px"><label for=ge-pull>Pull</label><select id=ge-pull><option value="up">up</option><option value="down">down</option><option value="none">none</option></select></div>
+    <div style="flex:0 0 130px"><label for=ge-al>Active level</label><select id=ge-al><option value="1">active low</option><option value="0">active high</option></select></div>
+    </div>
+    <div class=err id=ge-err></div>
+    <div class=row style="justify-content:flex-end"><button id=ge-close>Cancel</button><button id=ge-save class=primary value=default>Save</button></div>
+    </form></dialog>`;
+  h += `</section>`;
+
   // ---- Preview tab ----
   h += `<section id=pdtab-preview style="display:none">`;
   h += `<div class=group><div class=grouptitle>Journey preview - screens + announcements</div>`;
@@ -681,7 +750,7 @@ function renderProgram() {
   document.querySelectorAll("#pd-tabs .tab").forEach((t) => t.addEventListener("click", () => {
     document.querySelectorAll("#pd-tabs .tab").forEach((x) => x.classList.remove("on"));
     t.classList.add("on");
-    ["destinations", "displays", "templates", "services", "preview", "publish"].forEach((n) => { $("pdtab-" + n).style.display = (n === t.dataset.pdtab) ? "" : "none"; });
+    ["destinations", "displays", "templates", "services", "gpio", "preview", "publish"].forEach((n) => { $("pdtab-" + n).style.display = (n === t.dataset.pdtab) ? "" : "none"; });
     if (t.dataset.pdtab === "preview") loadPreview();
   }));
 
@@ -881,6 +950,9 @@ function renderProgram() {
       openProgram(p.id); loadPrograms();
     } catch (e) { err(String(e.message || e)); }
   };
+
+  // ---- GPIO input rules ----
+  wireGpioTab(p);
 
   // ---- bustimes.org import ----
   wireBustimesImport(p);
@@ -1153,6 +1225,127 @@ function syncSpeakerFor(voiceSelId, speakerSelId) {
     sbox.disabled = true;
   }
 }
+function wireGpioTab(p) {
+  const list = $("gpio-rules-list");
+  if (!list || !$("gr-add")) return;
+  const TRIG = { press: "Press", long: "Long press", double: "Double press",
+    on_active: "On active", while_active: "While active", on_release: "On release",
+    toggle: "Toggle" };
+  const rules = S.curProg.gpio_rules || [];
+  const dispOpts = `<option value="all">all boards</option>` +
+    (p.displays || []).map((d) => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join("");
+  $("gr-target").innerHTML = dispOpts;
+  $("gr-audio").innerHTML = `<option value="">No audio - board only</option>` + audioOptions("", {});
+  // board picker: custom text, or a designed destination board from this program
+  const destById = {};
+  const boardOpts = `<option value="">Custom text (type below)</option>` +
+    (p.services || []).map((s) => {
+      const opts = (s.destinations || []).map((d) => {
+        destById[d.id] = { code: d.code, name: d.name, service: s.number };
+        return `<option value="${esc(d.id)}">${esc(d.code)} · ${esc(d.name || d.dest || "")}</option>`;
+      }).join("");
+      return opts ? `<optgroup label="Service ${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}">${opts}</optgroup>` : "";
+    }).join("");
+  $("gr-board").innerHTML = boardOpts;
+  $("ge-board").innerHTML = boardOpts;
+  const clipName = (sha) => { const a = (S.clips || []).find((x) => x.sha256 === sha); return a ? clipLabel(a) : (sha || "-"); };
+  const boardName = (r) => {
+    if ((r.board_source || "text") === "destination") {
+      const b = destById[r.destination_id];
+      return b ? `${b.code} · ${b.name || ""}` : "(board deleted)";
+    }
+    return r.board_text || "-";
+  };
+  list.innerHTML = rules.length ? `<div class="tablewrap"><table class=dataTable>
+    <thead><tr><th>Label</th><th>Pin</th><th>Trigger</th><th>Effect</th><th>Boards</th><th>Board</th><th>Audio</th><th>Show(s)</th><th></th></tr></thead><tbody>` +
+    rules.map((r) =>
+      `<tr><td>${esc(r.label || "-")}</td><td class=kbd>BCM${esc(r.pin)}</td><td>${esc(TRIG[r.trigger] || r.trigger)}</td>` +
+      `<td>${esc(r.effect)}</td><td>${esc(r.target)}</td><td>${esc(boardName(r))}</td>` +
+      `<td>${esc(clipName(r.audio))}</td><td>${esc(r.duration_s || 0)}</td>` +
+      `<td class=row><button data-gr-edit="${r.id}">Edit</button><button data-gr-del="${r.id}" class=danger>Delete</button></td></tr>`).join("") +
+    `</tbody></table></div>` : `<p class=hint>No GPIO rules yet - add one below. E.g. make a “REVERSING” destination with its own board design, then add a rule: pin BCM16 (reverse feed), “While active”, board “REVERSING”. Or Door: pin BCM5, “While active”, custom text “DOORS OPEN”, all boards; plus a second rule on the same pin, “On release”, with the door-close clip and no board text for audio-only.</p>`;
+  list.querySelectorAll("[data-gr-del]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Delete this GPIO rule?")) return;
+    try {
+      await api(`/api/programs/${p.id}/gpio-rules/${b.dataset.grDel}`, { method: "DELETE" });
+      openProgram(p.id);
+    } catch (e) { $("gr-err").textContent = String(e.message || e); }
+  });
+  // pin dropdown: free pins selectable, matrix/power pins greyed out (shared by add + edit)
+  const paintPinsInto = (selId, pins) => {
+    $(selId).innerHTML = (pins || []).map((x) => {
+      if (x.kind !== "gpio") return `<option value="${x.bcm == null ? "" : x.bcm}" disabled>Pin ${x.physical} ${esc(x.label)} (not usable)</option>`;
+      if (x.status === "reserved") return `<option value="${x.bcm}" disabled>BCM${x.bcm} - reserved (matrix)</option>`;
+      return `<option value="${x.bcm}">BCM${x.bcm} - ${esc(x.label)}</option>`;
+    }).join("") || `<option value="">No pins</option>`;
+  };
+  api(`/api/gpio/pins?organisation_id=${encodeURIComponent(S.org)}`).then((r) => {
+    paintPinsInto("gr-pin", r.pins); paintPinsInto("ge-pin", r.pins);
+  }).catch(() => {
+    $("gr-pin").innerHTML = `<option value="">Pin list unavailable</option>`;
+    $("ge-pin").innerHTML = `<option value="">Pin list unavailable</option>`;
+  });
+  const syncBoardMode = (pfx) => {
+    $(pfx + "-text-wrap").style.display = $(pfx + "-board").value ? "none" : "";
+  };
+  const fillForm = (pfx, r) => {
+    $(pfx + "-label").value = r.label || "";
+    $(pfx + "-pin").value = String(r.pin);
+    $(pfx + "-trigger").value = r.trigger || "press";
+    $(pfx + "-effect").value = r.effect || "overlay";
+    $(pfx + "-target").value = r.target || "all";
+    $(pfx + "-board").value = (r.board_source === "destination" && r.destination_id) ? r.destination_id : "";
+    $(pfx + "-text").value = r.board_text || "";
+    $(pfx + "-audio").value = r.audio || "";
+    $(pfx + "-dur").value = r.duration_s || 0;
+    $(pfx + "-pull").value = r.pull || "up";
+    $(pfx + "-al").value = r.active_low ? "1" : "0";
+    syncBoardMode(pfx);
+  };
+  const readForm = (pfx) => {
+    const pin = parseInt($(pfx + "-pin").value, 10);
+    if (isNaN(pin)) throw new Error("Pick a free (non-greyed) pin.");
+    const destId = $(pfx + "-board").value || null;
+    return { label: $(pfx + "-label").value, pin, trigger: $(pfx + "-trigger").value,
+      effect: $(pfx + "-effect").value, target: $(pfx + "-target").value,
+      board_source: destId ? "destination" : "text", destination_id: destId,
+      board_text: $(pfx + "-text").value, audio: $(pfx + "-audio").value || null,
+      duration_s: parseInt($(pfx + "-dur").value || "0", 10),
+      pull: $(pfx + "-pull").value, active_low: $(pfx + "-al").value === "1" };
+  };
+  $("gr-board").onchange = () => syncBoardMode("gr");
+  $("ge-board").onchange = () => syncBoardMode("ge");
+  syncBoardMode("gr");
+  const dlg = $("gpio-dialog");
+  list.querySelectorAll("[data-gr-edit]").forEach((b) => b.onclick = () => {
+    const r = rules.find((x) => x.id === b.dataset.grEdit);
+    if (!r) return;
+    $("ge-err").textContent = "";
+    $("ge-target").innerHTML = dispOpts;
+    $("ge-audio").innerHTML = `<option value="">No audio - board only</option>` + audioOptions("", {});
+    $("ge-board").innerHTML = boardOpts;
+    fillForm("ge", r);
+    dlg.dataset.rid = r.id;
+    if (dlg.showModal) dlg.showModal();
+  });
+  $("ge-close").onclick = () => { if (dlg) dlg.close(); };
+  $("ge-save").onclick = async (e) => {
+    e.preventDefault();
+    $("ge-err").textContent = "";
+    try {
+      await api(`/api/programs/${p.id}/gpio-rules/${dlg.dataset.rid}`, { method: "PUT", body: readForm("ge") });
+      dlg.close();
+      openProgram(p.id);
+    } catch (ex) { $("ge-err").textContent = String(ex.message || ex); }
+  };
+  $("gr-add").onclick = async () => {
+    $("gr-err").textContent = "";
+    try {
+      await api(`/api/programs/${p.id}/gpio-rules`, { method: "POST", body: readForm("gr") });
+      openProgram(p.id);
+    } catch (e) { $("gr-err").textContent = String(e.message || e); }
+  };
+}
 function wireBustimesImport(p) {
   const box = $("bt-results"), det = $("bt-detail"), ebox = $("bt-err");
   if (!$("bt-find")) return;
@@ -1397,6 +1590,13 @@ async function loadControllers() {
     <td class=row><a class="button" href="controller.html?cid=${esc(c.id)}" target="_blank" title="Open mobile destination controller for this bus">Controller</a><button data-rename="${c.id}">Rename</button><button data-retoken="${c.id}" title="Issue a new device token (old one stops working)">Rotate token</button><button class=danger data-unpair="${c.id}" title="Remove this controller entirely - token revoked, disappears from the portal">Remove</button></td></tr>`;
   }).join("");
   $("rc-ctl").innerHTML = S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)} (${c.online ? "online" : "offline"})</option>`).join("");
+  const pinsSel = $("pins-ctl");
+  if (pinsSel) {
+    const prev = pinsSel.value;
+    pinsSel.innerHTML = `<option value="">Default mapping (regular, parallel 1)</option>` +
+      S.controllers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    if (prev && [...pinsSel.options].some((o) => o.value === prev)) pinsSel.value = prev;
+  }
   await loadReleases();
 }
 async function loadReleases() {
@@ -1795,6 +1995,40 @@ rc("btn-rc-update", async () => {
   $("rc-update").innerHTML = `Update to <b>${esc(s.latest_version)}</b> queued. The bus will download, verify, and restart automatically. Watch the controller status to see it come back online.`;
   return r;
 });
+
+// ---------- GPIO pins ----------
+async function loadPins() {
+  const box = $("pins-board"), sum = $("pins-summary"), errBox = $("pins-err");
+  if (!box) return;
+  if (errBox) errBox.textContent = "";
+  try {
+    const cid = $("pins-ctl") ? $("pins-ctl").value : "";
+    let q = "/api/gpio/pins?organisation_id=" + encodeURIComponent(S.org);
+    if (cid) q += "&controller_id=" + encodeURIComponent(cid);
+    const r = await api(q);
+    const pins = r.pins || [];
+    const byPhys = {};
+    pins.forEach((p) => { byPhys[p.physical] = p; });
+    let h = "";
+    for (let row = 1; row <= 20; row++) {
+      const odd = byPhys[row * 2 - 1], even = byPhys[row * 2];
+      h += `<div class=pins-row>${pinCell(odd)}${pinCell(even)}</div>`;
+    }
+    box.innerHTML = h;
+    if (sum) sum.innerHTML = `<b>${r.summary.free}</b> free GPIO · ` +
+      `<b>${r.summary.reserved}</b> reserved (matrix) · mapping <b>${esc(r.mapping)}</b> parallel ${esc(r.parallel)}` +
+      (r.summary.free_bcm.length ? `<br>Free BCM: ${r.summary.free_bcm.map((b) => "GPIO" + esc(b)).join(", ")}` : "");
+  } catch (e) { if (errBox) errBox.textContent = String(e.message || e); }
+}
+function pinCell(p) {
+  if (!p) return `<div class="pin empty"></div>`;
+  const bcm = p.bcm != null ? `BCM${p.bcm}` : "";
+  const sub = p.status === "free" ? bcm : (p.status === "reserved" ? `${bcm} · matrix` : p.label);
+  return `<div class="pin ${p.status}" title="Pin ${p.physical}: ${esc(p.label)}${p.reason ? " - " + esc(p.reason) : ""}">` +
+    `<span class=pnum>${p.physical}</span><span class=plab>${esc(p.label)}</span><span class=psub>${esc(sub)}</span></div>`;
+}
+if ($("pins-ctl")) $("pins-ctl").addEventListener("change", loadPins);
+if ($("btn-pins-refresh")) $("btn-pins-refresh").addEventListener("click", loadPins);
 
 // ---------- TfL audio creator (search + trim + save to library) ----------
 const Tfl = (() => {

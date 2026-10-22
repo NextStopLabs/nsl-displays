@@ -15,6 +15,7 @@ HASH_TABLES = [
     "destination_pages",
     "destinations",
     "displays",
+    "gpio_rules",
     "layout_templates",
     "layouts",
     "override_presets",

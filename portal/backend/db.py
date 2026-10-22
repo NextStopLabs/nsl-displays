@@ -86,6 +86,16 @@ CREATE TABLE IF NOT EXISTS p_templates (
 CREATE TABLE IF NOT EXISTS p_presets (
   id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
   label TEXT NOT NULL, text TEXT NOT NULL, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS p_gpio_rules (
+  id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '', pin INTEGER NOT NULL,
+  trigger TEXT NOT NULL DEFAULT 'press',
+  effect TEXT NOT NULL DEFAULT 'overlay', target TEXT NOT NULL DEFAULT 'all',
+  board_text TEXT NOT NULL DEFAULT '', board_source TEXT NOT NULL DEFAULT 'text',
+  destination_id TEXT, audio TEXT,
+  duration_s INTEGER NOT NULL DEFAULT 0,
+  pull TEXT NOT NULL DEFAULT 'up', active_low INTEGER NOT NULL DEFAULT 1,
+  debounce_ms INTEGER NOT NULL DEFAULT 50, position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS program_versions (
   id TEXT PRIMARY KEY, program_id TEXT NOT NULL, version INTEGER NOT NULL,
   bundle_key TEXT NOT NULL, bundle_sha256 TEXT NOT NULL, content_hash TEXT NOT NULL,
@@ -146,7 +156,9 @@ def connect(url: str | None = None) -> sqlite3.Connection:
                        "ALTER TABLE voices ADD COLUMN num_speakers INTEGER DEFAULT 1",
                        "ALTER TABLE voices ADD COLUMN speakers TEXT DEFAULT '[]'",
                        "ALTER TABLE releases ADD COLUMN bundle_sha256 TEXT NOT NULL DEFAULT ''",
-                       "ALTER TABLE releases ADD COLUMN organisation_id TEXT"):
+                       "ALTER TABLE releases ADD COLUMN organisation_id TEXT",
+                       "ALTER TABLE p_gpio_rules ADD COLUMN board_source TEXT NOT NULL DEFAULT 'text'",
+                       "ALTER TABLE p_gpio_rules ADD COLUMN destination_id TEXT"):
             try:
                 con.execute(_ddl)
                 con.commit()

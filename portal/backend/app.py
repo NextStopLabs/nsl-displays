@@ -392,6 +392,11 @@ def get_program(pid: str, u: dict = Depends(current_user)):
             except Exception:
                 d["pages"] = []
     p["presets"] = [dict(r) for r in con.execute("SELECT * FROM p_presets WHERE program_id=? ORDER BY position", (pid,))]
+    try:
+        p["gpio_rules"] = [dict(r) for r in con.execute(
+            "SELECT * FROM p_gpio_rules WHERE program_id=? ORDER BY position", (pid,))]
+    except Exception:
+        p["gpio_rules"] = []
     p["versions"] = [dict(r) for r in con.execute("SELECT * FROM program_versions WHERE program_id=? ORDER BY version", (pid,))]
     return p
 
@@ -1050,6 +1055,13 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
     for (h,) in con.execute("SELECT DISTINCT audio FROM p_stops WHERE program_id=? AND audio IS NOT NULL", (pid,)):
         if h:
             ref_hashes.add(h)
+    try:
+        for (h,) in con.execute(
+                "SELECT DISTINCT audio FROM p_gpio_rules WHERE program_id=? AND audio IS NOT NULL", (pid,)):
+            if h:
+                ref_hashes.add(h)
+    except Exception:
+        pass
     audio_needed: dict[str, dict] = {}
     if ref_hashes:
         for a in con.execute(
@@ -1090,6 +1102,19 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
         b.add_template(t["display_id"], t["name"], json.loads(t["layout"]), bool(t["is_default"]), id=t["id"])
     for pr in con.execute("SELECT * FROM p_presets WHERE program_id=? ORDER BY position", (pid,)):
         b.add_preset(pr["label"], pr["text"], pr["position"], id=pr["id"])
+    try:
+        for gr in con.execute("SELECT * FROM p_gpio_rules WHERE program_id=? ORDER BY position", (pid,)):
+            gd = dict(gr)
+            b.add_gpio_rule(label=gd.get("label") or "", pin=int(gd["pin"]), trigger=gd["trigger"],
+                            effect=gd["effect"], target=gd["target"], board_text=gd.get("board_text") or "",
+                            board_source=gd.get("board_source") or "text",
+                            destination_id=gd.get("destination_id"),
+                            audio=gd.get("audio"), duration_s=int(gd.get("duration_s") or 0),
+                            pull=gd.get("pull") or "up", active_low=bool(gd.get("active_low")),
+                            debounce_ms=int(gd.get("debounce_ms") or 50),
+                            position=int(gd.get("position") or 0), id=gd["id"])
+    except Exception:
+        pass
     os.makedirs(os.path.join(STORAGE_DIR, "programs", pid), exist_ok=True)
     out = os.path.join(STORAGE_DIR, "programs", pid, f"{version}.nslprog")
     info = b.build(out, version, default_display_id=default_disp)
@@ -2326,6 +2351,245 @@ def rotate_device_token(cid: str, u: dict = Depends(current_user)):
     return {"controller_id": cid, "device_token": token}
 
 
+# ---------- GPIO pins: which header pins are free vs reserved by the matrix ----------
+# Physical 40-pin header of the Pi 4B (BOARD numbering). BCM None = not a GPIO.
+_PINOUT: list[tuple[int, int | None, str, str]] = [
+    # (physical, bcm, label, kind)  kind: power | ground | gpio | eeprom
+    (1, None, "3V3", "power"), (2, None, "5V", "power"),
+    (3, 2, "GPIO2 · SDA (I2C)", "gpio"), (4, None, "5V", "power"),
+    (5, 3, "GPIO3 · SCL (I2C)", "gpio"), (6, None, "GND", "ground"),
+    (7, 4, "GPIO4", "gpio"), (8, 14, "GPIO14 · TXD", "gpio"),
+    (9, None, "GND", "ground"), (10, 15, "GPIO15 · RXD", "gpio"),
+    (11, 17, "GPIO17", "gpio"), (12, 18, "GPIO18 · OE", "gpio"),
+    (13, 27, "GPIO27", "gpio"), (14, None, "GND", "ground"),
+    (15, 22, "GPIO22", "gpio"), (16, 23, "GPIO23", "gpio"),
+    (17, None, "3V3", "power"), (18, 24, "GPIO24", "gpio"),
+    (19, 10, "GPIO10 · MOSI (SPI)", "gpio"), (20, None, "GND", "ground"),
+    (21, 9, "GPIO9 · MISO (SPI)", "gpio"), (22, 25, "GPIO25", "gpio"),
+    (23, 11, "GPIO11 · SCLK (SPI)", "gpio"), (24, 8, "GPIO8 · CE0 (SPI)", "gpio"),
+    (25, None, "GND", "ground"), (26, 7, "GPIO7 · CE1 (SPI)", "gpio"),
+    (27, 0, "ID_SD (EEPROM)", "eeprom"), (28, 1, "ID_SC (EEPROM)", "eeprom"),
+    (29, 5, "GPIO5", "gpio"), (30, None, "GND", "ground"),
+    (31, 6, "GPIO6", "gpio"), (32, 12, "GPIO12", "gpio"),
+    (33, 13, "GPIO13", "gpio"), (34, None, "GND", "ground"),
+    (35, 19, "GPIO19", "gpio"), (36, 16, "GPIO16", "gpio"),
+    (37, 26, "GPIO26", "gpio"), (38, 20, "GPIO20", "gpio"),
+    (39, None, "GND", "ground"), (40, 21, "GPIO21", "gpio"),
+]
+
+
+@app.get("/api/gpio/pins")
+def gpio_pins(organisation_id: str, controller_id: str | None = None,
+               u: dict = Depends(current_user)):
+    """Visual pin map: which header pins are free vs reserved by the LED matrix.
+
+    Reserved set comes from the controller's matrix options (mapping + parallel)
+    so it stays correct if the HAT/mapping changes; without a controller it
+    falls back to the default (regular, parallel=1).
+    """
+    require_role(u["id"], organisation_id, "owner", "editor", "viewer")
+    con = db()
+    mapping, parallel = "regular", 1
+    if controller_id:
+        c = con.execute("SELECT * FROM controllers WHERE id=?", (controller_id,)).fetchone()
+        if not c or c["organisation_id"] != organisation_id:
+            raise HTTPException(404, "no controller")
+        cfg = con.execute("SELECT matrix_options FROM controller_config WHERE controller_id=?",
+                          (controller_id,)).fetchone()
+        if cfg and cfg["matrix_options"]:
+            try:
+                opts = json.loads(cfg["matrix_options"])
+                mapping = str(opts.get("led-gpio-mapping", mapping))
+                parallel = int(opts.get("led-parallel", parallel))
+            except Exception:
+                pass
+    try:
+        from pi.nsl_pi.config import reserved_bcm_pins as _reserved
+        reserved = set(_reserved(mapping, parallel))
+    except Exception:
+        reserved = {4, 17, 18, 22, 23, 24, 25, 15, 27, 10, 9, 11, 8, 7}
+    pins = []
+    for phys, bcm, label, kind in _PINOUT:
+        is_reserved = kind == "gpio" and bcm in reserved
+        status = "reserved" if is_reserved else ("free" if kind == "gpio" else kind)
+        pins.append({"physical": phys, "bcm": bcm, "label": label, "kind": kind,
+                     "reserved": bool(is_reserved), "status": status,
+                     "reason": "LED matrix (HUB75)" if is_reserved else ""})
+    free = [p for p in pins if p["status"] == "free"]
+    taken = [p for p in pins if p["status"] == "reserved"]
+    return {"mapping": mapping, "parallel": parallel, "reserved_bcm": sorted(reserved),
+            "pins": pins,
+            "summary": {"free": len(free), "reserved": len(taken),
+                        "free_bcm": sorted(p["bcm"] for p in free if p["bcm"] is not None)}}
+
+
+def _default_reserved_bcm() -> set[int]:
+    try:
+        from pi.nsl_pi.config import reserved_bcm_pins as _reserved
+        return set(_reserved("regular", 1))
+    except Exception:
+        return {4, 17, 18, 22, 23, 24, 25, 15, 27, 10, 9, 11, 8, 7}
+
+
+_GPIO_TRIGGERS = {"press", "long", "double", "on_active", "while_active", "on_release", "toggle"}
+_GPIO_BCM_KIND = {bcm: kind for _, bcm, _, kind in _PINOUT if bcm is not None}
+
+
+def _check_gpio_pin(pin: int) -> None:
+    """Reject pins the matrix owns or that aren't usable GPIOs (power/GND/EEPROM)."""
+    try:
+        pin = int(pin)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "pin must be a BCM number")
+    kind = _GPIO_BCM_KIND.get(pin)
+    if kind != "gpio":
+        raise HTTPException(400, f"BCM {pin} is not a usable GPIO (power/ground/EEPROM)")
+    if pin in _default_reserved_bcm():
+        raise HTTPException(400, f"BCM {pin} is reserved by the LED matrix - pick a green (free) pin")
+
+
+def _check_gpio_board(pid: str, board_source: str, destination_id: str | None) -> str | None:
+    """Validate the rule's board content. Returns normalised destination_id."""
+    if board_source not in ("text", "destination"):
+        raise HTTPException(400, "board_source must be text or destination")
+    if board_source == "destination":
+        if not destination_id:
+            raise HTTPException(400, "pick a board (destination) for this rule, or use custom text")
+        con = db()
+        if not con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND id=?",
+                           (pid, destination_id)).fetchone():
+            raise HTTPException(400, "board destination is not in this program")
+        return destination_id
+    return None
+
+
+# ---------- per-program GPIO rules (pin + trigger -> board/audio effect) ----------
+@app.get("/api/programs/{pid}/gpio-rules")
+def list_gpio_rules(pid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor", "viewer")
+    con = db()
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM p_gpio_rules WHERE program_id=? ORDER BY position", (pid,))]
+    except Exception:
+        rows = []
+    return {"rules": rows}
+
+
+@app.post("/api/programs/{pid}/gpio-rules")
+def add_gpio_rule(pid: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    trigger = (body.get("trigger") or "press").strip()
+    if trigger not in _GPIO_TRIGGERS:
+        raise HTTPException(400, f"trigger must be one of {sorted(_GPIO_TRIGGERS)}")
+    _check_gpio_pin(body.get("pin"))
+    effect = (body.get("effect") or "overlay").strip()
+    if effect not in ("overlay", "override"):
+        raise HTTPException(400, "effect must be overlay or override")
+    target = (body.get("target") or "all").strip() or "all"
+    con = db()
+    if target != "all" and not con.execute(
+            "SELECT 1 FROM program_displays WHERE program_id=? AND name=?", (pid, target)).fetchone():
+        raise HTTPException(400, f"target {target!r} is not a display in this program (or use 'all')")
+    audio = (body.get("audio") or None)
+    if audio and not con.execute(
+            "SELECT 1 FROM audio_files WHERE organisation_id=? AND sha256=?", (org, audio)).fetchone():
+        raise HTTPException(400, "audio clip not found in this organisation's library")
+    board_source = (body.get("board_source") or "text").strip()
+    destination_id = _check_gpio_board(pid, board_source, (body.get("destination_id") or None))
+    board_text = (body.get("board_text") or "").strip()[:200]
+    if board_source == "text" and not board_text and not audio:
+        raise HTTPException(400, "custom text needs board text or an audio clip (or pick a board instead)")
+    pos = con.execute("SELECT COUNT(*) FROM p_gpio_rules WHERE program_id=?", (pid,)).fetchone()[0]
+    rid = str(uuid.uuid4())
+    try:
+        duration = max(0, int(body.get("duration_s") or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "duration_s must be a whole number of seconds")
+    pull = (body.get("pull") or "up").strip()
+    if pull not in ("up", "down", "none"):
+        raise HTTPException(400, "pull must be up, down or none")
+    con.execute("INSERT INTO p_gpio_rules (id, organisation_id, program_id, label, pin,"
+                " trigger, effect, target, board_text, board_source, destination_id, audio,"
+                " duration_s, pull, active_low, debounce_ms, position)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (rid, org, pid, (body.get("label") or "").strip()[:64], int(body.get("pin")),
+                 trigger, effect, target, board_text, board_source, destination_id, audio,
+                 duration, pull, 1 if body.get("active_low", True) else 0,
+                 int(body.get("debounce_ms") or 50), pos))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"rule_id": rid}
+
+
+@app.put("/api/programs/{pid}/gpio-rules/{rid}")
+def update_gpio_rule(pid: str, rid: str, body: dict, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    r = con.execute("SELECT * FROM p_gpio_rules WHERE id=? AND program_id=?", (rid, pid)).fetchone()
+    if not r:
+        raise HTTPException(404, "no rule")
+    r = dict(r)
+    pin = int(body.get("pin", r["pin"]))
+    _check_gpio_pin(pin)
+    trigger = (body.get("trigger", r["trigger"]) or "press").strip()
+    if trigger not in _GPIO_TRIGGERS:
+        raise HTTPException(400, f"trigger must be one of {sorted(_GPIO_TRIGGERS)}")
+    effect = (body.get("effect", r["effect"]) or "overlay").strip()
+    if effect not in ("overlay", "override"):
+        raise HTTPException(400, "effect must be overlay or override")
+    target = (body.get("target", r["target"]) or "all").strip() or "all"
+    if target != "all" and not con.execute(
+            "SELECT 1 FROM program_displays WHERE program_id=? AND name=?", (pid, target)).fetchone():
+        raise HTTPException(400, f"target {target!r} is not a display in this program (or use 'all')")
+    audio = body.get("audio", r["audio"]) or None
+    if audio and not con.execute(
+            "SELECT 1 FROM audio_files WHERE organisation_id=? AND sha256=?", (org, audio)).fetchone():
+        raise HTTPException(400, "audio clip not found in this organisation's library")
+    board_source = (body.get("board_source", r.get("board_source") or "text") or "text").strip()
+    destination_id = _check_gpio_board(
+        pid, board_source, body.get("destination_id", r.get("destination_id")) or None)
+    board_text = (body.get("board_text", r["board_text"]) or "").strip()[:200]
+    if board_source == "text" and not board_text and not audio:
+        raise HTTPException(400, "custom text needs board text or an audio clip (or pick a board instead)")
+    try:
+        duration = max(0, int(body.get("duration_s", r["duration_s"]) or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "duration_s must be a whole number of seconds")
+    pull = (body.get("pull", r["pull"]) or "up").strip()
+    if pull not in ("up", "down", "none"):
+        raise HTTPException(400, "pull must be up, down or none")
+    con.execute("UPDATE p_gpio_rules SET label=?, pin=?, trigger=?, effect=?, target=?, board_text=?, "
+                "board_source=?, destination_id=?, audio=?, duration_s=?, pull=?, active_low=?, "
+                "debounce_ms=? WHERE id=?",
+                ((body.get("label", r["label"]) or "").strip()[:64], pin, trigger, effect, target,
+                 board_text, board_source, destination_id, audio, duration,
+                 pull, 1 if body.get("active_low", r["active_low"]) else 0,
+                 int(body.get("debounce_ms", r["debounce_ms"]) or 50), rid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/programs/{pid}/gpio-rules/{rid}")
+def delete_gpio_rule(pid: str, rid: str, u: dict = Depends(current_user)):
+    org = _org_of_program(pid)
+    require_role(u["id"], org, "owner", "editor")
+    con = db()
+    if not con.execute("SELECT 1 FROM p_gpio_rules WHERE id=? AND program_id=?", (rid, pid)).fetchone():
+        raise HTTPException(404, "no rule")
+    con.execute("DELETE FROM p_gpio_rules WHERE id=?", (rid,))
+    rows = con.execute("SELECT id FROM p_gpio_rules WHERE program_id=? ORDER BY position", (pid,)).fetchall()
+    for i, row in enumerate(rows):
+        con.execute("UPDATE p_gpio_rules SET position=? WHERE id=?", (i, row["id"]))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
+    con.commit()
+    return {"ok": True}
+
+
 # ---------- programs: duplicate / delete / templates / presets / import ----------
 @app.post("/api/programs/{pid}/duplicate")
 def duplicate_program(pid: str, u: dict = Depends(current_user)):
@@ -2369,7 +2633,7 @@ def duplicate_program(pid: str, u: dict = Depends(current_user)):
             con.execute("INSERT INTO p_destination_pages VALUES (?,?,?,?,?,?,?)", list(d.values()))
     except Exception:
         pass
-    for table, n in (("p_stops", 10), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5)):
+    for table, n in (("p_stops", 10), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5), ("p_gpio_rules", 17)):
         for r in con.execute(f"SELECT * FROM {table} WHERE program_id=?", (pid,)):
             d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); d["program_id"] = nid
             for k in ("service_id", "destination_id", "display_id"):
@@ -2385,7 +2649,7 @@ def delete_program(pid: str, u: dict = Depends(current_user)):
     org = _org_of_program(pid)
     require_role(u["id"], org, "owner")
     con = db()
-    for t in ("p_stops", "p_destination_pages", "p_layouts", "p_templates", "p_presets", "p_destinations", "p_services",
+    for t in ("p_stops", "p_destination_pages", "p_layouts", "p_templates", "p_presets", "p_gpio_rules", "p_destinations", "p_services",
               "program_displays", "program_versions", "controller_programs", "programs"):
         col = "id" if t == "programs" else "program_id"
         try:
@@ -3368,7 +3632,8 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
     idmap = {}
     for t, cols in (("displays", None), ("services", None), ("destinations", None), ("destination_pages", None),
                     ("stops", None),
-                    ("layouts", None), ("layout_templates", None), ("override_presets", None)):
+                    ("layouts", None), ("layout_templates", None), ("override_presets", None),
+                    ("gpio_rules", None)):
         try:
             rows = list(src.execute(f"SELECT * FROM {t}"))
         except Exception:
@@ -3384,7 +3649,7 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
             dst = {"displays": "program_displays", "services": "p_services", "destinations": "p_destinations",
                    "destination_pages": "p_destination_pages",
                    "stops": "p_stops", "layouts": "p_layouts", "layout_templates": "p_templates",
-                   "override_presets": "p_presets"}[t]
+                   "override_presets": "p_presets", "gpio_rules": "p_gpio_rules"}[t]
             if t == "displays":
                 con.execute("INSERT INTO program_displays VALUES (?,?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["name"], d["width_px"], d["height_px"], d["position"]))
@@ -3410,6 +3675,16 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
             elif t == "layout_templates":
                 con.execute("INSERT INTO p_templates VALUES (?,?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["display_id"], d["name"], d["layout"], d["is_default"]))
+            elif t == "gpio_rules":
+                con.execute("INSERT INTO p_gpio_rules (id, organisation_id, program_id, label, pin,"
+                            " trigger, effect, target, board_text, board_source, destination_id, audio,"
+                            " duration_s, pull, active_low, debounce_ms, position)"
+                            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (d["id"], organisation_id, nid, d.get("label", ""), d["pin"], d["trigger"],
+                             d.get("effect", "overlay"), d.get("target", "all"), d.get("board_text", ""),
+                             d.get("board_source", "text"), d.get("destination_id"),
+                             d.get("audio"), d.get("duration_s", 0), d.get("pull", "up"),
+                             d.get("active_low", 1), d.get("debounce_ms", 50), d.get("position", 0)))
             else:
                 con.execute("INSERT INTO p_presets VALUES (?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["label"], d["text"], d["position"]))

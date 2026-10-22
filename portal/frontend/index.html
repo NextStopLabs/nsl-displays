@@ -69,6 +69,7 @@
         <nav class=nav>
           <button class=nav-item data-section=controllers>Controllers</button>
           <button class=nav-item data-section=remote>Remote control</button>
+          <button class=nav-item data-section=pins>GPIO pins</button>
         </nav>
       </div>
     </aside>
@@ -252,6 +253,26 @@
                 <div style="align-self:end"><button id=btn-rc-prog>Select program</button></div>
               </div>
             </details>
+          </div>
+        </section>
+
+        <section id=tab-pins style="display:none">
+          <div class=group><div class=grouptitle>GPIO pins - free vs reserved (Raspberry Pi 4B, 40-pin header)</div>
+            <p class=hint>Grey pins are taken by the LED matrix (HUB75) and can't be used for buttons. Green pins are free GPIOs. Black/red are power/ground, brown is the EEPROM ID pair - none of those are usable either. Pick a controller to use its matrix mapping; otherwise the default (regular, parallel 1) is shown.</p>
+            <div class=row>
+              <div class=col><label for=pins-ctl>Controller (for its matrix mapping)</label><select id=pins-ctl><option value="">Default mapping (regular, parallel 1)</option></select></div>
+              <div style="align-self:end"><button id=btn-pins-refresh class=primary>Refresh</button></div>
+            </div>
+            <div id=pins-summary class=hint></div>
+            <div class=pins-legend>
+              <span class="pin-swatch free"></span> free GPIO
+              <span class="pin-swatch reserved"></span> reserved (matrix)
+              <span class="pin-swatch power"></span> power
+              <span class="pin-swatch ground"></span> ground
+              <span class="pin-swatch eeprom"></span> EEPROM
+            </div>
+            <div id=pins-board class=pins-board></div>
+            <div class=err id=pins-err></div>
           </div>
         </section>
 

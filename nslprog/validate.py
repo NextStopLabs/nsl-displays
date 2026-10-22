@@ -215,6 +215,48 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
         if not s["last_stop_audio"]:
             res.warnings.append(Issue("svc_no_last", f"service {s['number']} missing last-stop clip", "services", s["id"]))
 
+    # --- gpio rules ---
+    gpio_triggers = {"press", "long", "double", "on_active", "while_active", "on_release", "toggle"}
+    if _has_table(con, "gpio_rules"):
+        dest_ids = {d["id"] for d in destinations}
+        cols = {c[1] for c in con.execute("PRAGMA table_info(gpio_rules)").fetchall()}
+        for r in _rows(con, "SELECT * FROM gpio_rules ORDER BY position"):
+            if r["trigger"] not in gpio_triggers:
+                res.errors.append(Issue("gpio_trigger", f"gpio rule {r['label']!r} bad trigger {r['trigger']!r}",
+                                        "gpio_rules", r["id"]))
+            if r["effect"] not in ("overlay", "override"):
+                res.errors.append(Issue("gpio_effect", f"gpio rule {r['label']!r} bad effect {r['effect']!r}",
+                                        "gpio_rules", r["id"]))
+            board_source = r.get("board_source", "text") if "board_source" in cols else "text"
+            if board_source not in ("text", "destination"):
+                res.errors.append(Issue("gpio_board_source", f"gpio rule {r['label']!r} bad board source {board_source!r}",
+                                        "gpio_rules", r["id"]))
+                board_source = "text"
+            dest_ref = r.get("destination_id") if "destination_id" in cols else None
+            if board_source == "destination":
+                if not dest_ref or dest_ref not in dest_ids:
+                    res.errors.append(Issue("gpio_board",
+                                            f"gpio rule {r['label']!r} board {dest_ref!r} is not a destination in this program",
+                                            "gpio_rules", r["id"]))
+            try:
+                pin = int(r["pin"])
+            except (TypeError, ValueError):
+                pin = -1
+            if not (0 <= pin <= 27):
+                res.errors.append(Issue("gpio_pin", f"gpio rule {r['label']!r} pin {r['pin']!r} must be a BCM number 0-27",
+                                        "gpio_rules", r["id"]))
+            if r["audio"] and r["audio"] not in audio_hashes:
+                res.errors.append(Issue("missing_audio", f"gpio rule {r['label']!r} audio {str(r['audio'])[:12]}… missing",
+                                        "gpio_rules", r["id"]))
+            if board_source == "text" and not r["board_text"] and not r["audio"]:
+                res.warnings.append(Issue("gpio_empty", f"gpio rule {r['label']!r} has no board text or audio (does nothing)",
+                                          "gpio_rules", r["id"]))
+            if board_source == "destination" and not r["audio"] and not r["board_text"]:
+                pass  # board alone is a complete effect
+            if r["target"] not in ("all",) and r["target"] not in disp_by_name:
+                res.errors.append(Issue("gpio_target", f"gpio rule {r['label']!r} target {r['target']!r} is not a display in this program",
+                                        "gpio_rules", r["id"]))
+
     # --- layouts ---
     page_counts: dict[str, int] = {}
     for _pg in dest_pages:

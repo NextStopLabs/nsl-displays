@@ -171,6 +171,31 @@ CREATE TABLE override_presets (
   position INTEGER NOT NULL
 );
 
+-- Per-program GPIO input rules: pin + trigger -> board/audio effect.
+-- Triggers: press/long/double (momentary), on_active (rising edge),
+-- while_active (latched overlay while held), on_release (falling edge),
+-- toggle (each tap flips a latched board on/off).
+-- Board content is either custom text (board_text) or a designed destination
+-- board from this program (board_source='destination' + destination_id:
+-- its pages and per-display layouts render, e.g. a REVERSING board).
+CREATE TABLE gpio_rules (
+  id         TEXT PRIMARY KEY,
+  label      TEXT NOT NULL DEFAULT '',
+  pin        INTEGER NOT NULL,
+  trigger    TEXT NOT NULL CHECK (trigger IN ('press','long','double','on_active','while_active','on_release','toggle')),
+  effect     TEXT NOT NULL DEFAULT 'overlay' CHECK (effect IN ('overlay','override')),
+  target     TEXT NOT NULL DEFAULT 'all',
+  board_text TEXT NOT NULL DEFAULT '',
+  board_source TEXT NOT NULL DEFAULT 'text' CHECK (board_source IN ('text','destination')),
+  destination_id TEXT REFERENCES destinations(id),
+  audio      TEXT REFERENCES audio(hash),
+  duration_s INTEGER NOT NULL DEFAULT 0,
+  pull       TEXT NOT NULL DEFAULT 'up' CHECK (pull IN ('up','down','none')),
+  active_low INTEGER NOT NULL DEFAULT 1 CHECK (active_low IN (0,1)),
+  debounce_ms INTEGER NOT NULL DEFAULT 50,
+  position   INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX idx_destinations_service ON destinations (service_id, position);
 CREATE INDEX idx_stops_destination    ON stops (destination_id, position);
 CREATE INDEX idx_destination_pages_destination ON destination_pages (destination_id, position);

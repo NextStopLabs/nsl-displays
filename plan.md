@@ -519,6 +519,21 @@ The Pi creates its own Wi-Fi access point. Join it from a phone or laptop and op
 - Network: update mode (join the hotspot for a set time), start access point
 - System: apply pending update now
 
+**Per-program GPIO display rules** (door, reverse, toggles): each program maps a
+BCM pin + trigger to a board/audio effect, edited in the portal program's
+GPIO tab and shipped in the `.nslprog` bundle (`gpio_rules`). Triggers:
+press / long / double (momentary), on_active (rising edge), while_active
+(latched overlay while held - reverse gear, door open, toggle on) and
+on_release (falling edge - door just closed), plus toggle (each tap flips a
+latched board on, next tap restores). Effects: overlay board on
+chosen displays (auto-restores, optional seconds duration) or driver override
+(stays until the stop changes), plus an optional audio clip from the program
+library. Board content is custom text or a designed destination board picked
+from the program (its pages and per-display layouts render - e.g. a
+REVERSING board); override effects use the destination's driver message.
+The Pi input service polls the pins (`gpiozero`) and applies them through
+Core; reserved matrix pins are rejected in the portal.
+
 **Audio:** the matrix library clashes with the Pi 4's onboard sound. Use a **USB audio adapter or an I2S DAC** (I2S also uses pins, so the UI reserves those when enabled; with three chains a USB audio adapter is the practical choice) and set `dtparam=audio=off`. With onboard sound off, hardware pulse can be switched on for a better picture.
 
 ### 6.8 USB keypad

@@ -502,7 +502,7 @@ const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const ORG = localStorage.getItem("nsl_org") || "";
 const TOKEN = localStorage.getItem("nsl_token") || "";
 const urlCid = new URLSearchParams(location.search).get("cid");
-const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "" };
+const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", pending: null };
 const MAX_CODE = 5;
 const LIST_ROWS = 4;
 const screen = document.getElementById("screen");
@@ -583,7 +583,7 @@ function selectBus(i, silent) {
   state.selBus = i;
   try { localStorage.setItem("nsl_cid", c.id); } catch(e){}
   ctrlsel.value = c.id;
-  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0;
+  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null;
   const url = new URL(location.href);
   url.searchParams.set("cid", c.id);
   history.replaceState(null, "", url);
@@ -602,8 +602,31 @@ async function refresh() {
     if (!state.services.length) {
       try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; } catch(e){}
     }
+    // a queued ENT is "loaded" once the bus reports the expected destination
+    if (state.pending) {
+      const ld = state.live.destination || {};
+      const p = state.pending;
+      const matched = (p.destId && ld.id === p.destId) || (p.codeStr && ld.code === p.codeStr);
+      const timedOut = Date.now() - (p.at || 0) > 60000;
+      if (matched || timedOut) state.pending = null;
+    }
   } catch(e) { offline.textContent = String(e.message || e); }
   if (state.mode === "view") render();
+}
+
+/* optimistic pending: route number + LOADING where the driver message sits */
+function lookupCode(code) {
+  for (const s of state.services || []) {
+    for (const d of (s.destinations || [])) {
+      if (String(d.code) === String(code)) return { svc: s, dest: d };
+    }
+  }
+  return null;
+}
+function showPending(num, codeFmt, destId, codeStr) {
+  state.pending = { num: String(num || "--"), code: codeFmt, destId: destId || null, codeStr: codeStr || null, at: Date.now() };
+  state.mode = "view";
+  render();
 }
 
 /* ---------- helpers ---------- */
@@ -690,6 +713,16 @@ function render() {
   }
 
   const num = String(svc.number || "--");
+  if (state.pending) {
+    const p = state.pending;
+    const pfs = p.num.length <= 2 ? 45 : p.num.length === 3 ? 34 : 26;
+    screen.innerHTML = `
+    <div class="hv-route" style="font-size:${pfs}px">${esc(p.num)}</div>
+    <div class="hv-dest"><div>LOADING...</div></div>
+    <div class="hv-right">${esc(p.code)}</div>`;
+    hint.textContent = "sending to bus…";
+    return;
+  }
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
@@ -701,6 +734,7 @@ function render() {
 /* ---------- actions (logic unchanged) ---------- */
 function enterCode() {
   if (!state.cid) return;
+  state.pending = null;
   state.mode = "code"; state.code = []; state.codeError = ""; render();
 }
 function appendDigit(n) {
@@ -715,7 +749,7 @@ function backspace() {
 function cancelCode() {
   if (state.mode === "code") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
-  if (state.mode === "services") { state.mode = "view"; render(); }
+  if (state.mode === "services") { state.mode = "view"; state.pending = null; render(); }
 }
 async function confirm() {
   if (!state.cid) {
@@ -726,11 +760,20 @@ async function confirm() {
   if (state.mode === "code") {
     const c = state.code.join("");
     if (c.length === 0) return;
+    if (!state.services.length) {
+      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; } catch(e){}
+    }
+    const hit = lookupCode(c);
+    const keep = state.code.slice();
+    showPending(hit ? hit.svc.number : (state.current.service || {}).number, fmtCode(c), hit ? hit.dest.id : null, c);
+    state.code = [];
+    state.codeError = "";
     try {
       await cmdPath("select_code", {code:c});
-      state.mode = "view"; state.code = []; state.codeError = "";
       await refresh();
     } catch(e) {
+      state.pending = null;
+      state.mode = "code"; state.code = keep;
       state.codeError = "NOT FOUND";
       render();
     }
@@ -740,11 +783,14 @@ async function confirm() {
     const svc = state.services[state.selSvc];
     const dest = (svc&&svc.destinations||[])[state.selDest];
     if (!dest) return;
+    showPending(svc.number, fmtCode(dest.code), dest.id, dest.code);
+    state.listError = "";
     try {
       await cmdPath("select_destination", {destination_id:dest.id});
-      state.mode = "view"; state.listError = "";
       await refresh();
     } catch(e) {
+      state.pending = null;
+      state.mode = "destinations";
       state.listError = "ERROR";
       render();
     }
@@ -782,7 +828,7 @@ function move(dir) {
     state.listError = "";
     render();
   } else if (state.mode === "view") {
-    if (dir === "up" || dir === "down") { state.mode = "services"; state.selSvc = 0; render(); }
+    if (dir === "up" || dir === "down") { state.pending = null; state.mode = "services"; state.selSvc = 0; render(); }
   }
 }
 
@@ -808,7 +854,7 @@ ctrlsel.addEventListener("change", () => {
   } else {
     try { localStorage.removeItem("nsl_cid"); } catch(e){}
   }
-  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0;
+  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null;
   const url = new URL(location.href);
   if (state.cid) url.searchParams.set("cid", state.cid); else url.searchParams.delete("cid");
   history.replaceState(null, "", url);

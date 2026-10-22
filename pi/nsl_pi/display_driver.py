@@ -82,19 +82,17 @@ class DisplayDriver:
         pages = snapshot.get("pages") or []
         destination = snapshot.get("destination") or {}
         service = snapshot.get("service") or {}
-        svc_number = service.get("number", "") if isinstance(service, dict) else ""
         override = snapshot.get("override") or ""
         now = _t.time()
         layouts = snapshot.get("layouts", {})
         state = snapshot.get("state", {})
-        for out in self.outputs:
-            if not out.get("enabled", 1):
-                continue
-            if (out.get("transport") or "local") != "local":
-                continue  # another Pi drives this sign over the bus LAN
-            prog_display = out.get("program_display") or ""
-            w, h = int(out["width_px"]), int(out["height_px"])
+        gpio_overlay = snapshot.get("gpio_overlay") or {}
+        gpio_boards = snapshot.get("gpio_boards") or {}
+
+        def render_board(out, w, h, fields, pages, destination, service, layouts, override):
+            """Render one output's frame from board bits (normal or GPIO board)."""
             layout = None
+            prog_display = out.get("program_display") or ""
             # layouts keyed by display NAME (front/side/rear); fallback to default
             # template, then auto-fit.
             cand = layouts.get(prog_display) or layouts.get(out.get("display_name"))
@@ -110,20 +108,74 @@ class DisplayDriver:
                         break
             if layout is None:
                 layout = autofit_layout(w, h)
+            svc_number = service.get("number", "") if isinstance(service, dict) else ""
+            if pages and destination:
+                slot = slot_for_layout(layout, now)
+                page_fields = fields_for_slot(
+                    destination, svc_number, layout, now, pages)
+                # keep stop-derived fields (__board_text etc.) from snapshot
+                for k, v in fields.items():
+                    if k.startswith("__"):
+                        page_fields[k] = v
+                return render_frame(layout, page_fields, override,
+                                    now=now, pages=pages,
+                                    board_position=board_position_for_slot(pages, slot))
+            return render_frame(layout, fields, override)
+
+        for out in self.outputs:
+            if not out.get("enabled", 1):
+                continue
+            if (out.get("transport") or "local") != "local":
+                continue  # another Pi drives this sign over the bus LAN
+            prog_display = out.get("program_display") or ""
+            w, h = int(out["width_px"]), int(out["height_px"])
+            # GPIO destination board wins on the boards it targets: the full
+            # designed board (its own layouts, pages cycle), auto-restores when
+            # the input service clears it.
+            gb = (gpio_boards.get(prog_display)
+                  or gpio_boards.get(out.get("display_name"))
+                  or gpio_boards.get("all"))
+            if gb:
+                try:
+                    frame = render_board(out, w, h, gb.get("fields", {}), gb.get("pages") or [],
+                                         gb.get("destination") or {}, gb.get("service") or {},
+                                         gb.get("layouts") or {}, "")
+                except Exception:
+                    continue  # hold last frame on crash (spec)
+                self.last_frames[out["display_name"]] = frame
+                self._draw(out, frame)
+                continue
+            # GPIO text overlay: full-board message, auto-restores when cleared.
+            layout = None
+            cand = layouts.get(prog_display) or layouts.get(out.get("display_name"))
+            if cand:
+                layout = _j.loads(cand) if isinstance(cand, str) else cand
+            else:
+                # any default template
+                for k, v in layouts.items():
+                    if k.startswith("template:"):
+                        layout = _j.loads(v) if isinstance(v, str) else v
+                        layout = dict(layout)
+                        layout["width"], layout["height"] = w, h
+                        break
+            if layout is None:
+                layout = autofit_layout(w, h)
+            ov_text = (gpio_overlay.get(prog_display)
+                       or gpio_overlay.get(out.get("display_name"))
+                       or gpio_overlay.get("all"))
+            if ov_text:
+                try:
+                    ov_layout = dict(layout)
+                    ov_layout["override"] = {"mode": "full", "replaces": "dest", "hide": []}
+                    frame = render_frame(ov_layout, {}, ov_text)
+                except Exception:
+                    continue  # hold last frame on crash (spec)
+                self.last_frames[out["display_name"]] = frame
+                self._draw(out, frame)
+                continue
             try:
-                if pages and destination:
-                    slot = slot_for_layout(layout, now)
-                    page_fields = fields_for_slot(
-                        destination, svc_number, layout, now, pages)
-                    # keep stop-derived fields (__board_text etc.) from snapshot
-                    for k, v in fields.items():
-                        if k.startswith("__"):
-                            page_fields[k] = v
-                    frame = render_frame(layout, page_fields, override,
-                                         now=now, pages=pages,
-                                         board_position=board_position_for_slot(pages, slot))
-                else:
-                    frame = render_frame(layout, fields, override)
+                frame = render_board(out, w, h, fields, pages, destination,
+                                     service, layouts, override)
             except Exception:
                 continue  # hold last frame on crash (spec)
             self.last_frames[out["display_name"]] = frame

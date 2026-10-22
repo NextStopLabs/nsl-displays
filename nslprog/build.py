@@ -54,6 +54,7 @@ class ProgramBuilder:
         self.layouts: list[dict] = []
         self.templates: list[dict] = []
         self.presets: list[dict] = []
+        self.gpio_rules: list[dict] = []
         self.audio: dict[str, dict] = {}
         self.default_display_id: str | None = None
 
@@ -127,6 +128,22 @@ class ProgramBuilder:
         self.presets.append({"id": pid, "label": label, "text": text, "position": position})
         return pid
 
+    def add_gpio_rule(self, label: str = "", pin: int = 0, trigger: str = "press",
+                      effect: str = "overlay", target: str = "all", board_text: str = "",
+                      board_source: str = "text", destination_id: str | None = None,
+                      audio: str | None = None, duration_s: int = 0, pull: str = "up",
+                      active_low: bool = True, debounce_ms: int = 50, position: int = 0,
+                      id: str | None = None) -> str:
+        rid = id or new_uuid()
+        self.gpio_rules.append({"id": rid, "label": label, "pin": int(pin), "trigger": trigger,
+                                "effect": effect, "target": target or "all",
+                                "board_text": board_text or "", "board_source": board_source or "text",
+                                "destination_id": destination_id, "audio": audio,
+                                "duration_s": int(duration_s or 0), "pull": pull,
+                                "active_low": 1 if active_low else 0,
+                                "debounce_ms": int(debounce_ms or 0), "position": int(position or 0)})
+        return rid
+
     def _referenced_audio(self) -> set[str]:
         refs: set[str] = set()
         for s in self.services:
@@ -136,6 +153,9 @@ class ProgramBuilder:
         for st in self.stops:
             if st["audio"]:
                 refs.add(st["audio"].lower())
+        for r in self.gpio_rules:
+            if r["audio"]:
+                refs.add(r["audio"].lower())
         return refs
 
     def build(self, out_path: str, version: int, default_display_id: str | None = None) -> dict:
@@ -154,6 +174,12 @@ class ProgramBuilder:
             if s["number"] in nums:
                 raise ValueError(f"build validation failed: service number {s['number']!r} appears twice")
             nums[s["number"]] = s["id"]
+        dest_ids = {d["id"] for d in self.destinations}
+        for r in self.gpio_rules:
+            if (r.get("board_source") or "text") == "destination" and r.get("destination_id") not in dest_ids:
+                raise ValueError(
+                    f"build validation failed: gpio rule {r.get('label') or r['id']!r} points at "
+                    f"unknown destination {r.get('destination_id')!r}")
         default_display_id = default_display_id or self.default_display_id
         tmp = out_path + ".tmp"
         if os.path.exists(tmp):
@@ -195,6 +221,12 @@ class ProgramBuilder:
             for p in self.presets:
                 con.execute("INSERT INTO override_presets VALUES (?,?,?,?)",
                             (p["id"], p["label"], p["text"], p["position"]))
+            for r in self.gpio_rules:
+                con.execute("INSERT INTO gpio_rules VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (r["id"], r["label"], r["pin"], r["trigger"], r["effect"],
+                             r["target"], r["board_text"], r.get("board_source", "text"),
+                             r.get("destination_id"), r["audio"], r["duration_s"],
+                             r["pull"], r["active_low"], r["debounce_ms"], r["position"]))
             # content hash before meta insert (meta excluded)
             chash = content_hash_of_connection(con)
             meta = {"format": "nslprog", "format_version": str(FORMAT_VERSION),
