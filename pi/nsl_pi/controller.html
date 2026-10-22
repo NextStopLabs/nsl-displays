@@ -846,7 +846,7 @@ async function confirm() {
       try {
         const r = await api("/api/update", {});
         state.adminMsg = (r && r.ok) ? ("STAGED " + (r.version || "")) : "NO UPDATE";
-      } catch(e) { state.adminMsg = "FAILED"; }
+      } catch(e) { state.adminMsg = (e.message || "FAILED").slice(0, 28); }
       render();
       return;
     }

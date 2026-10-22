@@ -219,8 +219,15 @@ def api_update_status():
 
 @app.post("/api/update")
 def api_update_trigger(body: dict):
-    """Check portal for a release and stage it (triggered from local UI)."""
+    """Check portal for a release and stage it (triggered from local UI).
+
+    Sync touches the network (hotspot) and the portal can answer 404/401
+    (wrong portal URL, unpaired/rotated token) — none of that may escape
+    as an ASGI 500. Map it to a 502 with a short actionable detail the
+    faceplate can show.
+    """
     import os as _os
+    import urllib.error as _urlerr
     from .agent import Agent
     from .store import init_controller_db
     base = _os.environ.get("NSL_BASE", "/var/lib/nsl")
@@ -228,8 +235,23 @@ def api_update_trigger(body: dict):
     init_controller_db(db)
     token = _os.environ.get("NSL_TOKEN")
     portal = _os.environ.get("PORTAL_URL", "https://nsldisplays.com/portal")
+    if not token:
+        raise HTTPException(409, "bus not paired - pair it first")
     ag = Agent(portal, base, token)
-    rep = ag.sync_once(db)
+    try:
+        rep = ag.sync_once(db)
+    except _urlerr.HTTPError as e:
+        if e.code == 404:
+            raise HTTPException(502, "portal 404 - check URL")
+        if e.code in (401, 403):
+            raise HTTPException(502, "bad token - re-pair bus")
+        raise HTTPException(502, f"portal said {e.code}")
+    except _urlerr.URLError:
+        raise HTTPException(502, "no portal - hotspot on?")
+    except ValueError as e:
+        raise HTTPException(502, f"sync failed: {str(e)[:60]}")
+    except Exception:
+        raise HTTPException(502, "sync failed")
     return rep.get("release", {"info": "no release sync performed"})
 
 
