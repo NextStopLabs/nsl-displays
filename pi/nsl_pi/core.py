@@ -468,7 +468,14 @@ class Core:
         return self.state()
 
     def browse(self) -> dict:
-        """Return services + destinations for the currently selected program."""
+        """Return services + destinations for the currently selected program.
+
+        Ordered services-by-number then destinations-by-code (numeric-aware),
+        matching every other list in the portal and on the controllers.
+        """
+        def _num_key(v) -> tuple:
+            s = str(v or "")
+            return (0, int(s), "") if s.isdigit() else (1, 0, s)
         st = self.state()
         pid = st.get("program_id")
         version = st.get("program_version")
@@ -484,12 +491,14 @@ class Core:
                 dests = [dict(d) for d in pc.execute(
                     "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
                     (svc["id"],))]
+                dests.sort(key=lambda d: _num_key(d.get("code")))
                 services.append({
                     "id": svc["id"],
                     "number": svc.get("number") or "",
                     "name": svc.get("description") or svc.get("name") or "",
                     "destinations": dests,
                 })
+            services.sort(key=lambda s: _num_key(s["number"]))
             return {"services": services}
         finally:
             pc.close()

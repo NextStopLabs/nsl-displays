@@ -3,6 +3,11 @@
 const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+/* list order everywhere: services by number, destinations by code (numeric-aware) */
+const cmpSvcNum = (a, b) => String(a.number || "").localeCompare(String(b.number || ""), undefined, { numeric: true });
+const cmpDestCode = (a, b) => String(a.code || "").localeCompare(String(b.code || ""), undefined, { numeric: true });
+const svcSorted = (services) => [...(services || [])].sort(cmpSvcNum);
+const destSorted = (dests) => [...(dests || [])].sort(cmpDestCode);
 const S = { token: localStorage.getItem("nsl_token") || "", orgs: [], org: localStorage.getItem("nsl_org") || "",
   programs: [], controllers: [], curProg: null, curDest: null, clips: [] };
 
@@ -433,8 +438,8 @@ function renderProgram() {
   Preview.stop();
   const p = S.curProg;
   const flat = [];
-  for (const s of (p.services || [])) for (const d of (s.destinations || [])) flat.push({ s, d });
-  flat.sort((a, b) => (a.d.code < b.d.code ? -1 : 1));
+  for (const s of svcSorted(p.services)) for (const d of destSorted(s.destinations)) flat.push({ s, d });
+  flat.sort((a, b) => cmpSvcNum(a.s, b.s) || cmpDestCode(a.d, b.d));
   const dispName = (d, s) => [d.num || s.number, d.via, d.dest].filter(Boolean).join(" · ") || d.name;
 
   const svcCount = (p.services || []).length;
@@ -468,11 +473,11 @@ function renderProgram() {
   h += `<div class=group><div class=grouptitle>1 · Service number</div>`;
   h += `<div class=row><div class=col><label for=dest-service>Service</label><select id=dest-service>` +
     `<option value="">All services (${destCount} destination(s))</option>` +
-    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${(s.destinations || []).length})</option>`).join("") +
+    svcSorted(p.services).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${(s.destinations || []).length})</option>`).join("") +
     `</select></div><div class=col><label for=dest-filter>Filter</label><input id=dest-filter placeholder="code or driver message"></div></div>`;
   h += `<p class=hint>Pick a service to see its destinations. Each destination is one code the driver enters: it has a driver message for the controller screen and one or more board pages, each with its own via / dest.</p></div>`;
-  for (const s of (p.services || [])) {
-    const dests = [...(s.destinations || [])].sort((a, b) => (a.code < b.code ? -1 : 1));
+  for (const s of svcSorted(p.services)) {
+    const dests = destSorted(s.destinations);
     h += `<div class=group data-svc-group="${s.id}"><div class=grouptitle>Service ${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${dests.length})</div>`;
     if (!dests.length) {
       h += `<p class=hint>No destinations yet - add one below.</p>`;
@@ -498,7 +503,7 @@ function renderProgram() {
   h += `<div class=group><div class=grouptitle>New destination</div>`;
   h += `<div class=row>
     <div style="flex:0 0 180px"><label for=nd-service>2 · Service</label><select id=nd-service>` +
-    (p.services || []).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("") +
+    svcSorted(p.services).map((s) => `<option value="${s.id}">${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("") +
     `<option value="__new__">New service…</option></select></div>
     <div style="flex:0 0 140px"><label for=nd-code>3 · Code (1–8 digits)</label><input id=nd-code maxlength=8 inputmode=numeric></div>
     <div style="align-self:end"><button id=nd-suggest type=button>Suggest</button></div></div>`;
@@ -596,7 +601,7 @@ function renderProgram() {
         <th style="width:150px">Terminus plays on</th>
         <th></th>
       </tr></thead><tbody>`;
-    for (const s of (p.services || [])) {
+    for (const s of svcSorted(p.services)) {
       const destCount = (s.destinations || []).length;
       h += `<tr data-svc-row="${s.id}">
         <td><input data-svc-num="${s.id}" value="${esc(s.number)}"></td>
@@ -963,7 +968,7 @@ function renderProgram() {
   const dlg = $("dest-dialog");
   const openEdit = (did) => {
     const found = findDest(did); if (!found) return;
-    $("ed-service").innerHTML = (p.services || []).map((s) =>
+    $("ed-service").innerHTML = svcSorted(p.services).map((s) =>
       `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("");
     $("ed-code").value = found.d.code; $("ed-name").value = found.d.name;
     $("ed-via").value = found.d.via || ""; $("ed-dest").value = found.d.dest || "";
@@ -991,7 +996,7 @@ function renderProgram() {
   const dupDlg = $("dup-dialog");
   const openDup = async (did) => {
     const found = findDest(did); if (!found) return;
-    $("dup-service").innerHTML = (p.services || []).map((s) =>
+    $("dup-service").innerHTML = svcSorted(p.services).map((s) =>
       `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("");
     $("dup-src").textContent = `Copy ${found.d.code} ${found.d.name || ""} with its stops, board pages and layouts.`;
     $("dup-err").textContent = "";
@@ -1241,8 +1246,8 @@ function wireGpioTab(p) {
   // board picker: custom text, or a designed destination board from this program
   const destById = {};
   const boardOpts = `<option value="">Custom text (type below)</option>` +
-    (p.services || []).map((s) => {
-      const opts = (s.destinations || []).map((d) => {
+    svcSorted(p.services).map((s) => {
+      const opts = destSorted(s.destinations).map((d) => {
         destById[d.id] = { code: d.code, name: d.name, service: s.number };
         return `<option value="${esc(d.id)}">${esc(d.code)} · ${esc(d.name || d.dest || "")}</option>`;
       }).join("");
@@ -1564,8 +1569,9 @@ $("btn-codes").addEventListener("click", async () => {
   try {
     const p = await api("/api/programs/" + $("codes-prog").value);
     const rows = [];
-    for (const s of (p.services || [])) for (const d of (s.destinations || [])) rows.push({ code: d.code, svc: s.number, name: d.name });
-    rows.sort((a, b) => (a.code < b.code ? -1 : 1));
+    for (const s of svcSorted(p.services)) for (const d of destSorted(s.destinations)) rows.push({ code: d.code, svc: s.number, name: d.name });
+    rows.sort((a, b) => String(a.svc || "").localeCompare(String(b.svc || ""), undefined, { numeric: true }) ||
+      String(a.code || "").localeCompare(String(b.code || ""), undefined, { numeric: true }));
     $("coderows").innerHTML = rows.map((r) => `<tr><td class=kbd>${esc(r.code)}</td><td>${esc(r.svc)}</td><td>${esc(r.name)}</td></tr>`).join("");
   } catch (e) { err(String(e.message || e)); }
 });

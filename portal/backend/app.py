@@ -2251,6 +2251,10 @@ def controller_browse(cid: str, u: dict = Depends(current_user)):
         return {"services": []}
     import sqlite3 as _s
     bc = _s.connect(f"file:{bundle}?mode=ro", uri=True)
+    def _num_key(v: str) -> tuple:
+        # numeric-aware: "9" < "80" < "100", then plain string fallback
+        s = str(v or "")
+        return (0, int(s), "") if s.isdigit() else (1, 0, s)
     try:
         bc.row_factory = _s.Row
         services = []
@@ -2258,12 +2262,14 @@ def controller_browse(cid: str, u: dict = Depends(current_user)):
             dests = [dict(d) for d in bc.execute(
                 "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
                 (svc["id"],))]
+            dests.sort(key=lambda d: _num_key(d.get("code")))
             services.append({
                 "id": svc["id"],
                 "number": svc.get("number") or "",
                 "name": svc.get("description") or svc.get("name") or "",
                 "destinations": dests,
             })
+        services.sort(key=lambda s: _num_key(s["number"]))
         return {"services": services}
     finally:
         bc.close()
