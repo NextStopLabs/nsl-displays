@@ -492,6 +492,18 @@ const LayoutEditor = (() => {
       s.textContent = `${(ed.lay.elements || []).length} element(s) · ${ed.lay.width}×${ed.lay.height}${tab} · source: ${ed.src}`;
     }
     renderBoardTabs();
+    renderCopyControls();
+  }
+
+  function renderCopyControls() {
+    const row = document.getElementById("lay-copy-row");
+    const sel = document.getElementById("lay-copypage");
+    if (!row || !sel) return;
+    const ordered = orderedBoardPages();
+    if (ordered.length <= 1) { row.style.display = "none"; return; }
+    row.style.display = "";
+    sel.innerHTML = ordered.map((pg) =>
+      `<option value="${pg.position}"${pg.position === ed.tab ? " selected" : ""}>P${pg.position}</option>`).join("");
   }
 
   function renderOverride() {
@@ -624,6 +636,16 @@ const LayoutEditor = (() => {
             <div class=row>
               <div style="flex:0 0 80px"><label>Seconds</label><input id=lay-seconds class=page-seconds type=number min=1 step=1 value=3></div>
             </div>
+            <div class="row" id=lay-copy-row style="display:none;margin-top:8px">
+              <div class=col>
+                <label>Copy page layout</label>
+                <div class=row>
+                  <select id=lay-copypage></select>
+                  <button id=lay-copyto>Copy current to</button>
+                  <button id=lay-copyfrom>Copy from into current</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div class=group><div class=grouptitle>Preview inputs</div>
             <div class=hint id=lay-pages-hint></div>
@@ -714,6 +736,22 @@ const LayoutEditor = (() => {
     };
     document.getElementById("lay-addfield").onclick = () => addElement("field");
     document.getElementById("lay-addtext").onclick = () => addElement("text");
+    document.getElementById("lay-copyto").onclick = () => {
+      const target = parseInt(document.getElementById("lay-copypage").value, 10);
+      const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+      pe[target] = JSON.parse(JSON.stringify(ed.lay.elements || []));
+      if (target === ed.tab) ed.lay.elements = pe[target];
+      updateStatus(); drawEditor(); renderProps();
+    };
+    document.getElementById("lay-copyfrom").onclick = () => {
+      const source = parseInt(document.getElementById("lay-copypage").value, 10);
+      const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+      if (!pe[source]) return;
+      ed.lay.elements = JSON.parse(JSON.stringify(pe[source]));
+      pe[ed.tab] = ed.lay.elements;
+      ed.sel = (ed.lay.elements || []).length ? 0 : -1;
+      updateStatus(); drawEditor(); renderProps();
+    };
     document.getElementById("lay-ellist").onchange = (e) => {
       ed.sel = parseInt(e.target.value, 10);
       drawEditor(); renderProps();
