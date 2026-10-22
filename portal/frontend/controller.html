@@ -882,7 +882,7 @@ async function confirm() {
       try {
         await cmdPath("select_program", {program_id: pid});
         state.adminMsg = "SENT — bus reloads shortly";
-      } catch(e) { state.adminMsg = "OFFLINE"; }
+      } catch(e) { state.adminMsg = "OFFLINE"; buzz([35, 40, 35]); }
       render();
       return;
     }
@@ -901,7 +901,7 @@ async function confirm() {
         const u = state.upd || {};
         state.adminMsg = (u.latest_version && u.current_version !== u.latest_version)
           ? ("SYNC SENT → v" + u.latest_version) : "SYNC SENT";
-      } catch(e) { state.adminMsg = "OFFLINE"; }
+      } catch(e) { state.adminMsg = "OFFLINE"; buzz([35, 40, 35]); }
       render();
       return;
     }
@@ -913,7 +913,7 @@ async function confirm() {
     try {
       await cmdPath("select_program", {program_id: p.id});
       state.adminMsg = "SENT — bus applies shortly";
-    } catch(e) { state.adminMsg = "OFFLINE"; }
+    } catch(e) { state.adminMsg = "OFFLINE"; buzz([35, 40, 35]); }
     render();
     return;
   }
@@ -925,7 +925,7 @@ async function confirm() {
         state.mode = "view"; state.code = []; state.codeError = "";
         await refresh();
       } catch(e) {
-        state.codeError = "ERROR";
+        state.codeError = "ERROR"; buzz([35, 40, 35]);
         render();
       }
       return;
@@ -941,7 +941,7 @@ async function confirm() {
       await refresh();
     } catch(e) {
       state.mode = "insert"; state.code = keepI;
-      state.codeError = hitI ? "ERROR" : "NOT FOUND";
+      state.codeError = hitI ? "ERROR" : "NOT FOUND"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -963,7 +963,7 @@ async function confirm() {
     } catch(e) {
       state.pending = null;
       state.mode = "code"; state.code = keep;
-      state.codeError = "NOT FOUND";
+      state.codeError = "NOT FOUND"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -980,7 +980,7 @@ async function confirm() {
     } catch(e) {
       state.pending = null;
       state.mode = "destinations";
-      state.listError = "ERROR";
+      state.listError = "ERROR"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -1039,9 +1039,10 @@ document.body.addEventListener("click", (e) => {
   e.preventDefault();
   const num = b.dataset.num;
   const btn = b.dataset.btn;
-  if (num !== undefined) { state.seq = []; appendDigit(num); return; }
+  if (num !== undefined) { state.seq = []; buzz(12); appendDigit(num); return; }
   if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
   else state.seq = [];
+  buzz(12);
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
@@ -1071,7 +1072,10 @@ const KEY_MAP = {
   Escape:"x", c:"x", Backspace:"bs", Delete:"bs",
   f:"f", d:"d", x:"x", y:"y", i:"i", r:"r"
 };
-function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } }
+function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } buzz(12); }
+/* haptic feedback on mobile: short tap per key, double-buzz on errors.
+   No-op on desktop and iOS (no Vibration API there). */
+function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p || 12); } catch(e) {} }
 document.addEventListener("keydown", (e) => {
   if (e.key >= "0" && e.key <= "9") {
     flash(document.querySelector(`button[data-num="${e.key}"]`));

@@ -868,7 +868,7 @@ async function confirm() {
         await api("/api/command", {command: "select_program", program_id: pid});
         state.mode = "view"; state.services = []; state.adminMsg = "";
         await refresh();
-      } catch(e) { state.adminMsg = "FAILED"; render(); }
+      } catch(e) { state.adminMsg = "FAILED"; buzz([35, 40, 35]); render(); }
       return;
     }
     if (state.selAdmin === 1) {
@@ -883,7 +883,7 @@ async function confirm() {
       try {
         const r = await api("/api/update", {});
         state.adminMsg = (r && r.ok) ? ("STAGED " + (r.version || "")) : "NO UPDATE";
-      } catch(e) { state.adminMsg = (e.message || "FAILED").slice(0, 28); }
+      } catch(e) { state.adminMsg = (e.message || "FAILED").slice(0, 28); buzz([35, 40, 35]); }
       render();
       return;
     }
@@ -895,7 +895,7 @@ async function confirm() {
       await api("/api/command", {command: "select_program", program_id: p.id});
       state.mode = "view"; state.services = []; state.adminMsg = "";
       await refresh();
-    } catch(e) { state.adminMsg = "FAILED"; render(); }
+    } catch(e) { state.adminMsg = "FAILED"; buzz([35, 40, 35]); render(); }
     return;
   }
   if (state.mode === "insert") {
@@ -907,7 +907,7 @@ async function confirm() {
         state.mode = "view"; state.code = []; state.codeError = "";
         await refresh();
       } catch(e) {
-        state.codeError = "ERROR";
+        state.codeError = "ERROR"; buzz([35, 40, 35]);
         render();
       }
       return;
@@ -917,7 +917,7 @@ async function confirm() {
       state.mode = "view"; state.code = []; state.codeError = "";
       await refresh();
     } catch(e) {
-      state.codeError = "NOT FOUND";
+      state.codeError = "NOT FOUND"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -930,7 +930,7 @@ async function confirm() {
       state.mode = "view"; state.code = []; state.codeError = "";
       await refresh();
     } catch(e) {
-      state.codeError = "NOT FOUND";
+      state.codeError = "NOT FOUND"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -944,7 +944,7 @@ async function confirm() {
       state.mode = "view"; state.listError = "";
       await refresh();
     } catch(e) {
-      state.listError = "ERROR";
+      state.listError = "ERROR"; buzz([35, 40, 35]);
       render();
     }
     return;
@@ -994,9 +994,10 @@ document.body.addEventListener("click", (e) => {
   e.preventDefault();
   const num = b.dataset.num;
   const btn = b.dataset.btn;
-  if (num !== undefined) { state.seq = []; appendDigit(num); return; }
+  if (num !== undefined) { state.seq = []; buzz(12); appendDigit(num); return; }
   if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
   else state.seq = [];
+  buzz(12);
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
@@ -1011,7 +1012,10 @@ const KEY_MAP = {
   Escape:"x", c:"x", Backspace:"bs", Delete:"bs",
   f:"f", d:"d", x:"x", y:"y", i:"i", r:"r"
 };
-function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } }
+function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } buzz(12); }
+/* haptic feedback on mobile: short tap per key, double-buzz on errors.
+   No-op on desktop and iOS (no Vibration API there). */
+function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p || 12); } catch(e) {} }
 document.addEventListener("keydown", (e) => {
   if (e.key >= "0" && e.key <= "9") {
     flash(document.querySelector(`button[data-num="${e.key}"]`));
