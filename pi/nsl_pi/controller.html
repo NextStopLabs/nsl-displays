@@ -3,221 +3,199 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#1a1c20">
+<meta name="theme-color" content="#000000">
 <title>Destination Controller</title>
 <style>
-  :root {
-    --case: #2a2d33;
-    --case-dark: #1e2024;
-    --bezel: #111;
-    --lcd-bg: #0b0c0d;
-    --lcd-off: #151618;
-    --amber: #ffaa00;
-    --amber-glow: rgba(255, 170, 0, 0.45);
-    --amber-lit: #ffcc33;
-    --key-face: #4a4e55;
-    --key-side: #2d3035;
-    --key-text: #e0e0e0;
-    --key-lit: #ffaa00;
-    --key-lit-text: #1a1200;
-    --red: #c94040;
-  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: #000; overflow: hidden; }
-  body { display: flex; align-items: center; justify-content: center; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-
-  .panel {
-    width: 100vw; height: 100vh;
-    background: linear-gradient(180deg, var(--case) 0%, var(--case-dark) 100%);
+  body {
     display: flex; flex-direction: column;
-    padding: 10px 14px 14px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: manipulation;
   }
 
-  /* --- display --- */
+  /* stage: the faceplate is drawn in a fixed 677x214 design space and
+     scaled to fit whatever space is available */
+  .stage { flex: 1 1 auto; position: relative; min-height: 0; }
+  .hint { flex: 0 0 auto; text-align: center; color: #777; font-size: 11px; padding: 6px 8px 10px; }
+
+  .unit {
+    position: absolute; left: 50%; top: 50%;
+    width: 677px; height: 214px;
+    transform-origin: 50% 50%;
+    border-radius: 6px; overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,.6);
+    background: radial-gradient(120% 140% at 30% 0%, #5c6168 0%, #4b4f55 45%, #3d4147 100%);
+  }
+  .unit::after { /* inner edge shading */
+    content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 6px;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.55), inset 0 -2px 4px rgba(0,0,0,.35);
+  }
+  /* everything inside is positioned in the original 768x262 coordinates,
+     shifted so only the grey faceplate shows */
+  .inner { position: absolute; left: -31px; top: -24px; width: 768px; height: 262px; }
+
+  /* logo */
+  .hv-logo { position:absolute; left:45px; top:38px; display:flex; align-items:center; gap:6px; }
+  .hv-logo svg { width:32px; height:32px; }
+  .hv-logo b { font-size:19px; font-weight:800; letter-spacing:.2px; color:#101114;
+               font-family:"Arial Black","Helvetica Neue",Arial,sans-serif; transform:scaleX(1.02); }
+  .hv-model { position:absolute; left:186px; top:49px; font-size:15px; font-weight:600; color:#16181b; letter-spacing:.3px; }
+  .hv-led { position:absolute; left:75px; top:70px; width:9px; height:9px; border-radius:50%;
+            background: radial-gradient(circle at 35% 30%, #5a1a14, #1d0806 70%); box-shadow: 0 0 0 1.5px #25272b; }
+
+  /* card slot */
+  .hv-slot { position:absolute; left:53px; top:88px; width:72px; height:72px; background:#0a0a0b;
+             box-shadow: 0 0 0 1px #2a2c30, inset 0 0 0 1px #1a1a1c; }
+  .hv-slot::after { content:""; position:absolute; left:34px; top:0; width:3px; height:72px; background:#1c1c1e; }
+  .hv-slot::before { content:""; position:absolute; inset:0; background: linear-gradient(135deg, rgba(255,255,255,.07), transparent 40%); }
+
+  /* display */
   .display {
-    width: 100%;
-    flex: 0 0 auto;
-    height: 34vh; min-height: 110px; max-height: 180px;
-    background: var(--lcd-bg);
-    border: 4px solid var(--bezel);
-    border-radius: 10px;
-    box-shadow:
-      inset 0 0 20px rgba(0,0,0,0.9),
-      inset 0 0 4px rgba(255,170,0,0.08),
-      0 1px 0 rgba(255,255,255,0.05);
-    padding: 10px 16px;
-    color: var(--amber);
-    font-family: "Courier New", Courier, monospace;
-    text-shadow: 0 0 10px var(--amber-glow), 0 0 2px var(--amber);
-    display: flex; flex-direction: column; justify-content: space-between;
-    position: relative;
+    position:absolute; left:143px; top:73px; width:313px; height:110px;
+    background:#060505; border-radius:3px; overflow:hidden;
+    box-shadow: 0 0 0 3px #17181b, 0 0 0 4px #53575d, inset 0 0 14px rgba(0,0,0,.9);
+    color:#ffb21c;
+    font-family: "DejaVu Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    text-shadow: 0 0 5px rgba(255,170,0,.55);
   }
   .display::after {
-    content: "";
-    position: absolute; inset: 0; pointer-events: none;
-    background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.18) 2px 4px);
-    border-radius: 6px;
-    opacity: 0.35;
+    content:""; position:absolute; inset:0; pointer-events:none; z-index: 5;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
   }
-  .display .line { display: flex; justify-content: space-between; align-items: baseline; position: relative; z-index: 1; }
-  .display .big { font-size: clamp(22px, 5vw, 38px); font-weight: bold; letter-spacing: 1px; }
-  .display .med { font-size: clamp(15px, 3vw, 22px); }
-  .display .small { font-size: clamp(12px, 2.4vw, 16px); }
-  .display .dim { color: #b87d00; text-shadow: none; }
-  .display .right { text-align: right; }
-  .display .entry { font-size: clamp(24px, 5vw, 40px); letter-spacing: 6px; font-weight: bold; }
-  .display .list { font-size: clamp(13px, 2.8vw, 18px); line-height: 1.55; }
-  .display .list .item { display: flex; gap: 8px; }
-  .display .list .item.sel { background: rgba(255,170,0,0.22); color: var(--amber-lit); }
+  .hv-route { position:absolute; left:17px; top:5px; font-size:45px; font-weight:700; line-height:50px; letter-spacing:-.5px; white-space:nowrap; }
+  .hv-dest  { position:absolute; left:92px; top:6px; width:208px; height:50px; padding:0 4px;
+              display:flex; flex-direction:column; justify-content:center; align-items:center;
+              text-align:center; font-size:16.5px; font-weight:700; line-height:22px; }
+  .hv-dest div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .hv-left  { position:absolute; left:14px; top:62px; font-size:19px; font-weight:500; letter-spacing:.5px; white-space:pre; }
+  .hv-right { position:absolute; right:15px; top:62px; font-size:19px; font-weight:500; letter-spacing:.5px; white-space:pre; text-align:right; }
+  .dim { color:#b87d00; text-shadow:none; }
+  .hv-left.dim { font-size:15px; top:65px; }
 
-  /* --- controls --- */
-  .controls {
-    flex: 1 1 auto;
-    display: flex; gap: 14px;
-    padding-top: 14px;
-    min-height: 0;
-  }
-  .left-pad {
-    flex: 1 1 50%;
-    display: flex; flex-direction: column; gap: 10px;
-    min-width: 0;
-  }
-  .numpad {
-    flex: 1 1 50%;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(4, 1fr);
-    gap: 10px;
-  }
+  /* non-default screens (code entry, service / destination lists) */
+  .hv-flex { position:absolute; inset:0; padding:9px 14px; display:flex; flex-direction:column; justify-content:space-between; }
+  .line { display:flex; justify-content:space-between; align-items:baseline; }
+  .big   { font-size:36px; font-weight:700; letter-spacing:1px; }
+  .small { font-size:13px; font-weight:500; letter-spacing:.5px; }
+  .entry { font-size:30px; font-weight:700; letter-spacing:5px; }
+  .err   { color:#ff5a4a; text-shadow:none; }
+  .list  { font-size:14px; line-height:19px; margin-top:4px; }
+  .list .item { display:flex; gap:8px; padding:0 4px; white-space:nowrap; overflow:hidden; }
+  .list .item span:last-child { overflow:hidden; text-overflow:ellipsis; }
+  .list .item.sel { background:rgba(255,178,28,.25); color:#ffd36b; }
+
+  /* key legends */
+  .hv-abc { position:absolute; font-size:8.5px; font-weight:500; letter-spacing:.5px; color:#e9edf2; transform: translate(-50%,-50%); }
 
   /* keys */
   .key {
-    border: none; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #62676f, var(--key-face) 55%, var(--key-side) 100%);
-    color: var(--key-text);
-    font-weight: 700; font-size: clamp(15px, 3.2vw, 22px);
-    box-shadow:
-      0 4px 0 #1a1c20,
-      0 5px 6px rgba(0,0,0,0.45),
-      inset 0 1px 0 rgba(255,255,255,0.12);
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; user-select: none;
-    position: relative;
+    position:absolute; width:35px; height:35px; margin:-17.5px 0 0 -17.5px; border-radius:50%;
+    border:0; padding:0; cursor:pointer; outline:none;
+    font: 700 16px/35px "Helvetica Neue", Arial, sans-serif; color:#2a2f36;
+    background: radial-gradient(circle at 50% 30%, #f4f7fb 0%, #d4dbe4 45%, #a3afbd 100%);
+    box-shadow: 0 2px 3px rgba(0,0,0,.6), 0 0 0 1.5px #2a2d32, inset 0 1px 1px rgba(255,255,255,.9), inset 0 -2px 3px rgba(60,75,95,.35);
+    transition: transform .04s, box-shadow .04s;
   }
   .key:active, .key.pressed {
-    transform: translateY(3px);
-    box-shadow:
-      0 1px 0 #1a1c20,
-      0 2px 3px rgba(0,0,0,0.5),
-      inset 0 2px 4px rgba(0,0,0,0.35);
+    transform: translateY(1px) scale(.97);
+    box-shadow: 0 1px 1px rgba(0,0,0,.6), 0 0 0 1.5px #2a2d32, inset 0 2px 4px rgba(60,75,95,.5);
   }
+  .key:focus-visible { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #4d9bff; }
+  .key.red { color:#d42a1e; }
   .key.amber {
-    background: radial-gradient(circle at 35% 30%, #ffcc33, #ffaa00 55%, #b87d00 100%);
-    color: var(--key-lit-text);
-    text-shadow: 0 1px 0 rgba(255,255,255,0.3);
-    box-shadow:
-      0 4px 0 #5c4300,
-      0 0 14px rgba(255,170,0,0.35),
-      inset 0 1px 0 rgba(255,255,255,0.25);
+    color:#e8730a; font-size:15px;
+    background: radial-gradient(circle at 50% 30%, #fff3c6 0%, #ffd470 40%, #f4a323 100%);
+    box-shadow: 0 2px 3px rgba(0,0,0,.6), 0 0 0 1.5px #2a2d32, 0 0 9px rgba(255,185,60,.55),
+                inset 0 1px 1px rgba(255,255,255,.9), inset 0 -2px 3px rgba(190,110,10,.35);
   }
-  .key.red {
-    background: radial-gradient(circle at 35% 30%, #d65a5a, var(--red) 55%, #802020 100%);
-    color: #fff;
-  }
-  .key.wide { border-radius: 999px; grid-column: span 2; }
-  .key.tall { border-radius: 999px; grid-row: span 2; }
-
-  /* arrow pad */
-  .arrows {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 8px;
-    aspect-ratio: 2 / 1;
-  }
-  .arrows .key[data-btn="up"] { grid-column: 1 / -1; border-radius: 12px 12px 50% 50%; }
-  .arrows .key[data-btn="left"] { border-radius: 12px 50% 50% 12px; }
-  .arrows .key[data-btn="right"] { border-radius: 50% 12px 12px 50%; }
-  .arrows .key[data-btn="down"] { grid-column: 1 / -1; border-radius: 50% 50% 12px 12px; }
-
-  /* function grid */
-  .fn-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    flex: 1;
-  }
-  .fn-grid .key, .ent-wide .key { font-size: clamp(14px, 2.8vw, 20px); }
-  .ent-wide { display: flex; gap: 10px; }
-  .ent-wide .key { flex: 1; min-height: 44px; }
-
-  .hint {
-    flex: 0 0 auto;
-    text-align: center; color: #888;
-    font-size: 11px; padding-top: 8px;
-  }
-
-  @media (min-aspect-ratio: 2/1) {
-    .display { height: 28vh; }
-    .controls { gap: 18px; padding-top: 10px; }
-    .key { font-size: clamp(14px, 2.6vw, 20px); }
-  }
+  .key.amber:active, .key.amber.pressed { box-shadow: 0 1px 1px rgba(0,0,0,.6), 0 0 0 1.5px #2a2d32, 0 0 6px rgba(255,185,60,.4), inset 0 2px 4px rgba(190,110,10,.5); }
+  .key.arrow svg { position:absolute; left:0; top:0; width:35px; height:35px; }
+  .key.arrow svg path { fill:#2a2f36; stroke:#2a2f36; stroke-width:1; stroke-linejoin:round; }
+  .key.ent { font-size:12px; letter-spacing:-.2px; }
 </style>
 </head>
 <body>
-<div class="panel">
-  <div class="display" id="screen">
-    <div class="line"><span class="big" id="svcnum">--</span><span class="med right" id="destname">No program</span></div>
-    <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">----</span></div>
-  </div>
+<div class="stage" id="stage">
+  <div class="unit" id="unit">
+    <div class="inner">
 
-  <div class="controls">
-    <div class="left-pad">
-      <div class="arrows">
-        <button class="key" data-btn="up" title="Up">▲</button>
-        <button class="key" data-btn="left" title="Back">◄</button>
-        <button class="key" data-btn="right" title="Enter service">►</button>
-        <button class="key" data-btn="down" title="Down">▼</button>
+      <div class="hv-logo">
+        <svg viewBox="0 0 32 32"><g fill="#d9261c">
+          <path d="M11 1h10v8.5L16 14l-5-4.5z"/><path d="M1 11h8.5L14 16l-4.5 5H1z"/>
+          <path d="M23 11h8v10h-8.5L18 16z"/><path d="M11 22.5L16 18l5 4.5V31H11z"/></g></svg>
+        <b>HANOVER</b>
       </div>
-      <div class="fn-grid">
-        <button class="key" data-btn="f">F</button>
-        <button class="key amber" data-btn="d">D</button>
-        <button class="key red" data-btn="x">X</button>
-        <button class="key" data-btn="y">Y</button>
-        <button class="key" data-btn="i">I</button>
-        <button class="key" data-btn="r">R</button>
-      </div>
-      <div class="ent-wide">
-        <button class="key amber wide" data-btn="ent">ENT</button>
-      </div>
+      <div class="hv-model">EG4</div>
+      <div class="hv-led"></div>
+      <div class="hv-slot"></div>
+
+      <div class="display" id="screen"></div>
+
+      <!-- key legends -->
+      <span class="hv-abc" style="left:529px;top:63px">ABC</span>
+      <span class="hv-abc" style="left:589px;top:61px">DEF</span>
+      <span class="hv-abc" style="left:649px;top:61px">GHI</span>
+      <span class="hv-abc" style="left:529px;top:106px">JKL</span>
+      <span class="hv-abc" style="left:589px;top:106px">MNO</span>
+      <span class="hv-abc" style="left:649px;top:106px">PQR</span>
+      <span class="hv-abc" style="left:529px;top:149px">STU</span>
+      <span class="hv-abc" style="left:589px;top:149px">VWX</span>
+      <span class="hv-abc" style="left:649px;top:149px">YZ</span>
+
+      <!-- keypad -->
+      <button class="key red"   data-btn="x"   style="left:496px;top:75px">X</button>
+      <button class="key"       data-num="1"   style="left:557px;top:73px">1</button>
+      <button class="key"       data-num="2"   style="left:617px;top:73px">2</button>
+      <button class="key"       data-num="3"   style="left:677px;top:73px">3</button>
+
+      <button class="key red"   data-btn="y"   style="left:496px;top:119px">Y</button>
+      <button class="key"       data-num="4"   style="left:557px;top:119px">4</button>
+      <button class="key"       data-num="5"   style="left:617px;top:119px">5</button>
+      <button class="key"       data-num="6"   style="left:677px;top:119px">6</button>
+
+      <button class="key amber" data-btn="i"   style="left:496px;top:162px">I</button>
+      <button class="key"       data-num="7"   style="left:557px;top:162px">7</button>
+      <button class="key"       data-num="8"   style="left:617px;top:162px">8</button>
+      <button class="key"       data-num="9"   style="left:677px;top:162px">9</button>
+
+      <button class="key amber" data-btn="r"   style="left:496px;top:207px">R</button>
+      <button class="key amber" data-btn="d"   style="left:557px;top:207px">D</button>
+      <button class="key"       data-num="0"   style="left:617px;top:207px">0</button>
+      <button class="key amber ent" data-btn="ent" style="left:677px;top:207px">ENT</button>
+
+      <!-- arrows + F -->
+      <button class="key arrow" data-btn="left"  style="left:172px;top:207px" title="Back" aria-label="Left"><svg viewBox="0 0 35 35"><path d="M22 9 L11 17.5 L22 26 Z"/></svg></button>
+      <button class="key arrow" data-btn="right" style="left:235px;top:207px" title="Enter destinations" aria-label="Right"><svg viewBox="0 0 35 35"><path d="M13 9 L24 17.5 L13 26 Z"/></svg></button>
+      <button class="key arrow" data-btn="up"    style="left:298px;top:207px" title="Up" aria-label="Up"><svg viewBox="0 0 35 35"><path d="M17.5 10 L27 23 L8 23 Z"/></svg></button>
+      <button class="key arrow" data-btn="down"  style="left:361px;top:207px" title="Down" aria-label="Down"><svg viewBox="0 0 35 35"><path d="M17.5 25 L27 12 L8 12 Z"/></svg></button>
+      <button class="key amber" data-btn="f"   style="left:422px;top:207px">F</button>
+
     </div>
-
-    <div class="numpad">
-      <button class="key" data-num="1">1</button>
-      <button class="key" data-num="2">2</button>
-      <button class="key" data-num="3">3</button>
-      <button class="key" data-num="4">4</button>
-      <button class="key" data-num="5">5</button>
-      <button class="key" data-num="6">6</button>
-      <button class="key" data-num="7">7</button>
-      <button class="key" data-num="8">8</button>
-      <button class="key" data-num="9">9</button>
-      <button class="key red" data-btn="clr">C</button>
-      <button class="key" data-num="0">0</button>
-      <button class="key" data-btn="bs">⌫</button>
-    </div>
   </div>
-
-  <div class="hint" id="hint">D = type code · ENT = confirm · ▲▼ select service · ► enter destinations</div>
 </div>
+<div class="hint" id="hint">D = type code · ENT = confirm · ▲▼ select service · ► enter destinations</div>
 
 <script>
-const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "" };
+const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "" };
 const MAX_CODE = 5;
+const LIST_ROWS = 4;
 const screen = document.getElementById("screen");
 const hint = document.getElementById("hint");
 
+/* ---------- scale the faceplate to fit ---------- */
+const stage = document.getElementById("stage");
+const unit = document.getElementById("unit");
+function fit() {
+  const s = Math.min(stage.clientWidth / 677, stage.clientHeight / 214);
+  unit.style.transform = `translate(-50%,-50%) scale(${s})`;
+}
+new ResizeObserver(fit).observe(stage);
+fit();
+
+/* ---------- API ---------- */
 async function api(path, body) {
   const opts = body ? { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) } : {};
   const r = await fetch(path, opts);
@@ -231,47 +209,85 @@ async function refresh() {
   }
   if (state.mode === "view") render();
 }
+
+/* ---------- helpers ---------- */
 function fmtCode(c) {
   if (!c && c !== "0") return "----";
   return String(c).padStart(4, "0");
 }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function splitDest(s) {
+  s = String(s || "");
+  const words = s.split(" ");
+  if (s.length <= 16 || words.length < 2) return [s];
+  let best = 1, bd = 1e9;
+  for (let i = 1; i < words.length; i++) {
+    const d = Math.abs(words.slice(0,i).join(" ").length - words.slice(i).join(" ").length);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return [words.slice(0,best).join(" "), words.slice(best).join(" ")];
+}
+function windowRange(n, sel, size) {
+  const start = Math.max(0, Math.min(sel - Math.floor(size / 2), n - size));
+  return [start, Math.min(n, start + size)];
+}
+function listHtml(items, sel, label) {
+  if (!items.length) return `<div class="list"><div class="item"><span>&nbsp;</span><span>NONE</span></div></div>`;
+  const [a, b] = windowRange(items.length, sel, LIST_ROWS);
+  let h = "";
+  for (let i = a; i < b; i++) {
+    h += `<div class="item ${i===sel?"sel":""}"><span>${i===sel?">":" "}</span><span>${esc(label(items[i]))}</span></div>`;
+  }
+  return `<div class="list">${h}</div>`;
+}
+
+/* ---------- render ---------- */
 function render() {
   const cur = state.current || {};
   const dest = cur.destination || {};
   const svc = cur.service || {};
   const msg = dest.name || dest.dest || svc.description || "No destination";
   const code = fmtCode(dest.code || svc.number || "");
+
   if (state.mode === "code") {
     const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
-    screen.innerHTML = `
-      <div class="line"><span class="small dim">CURRENT</span><span class="small right">ENTER CODE</span></div>
-      <div class="line"><span class="big">${code}</span><span class="entry">${entry}</span></div>
-      ${state.codeError ? `<div class="line"><span class="small" style="color:#ff5555;text-shadow:none">${state.codeError}</span></div>` : ""}`;
+    screen.innerHTML = `<div class="hv-flex">
+      <div class="line"><span class="small dim">CURRENT</span><span class="small">ENTER CODE</span></div>
+      <div class="line"><span class="big">${esc(code)}</span><span class="entry">${entry}</span></div>
+      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
+    </div>`;
     hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
     return;
   }
   if (state.mode === "services") {
-    const items = state.services.map((s,i) =>
-      `<div class="item ${i===state.selSvc?"sel":""}"><span>${i===state.selSvc?">":" "}</span><span>${esc(s.number||"-")} ${esc(s.name||"")}</span></div>`).join("");
-    screen.innerHTML = `<div class="small dim">SELECT SERVICE</div><div class="list">${items}</div>`;
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="small dim">SELECT SERVICE</div>
+      ${listHtml(state.services, state.selSvc, s => `${s.number||"-"} ${s.name||""}`)}
+    </div>`;
     hint.textContent = "▲▼ choose service · ► enter destinations";
     return;
   }
   if (state.mode === "destinations") {
-    const svc = state.services[state.selSvc] || {};
-    const items = (svc.destinations||[]).map((d,i) =>
-      `<div class="item ${i===state.selDest?"sel":""}"><span>${i===state.selDest?">":" "}</span><span>${esc(d.code||"")} ${esc(d.name||"")}</span></div>`).join("");
-    screen.innerHTML = `<div class="small dim">${esc(svc.number||"-")} ${esc(svc.name||"")}</div><div class="list">${items}</div>`;
+    const sv = state.services[state.selSvc] || {};
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="line"><span class="small dim">${esc(sv.number||"-")} ${esc(sv.name||"")}</span><span class="small err">${esc(state.listError)}</span></div>
+      ${listHtml(sv.destinations || [], state.selDest, d => `${d.code||""} ${d.name||""}`)}
+    </div>`;
     hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
     return;
   }
+
+  const num = String(svc.number || "--");
+  const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
   screen.innerHTML = `
-    <div class="line"><span class="big" id="svcnum">${esc(svc.number||"--")}</span><span class="med right" id="destname">${esc(msg)}</span></div>
-    <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">${esc(code)}</span></div>`;
+    <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
+    <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
+    <div class="hv-left dim">Driver message</div>
+    <div class="hv-right">${esc(code)}</div>`;
   hint.textContent = "D = type code · ▲▼ = services · ENT = select";
 }
-function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
+/* ---------- actions (logic unchanged) ---------- */
 function enterCode() {
   state.mode = "code"; state.code = []; state.codeError = ""; render();
 }
@@ -286,7 +302,7 @@ function backspace() {
 }
 function cancelCode() {
   if (state.mode === "code") { state.mode = "view"; state.codeError = ""; render(); return; }
-  if (state.mode === "destinations") { state.mode = "services"; render(); return; }
+  if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
   if (state.mode === "services") { state.mode = "view"; render(); }
 }
 async function confirm() {
@@ -309,21 +325,27 @@ async function confirm() {
     if (!dest) return;
     try {
       await api("/api/command", {command:"select_destination", destination_id:dest.id});
-      state.mode = "view";
+      state.mode = "view"; state.listError = "";
       await refresh();
     } catch(e) {
-      screen.innerHTML += `<div class="line"><span class="small" style="color:#ff5555;text-shadow:none">ERROR</span></div>`;
+      state.listError = "ERROR";
+      render();
     }
     return;
   }
   if (state.mode === "services") {
-    state.mode = "destinations"; state.selDest = 0; render();
+    state.mode = "destinations"; state.selDest = 0; state.listError = ""; render();
   }
 }
 function move(dir) {
+  if (state.mode === "code") {
+    if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
+    return;
+  }
   if (state.mode === "services") {
     if (dir === "up") state.selSvc = Math.max(0, state.selSvc-1);
     if (dir === "down") state.selSvc = Math.min(state.services.length-1, state.selSvc+1);
+    if (dir === "right") { confirm(); return; }
     render();
   } else if (state.mode === "destinations") {
     const svc = state.services[state.selSvc] || {};
@@ -331,12 +353,14 @@ function move(dir) {
     if (dir === "up") state.selDest = Math.max(0, state.selDest-1);
     if (dir === "down") state.selDest = Math.min(n-1, state.selDest+1);
     if (dir === "left") { state.mode = "services"; }
+    state.listError = "";
     render();
   } else if (state.mode === "view") {
     if (dir === "up" || dir === "down") { state.mode = "services"; state.selSvc = 0; render(); }
   }
 }
 
+/* ---------- input ---------- */
 document.body.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
@@ -346,8 +370,7 @@ document.body.addEventListener("click", (e) => {
   if (num !== undefined) { appendDigit(num); return; }
   if (btn === "d") enterCode();
   else if (btn === "ent") confirm();
-  else if (btn === "x" || btn === "clr") cancelCode();
-  else if (btn === "bs") backspace();
+  else if (btn === "x") cancelCode();
   else if (["up","down","left","right"].includes(btn)) move(btn);
 });
 
@@ -355,23 +378,28 @@ document.body.addEventListener("click", (e) => {
 const KEY_MAP = {
   ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
   Enter:"ent", " ":"ent",
-  Escape:"x", c:"clr", Backspace:"bs", Delete:"bs",
+  Escape:"x", c:"x", Backspace:"bs", Delete:"bs",
   f:"f", d:"d", x:"x", y:"y", i:"i", r:"r"
 };
+function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } }
 document.addEventListener("keydown", (e) => {
-  if (e.key >= "0" && e.key <= "9") { appendDigit(e.key); return; }
+  if (e.key >= "0" && e.key <= "9") {
+    flash(document.querySelector(`button[data-num="${e.key}"]`));
+    appendDigit(e.key); return;
+  }
   const btn = KEY_MAP[e.key];
   if (!btn) return;
-  const el = document.querySelector(`button[data-btn="${btn}"]`);
-  if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); }
+  e.preventDefault();
+  flash(document.querySelector(`button[data-btn="${btn}"]`));
   if (btn === "d") enterCode();
   else if (btn === "ent") confirm();
-  else if (btn === "x" || btn === "clr") cancelCode();
+  else if (btn === "x") cancelCode();
   else if (btn === "bs") backspace();
   else if (["up","down","left","right"].includes(btn)) move(btn);
 });
 
 setInterval(refresh, 2000);
+render();
 refresh();
 </script>
 </body>
