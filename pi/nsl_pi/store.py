@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import datetime
 import os
-import sqlite3
 import uuid
 
 from nslprog.schema import CONTROLLER_DB_DDL
@@ -33,9 +32,10 @@ def init_controller_db(path: str, controller_name: str = "", role: str = "front"
     """Bootstrap a fresh controller.db. controller_name stays EMPTY unless the
     caller passes one (installer --unit, nsl-set-unit, local UI): nothing in
     code presumes a bus name, so golden-image clones never share one."""
+    from .db import connect as _db_connect
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fresh = not os.path.exists(path)
-    con = sqlite3.connect(path)
+    con = _db_connect(path)
     con.executescript(CONTROLLER_DB_DDL)
     if fresh:
         import json

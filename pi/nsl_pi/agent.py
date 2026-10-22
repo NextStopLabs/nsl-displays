@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sqlite3
 import urllib.error
 import urllib.request
 
@@ -158,29 +157,47 @@ class Agent:
     def sync_once(self, controller_db: str) -> dict:
         """Order: program data + config first, audio second, software last (README 12)."""
         from nslprog import check_file
+        from .db import connect as _db_connect
         report = {"programs": [], "audio": {"ok": 0, "failed": []}, "errors": []}
         manifest_doc = self.fetch_manifest()
         items = manifest_doc.get("programs", [manifest_doc] if "bundle" in manifest_doc else [])
-        con = sqlite3.connect(controller_db)
-        try:
-            for m in items:
+
+        def _run(sql, params=(), *, fetch=None, commit=False):
+            """One short DB transaction: open, run, commit, close.
+
+            The connection is never held across network I/O (downloads can
+            take minutes on a hotspot). Holding it would keep a read snapshot
+            open in WAL mode and starve the other Pi services' writers.
+            """
+            con = _db_connect(controller_db)
+            try:
+                cur = con.execute(sql, params)
+                if commit:
+                    con.commit()
+                if fetch == "one":
+                    return cur.fetchone()
+                if fetch == "all":
+                    return cur.fetchall()
+                return None
+            finally:
+                con.close()
+
+        for m in items:
                 pid, ver = m["program_id"], int(m["version"])
                 b = m["bundle"]
                 # idempotent sync: this exact build is already on disk - record desire, skip download
-                have = con.execute("SELECT content_hash, bundle_sha256 FROM installed_programs WHERE program_id=? AND version=?",
-                                   (pid, ver)).fetchone()
+                have = _run("SELECT content_hash, bundle_sha256 FROM installed_programs WHERE program_id=? AND version=?",
+                            (pid, ver), fetch="one")
                 if have and have[0] == (m.get("content_hash") or "") and have[1] == b["sha256"]:
-                    con.execute(
+                    _run(
                         "INSERT OR REPLACE INTO desired_programs (program_id, desired_version, manifest, received_at) VALUES (?,?,?,datetime('now'))",
-                        (pid, ver, json.dumps(m)))
-                    con.commit()
+                        (pid, ver, json.dumps(m)), commit=True)
                     report.setdefault("skipped", []).append(f"{m.get('program_name', pid)} v{ver} already installed")
                     self.progress = None
                     continue
-                con.execute(
+                _run(
                     "INSERT OR REPLACE INTO desired_programs (program_id, desired_version, manifest, received_at) VALUES (?,?,?,datetime('now'))",
-                    (pid, ver, json.dumps(m)))
-                con.commit()
+                    (pid, ver, json.dumps(m)), commit=True)
                 # 1. program file first (tiny)
                 dest = os.path.join(self.incoming, f"{pid}-{ver}.nslprog")
                 self.progress = {"phase": "bundle", "program": m.get("program_name", pid), "version": ver}
@@ -231,18 +248,18 @@ class Agent:
                 os.makedirs(os.path.dirname(final), exist_ok=True)
                 shutil.move(dest, final)
                 meta_name = m.get("program_name", pid)
-                con.execute(
+                _run(
                     "INSERT OR REPLACE INTO installed_programs (program_id, version, program_name, content_hash, bundle_sha256, path, bytes, status, source, installed_at, last_error) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (pid, ver, meta_name, m.get("content_hash", ""), b["sha256"], final, b["bytes"],
-                     "installed", "portal", __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None))
-                con.commit()
+                     "installed", "portal", __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None),
+                    commit=True)
                 report["programs"].append(f"{pid}@{ver}")
                 self.progress = None
                 # first install wins the idle bus: no active program means no
                 # mid-run state to protect, so select it and light the boards
                 # immediately instead of waiting for a manual program_select.
                 try:
-                    st = con.execute("SELECT program_id FROM state WHERE id=1").fetchone()
+                    st = _run("SELECT program_id FROM state WHERE id=1", fetch="one")
                 except Exception:
                     st = None
                 if st is not None and not st[0]:
@@ -252,10 +269,8 @@ class Agent:
                         report.setdefault("activated", []).append(f"{meta_name} v{ver} (first install)")
                     except Exception as e:
                         report["errors"].append(f"{pid}@{ver} auto-select: {e}")
-            # 4. software last: check release
-            report["release"] = self._sync_release()
-        finally:
-            con.close()
+        # 4. software last: check release
+        report["release"] = self._sync_release()
         return report
 
     def _sync_release(self) -> dict:
@@ -331,7 +346,8 @@ class Agent:
         return {"version": new_ver, **res}
 
     def heartbeat(self, controller_db: str, extra: dict | None = None) -> dict:
-        con = sqlite3.connect(controller_db)
+        from .db import connect as _db_connect
+        con = _db_connect(controller_db)
         try:
             installed = [dict(zip(["program_id", "version", "status"], r)) for r in
                          con.execute("SELECT program_id, version, status FROM installed_programs")]
@@ -352,10 +368,12 @@ class Agent:
                              headers={"Content-Type": "application/json"})
             ack = json.loads(raw.decode())
             if outbox and ack.get("accepted"):
-                c2 = sqlite3.connect(controller_db)
-                c2.execute("UPDATE outbox SET sent_at=datetime('now') WHERE sent_at IS NULL")
-                c2.commit()
-                c2.close()
+                c2 = _db_connect(controller_db)
+                try:
+                    c2.execute("UPDATE outbox SET sent_at=datetime('now') WHERE sent_at IS NULL")
+                    c2.commit()
+                finally:
+                    c2.close()
             return ack
         except Exception as e:
             return {"error": str(e)}

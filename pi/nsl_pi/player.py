@@ -102,8 +102,8 @@ def announce(hashes: list[str], audio_dir: str, device: str = "default",
 def configured_device(base_dir: str) -> str:
     """ALSA device from controller.db (portal/local UI settings), else default."""
     try:
-        import sqlite3
-        con = sqlite3.connect(os.path.join(base_dir, "controller.db"))
+        from .db import connect as _db_connect
+        con = _db_connect(os.path.join(base_dir, "controller.db"))
         try:
             row = con.execute("SELECT audio_device FROM controller_config WHERE id=1").fetchone()
         finally:

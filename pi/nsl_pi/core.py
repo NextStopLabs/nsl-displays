@@ -54,10 +54,8 @@ class Core:
         self._listeners: list = []
         import os
         os.makedirs(programs_dir, exist_ok=True)
-        self._con = sqlite3.connect(controller_db, check_same_thread=False)
-        self._con.row_factory = sqlite3.Row
-        self._con.execute("PRAGMA journal_mode = WAL")
-        self._con.execute("PRAGMA foreign_keys = ON")
+        from .db import connect as _db_connect
+        self._con = _db_connect(controller_db, row_factory=sqlite3.Row)
         self._con.executescript("""
         CREATE TABLE IF NOT EXISTS gpio_overlays (
           target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',

@@ -16,13 +16,14 @@ import io
 import ipaddress
 import json
 import os
-import sqlite3
 import zipfile
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .core import Core
+from .db import connect as _db_connect
+from sqlite3 import Row as _Row
 
 app = FastAPI(title="NSL Local Controller")
 
@@ -124,8 +125,7 @@ def api_command(body: dict):
 @app.get("/api/programs")
 def api_programs():
     c = get_core()
-    con = sqlite3.connect(c.controller_db)
-    con.row_factory = sqlite3.Row
+    con = _db_connect(c.controller_db, row_factory=_Row)
     rows = [dict(r) for r in con.execute("SELECT * FROM installed_programs ORDER BY program_id, version")]
     con.close()
     return {"installed": rows, "state": c.state()}
@@ -175,7 +175,7 @@ def api_import_pack(file: UploadFile = File(...)):
             dst = os.path.join(base, "audio", h[:2], h + _ext)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy(src, dst)
-    con = sqlite3.connect(c.controller_db)
+    con = _db_connect(c.controller_db)
     import datetime
     con.execute("INSERT OR REPLACE INTO installed_programs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (pid, ver, meta.get("program_name", pid), meta.get("content_hash", ""),
@@ -198,10 +198,9 @@ def api_audio_test():
 @app.get("/api/identity")
 def api_identity_get():
     """Current unit name (empty = not personalized yet)."""
-    import sqlite3 as _s
     base = os.environ.get("NSL_BASE", "/var/lib/nsl")
     try:
-        con = _s.connect(os.path.join(base, "controller.db"))
+        con = _db_connect(os.path.join(base, "controller.db"))
         try:
             row = con.execute("SELECT controller_name, ap_name FROM controller_config WHERE id=1").fetchone()
         finally:

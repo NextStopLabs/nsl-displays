@@ -4,8 +4,9 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import sqlite3
 import time
+
+from .db import connect as _db_connect
 
 BASE = os.environ.get("NSL_BASE", "/var/lib/nsl")
 
@@ -76,7 +77,7 @@ def main():
                 except Exception as e:
                     status, detail = "failed", str(e)
                 print(f"portal command {status}: {detail}", flush=True)
-                con = sqlite3.connect(db)
+                con = _db_connect(db)
                 try:
                     con.execute("INSERT INTO outbox (kind, payload, created_at) VALUES (?,?,?)",
                                 ("portal_command", json.dumps({"command": cmd, "status": status,

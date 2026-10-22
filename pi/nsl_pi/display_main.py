@@ -191,12 +191,12 @@ def pairing_status():
 def main():
     from nsl_pi.store import init_controller_db
     from nsl_pi.display_driver import DisplayDriver
+    from nsl_pi.db import connect as _db_connect
+    from sqlite3 import Row as _Row
     import json
-    import sqlite3
     db = os.path.join(BASE, "controller.db")
     init_controller_db(db, controller_name=os.environ.get("NSL_UNIT", ""))
-    con = sqlite3.connect(db)
-    con.row_factory = sqlite3.Row
+    con = _db_connect(db, row_factory=_Row)
     outputs = [dict(r) for r in con.execute("SELECT * FROM display_outputs")]
     mo = {}
     try:
