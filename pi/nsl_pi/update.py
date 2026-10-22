@@ -158,11 +158,15 @@ def activate(version: str) -> dict:
     marker = os.path.join(ROOT, ".pending_activate")
     result = {"ok": False, "version": version, "previous": prev, "current": inactive}
     if not os.path.isdir(inactive):
+        print(f"activate {version}: inactive slot missing ({inactive}); aborting", flush=True)
         result["error"] = f"inactive slot not installed: {inactive}"
         return result
+    print(f"activate {version}: switching current {prev} -> {inactive}", flush=True)
     _atomic_symlink(inactive, os.path.join(ROOT, "current"))
+    print(f"activate {version}: restarting {', '.join(SERVICES)}", flush=True)
     subprocess.run(["systemctl", "restart"] + SERVICES, check=False)
     if health_check():
+        print(f"activate {version}: health check passed", flush=True)
         result["ok"] = True
         _refresh_fonts(inactive)
         try:
@@ -171,6 +175,7 @@ def activate(version: str) -> dict:
             pass
         return result
     # rollback
+    print(f"activate {version}: health check FAILED; rolling back to {prev}", flush=True)
     _atomic_symlink(prev, os.path.join(ROOT, "current"))
     subprocess.run(["systemctl", "restart"] + SERVICES, check=False)
     try:
@@ -204,12 +209,18 @@ def pending_activation() -> dict | None:
 
 def run_activation_helper(version: str):
     """Fork a background process that will activate the update and survive
-    the agent service restart."""
+    the agent service restart. Helper output goes to NSL_BASE/update.log
+    (journal would lose it: the helper outlives the agent service)."""
     # Always invoke as a module so PYTHONPATH (set by the installer) is used.
     cmd = [sys.executable, "-m", "nsl_pi.update_helper", version]
+    base = os.environ.get("NSL_BASE", "/var/lib/nsl")
+    try:
+        os.makedirs(base, exist_ok=True)
+        log = open(os.path.join(base, "update.log"), "ab")
+    except OSError:
+        log = subprocess.DEVNULL
     # start_new_session keeps the helper alive after agent exits
-    subprocess.Popen(cmd, start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(cmd, start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
 
 
 def check_and_apply(release_info: dict, bundle_path: str) -> dict:

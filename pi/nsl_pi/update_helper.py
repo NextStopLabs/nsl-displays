@@ -37,6 +37,9 @@ def main():
         print(f"pending marker mismatch: {pending!r} != {version!r}; aborting", file=sys.stderr)
         sys.exit(0)
     result = activate(version)
+    print(f"software {version}: activation "
+          + ("done" if result.get("ok") else f"FAILED ({result.get('error', 'unknown')})"),
+          flush=True)
     # Report result via outbox for next heartbeat.
     db = os.path.join(BASE, "controller.db")
     try:

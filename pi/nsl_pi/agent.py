@@ -16,6 +16,18 @@ MANIFEST_PATH = "manifest.json"
 APP_VERSION = "1.0.0"
 
 
+def _app_version() -> str | None:
+    """Installed release version for the portal's update-status page.
+
+    None on dev machines without A/B slots (portal keeps showing unknown).
+    """
+    try:
+        from .update import current_version
+        return current_version()
+    except Exception:
+        return None
+
+
 def _req(url: str, token: str | None = None, data: bytes | None = None,
          headers: dict | None = None, timeout: float = 20.0):
     h = dict(headers or {})
@@ -260,26 +272,39 @@ class Agent:
         if current_version() == new_ver:
             return {"version": new_ver, "info": "already running"}
         if staged_version() == new_ver:
+            print(f"software {new_ver}: already staged, waiting for activation", flush=True)
             return {"version": new_ver, "info": "already staged"}
         if rel.get("min_agent_version") and rel["min_agent_version"] > APP_VERSION:
+            print(f"software {new_ver}: needs agent >= {rel['min_agent_version']} "
+                  f"(have {APP_VERSION})", flush=True)
             return {"version": new_ver, "error": f"needs agent >= {rel['min_agent_version']}"}
         url = rel.get("bundle_url") or rel.get("url")
         if not url:
+            print(f"software {new_ver}: release has no bundle_url", flush=True)
             return {"version": new_ver, "error": "no bundle_url in release"}
+        size = rel.get("bytes")
+        print(f"software {new_ver}: downloading"
+              + (f" ({int(size) / 1048576:.1f} MB)" if size else ""), flush=True)
         bundle_dest = os.path.join(self.incoming, f"release-{new_ver}.tar.gz")
         self.progress = {"phase": "software", "version": new_ver}
         try:
             self.download(url, bundle_dest, rel.get("sha256", ""))
         except Exception as e:
             self.progress = None
+            print(f"software {new_ver}: download failed: {e}", flush=True)
             return {"version": new_ver, "error": f"download failed: {e}"}
+        print(f"software {new_ver}: verifying signature + hash", flush=True)
         from .update import check_and_apply, run_activation_helper
         res = check_and_apply(rel, bundle_dest)
         self.progress = None
         if res.get("ok"):
+            print(f"software {new_ver}: verified, installed, activation scheduled", flush=True)
             # Trigger the background helper; the agent will restart as part of
             # service restart, and the helper will report the final result.
             run_activation_helper(new_ver)
+        else:
+            print(f"software {new_ver}: {res.get('phase', '?')} failed: "
+                  f"{res.get('error', 'unknown')}", flush=True)
         return {"version": new_ver, **res}
 
     def heartbeat(self, controller_db: str, extra: dict | None = None) -> dict:
@@ -297,6 +322,7 @@ class Agent:
         finally:
             con.close()
         body = json.dumps({"installed": installed, "events": outbox, "state": active,
+                           "app_version": _app_version(),
                            "sync": self.progress, **(extra or {})}).encode()
         try:
             _, raw, _ = _req(self._api("/api/device/heartbeat"), token=self.token, data=body,
