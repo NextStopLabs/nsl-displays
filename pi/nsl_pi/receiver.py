@@ -55,7 +55,13 @@ class Receiver:
         if insert and not insert.get("destination"):
             insert = None
         departure = snapshot.get("departure") or {}
-        dep_text = departure.get("text") or (f"Departing {departure.get('time')}" if departure.get("time") else "")
+        dep_text = departure.get("text")
+        if not dep_text and departure.get("mins_remaining"):
+            try:
+                _n = int(departure.get("mins_remaining") or 0)
+                dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
+            except (TypeError, ValueError):
+                dep_text = ""
         dep_active = bool(departure.get("active")) and bool(dep_text)
         if dep_active:
             # F-key departure time: every board locks on P1, inserts suppressed.

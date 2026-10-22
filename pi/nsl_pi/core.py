@@ -435,8 +435,9 @@ class Core:
 
     def set_departure_time(self, time_str: str | int, source: str = "local",
                            user_id: str | None = None, now: float | None = None) -> dict:
-        """F key: lock boards on P1 and show 'Departing HH:MM' on the front
-        via line until the time passes. Auto-clears after expiry."""
+        """F key: lock boards on P1 and show a live 'Departing in X mins'
+        countdown to the entered clock time on the front via line.
+        Auto-clears once the time passes."""
         import time as _t
         hhmm = self._parse_depart_time(time_str)
         expires = self._expires_for_time(hhmm, now)
@@ -511,20 +512,21 @@ class Core:
             except Exception:
                 tstr = None
         import math as _m
-        rem = max(0, _m.ceil((exp - now) / 60))
-        text = f"Departing {tstr}" if tstr else None
+        rem = max(1, _m.ceil((exp - now) / 60))
+        text = f"Departing in {rem} min" if rem == 1 else f"Departing in {rem} mins"
         return {"active": True, "time": tstr, "text": text, "expires_at": exp,
                 "mins_remaining": int(rem)}
 
     @staticmethod
-    def departure_text(time_str: str | int | None) -> str | None:
-        if time_str is None:
-            return None
+    def departure_text(mins_remaining: int | None) -> str | None:
+        """Board text: live countdown derived from the set departure time."""
         try:
-            hhmm = Core._parse_depart_time(time_str)
-        except ValueError:
+            n = int(mins_remaining)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
             return None
-        return f"Departing {hhmm}"
+        if n < 1:
+            return None
+        return f"Departing in {n} min" if n == 1 else f"Departing in {n} mins"
 
     # ---- selection ----
     def select_program(self, program_id: str, source: str = "local", user_id: str | None = None) -> dict:

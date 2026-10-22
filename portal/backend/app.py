@@ -2140,18 +2140,19 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
         _exp = live.get("depart_expires_at")
         _tstr = live.get("depart_time")
         if _exp is not None:
+            import math as _m
             import time as _t
-            if float(_exp) > _t.time():
+            _rem = _m.ceil((float(_exp) - _t.time()) / 60)
+            if _rem > 0:
                 if not _tstr:
                     import datetime as _dt
                     try:
                         _tstr = _dt.datetime.fromtimestamp(float(_exp)).strftime("%H:%M")
                     except Exception:
                         _tstr = None
-                if _tstr:
-                    out["departure"] = {"time": _tstr, "expires_at": float(_exp),
-                                        "text": f"Departing {_tstr}",
-                                        "mins_remaining": max(0, int((float(_exp) - _t.time()) // 60))}
+                out["departure"] = {"time": _tstr, "expires_at": float(_exp),
+                                    "text": f"Departing in {_rem} min" if _rem == 1 else f"Departing in {_rem} mins",
+                                    "mins_remaining": int(_rem)}
     except Exception:
         pass
     pid, ver = live.get("program_id"), live.get("program_version")

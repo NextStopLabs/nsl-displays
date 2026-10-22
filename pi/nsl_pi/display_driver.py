@@ -147,7 +147,13 @@ class DisplayDriver:
                 layout = autofit_layout(w, h)
             svc_number = service.get("number", "") if isinstance(service, dict) else ""
             dep = snapshot.get("departure") or {}
-            dep_text = dep.get("text") or (f"Departing {dep.get('time')}" if dep.get("time") else "")
+            dep_text = dep.get("text")
+            if not dep_text and dep.get("mins_remaining"):
+                try:
+                    _n = int(dep.get("mins_remaining") or 0)
+                    dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
+                except (TypeError, ValueError):
+                    dep_text = ""
             dep_active = bool(dep.get("active")) and bool(dep_text)
             if dep_active:
                 # F-key departure time: freeze everything on P1, suppress inserts.

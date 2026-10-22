@@ -760,7 +760,9 @@ function renderScreen() {
   }
   if (state.mode === "depart") {
     const dep = cur.departure || {};
-    const live = (dep && (dep.text || dep.time)) ? (dep.text || `Departing ${dep.time}`) : "NO DEPART TIME";
+    const live = (dep && (dep.text || dep.time))
+      ? ((dep.text || `Departing ${dep.time}`) + (dep.time && dep.text ? ` · ${dep.time}` : ""))
+      : "NO DEPART TIME";
     screen.innerHTML = `<div class="hv-flex">
       <div class="line"><span class="small dim">${esc(live)}</span><span class="small">DEPART AT</span></div>
       <div class="line"><span class="big">${esc(fmtDepEntry(state.code))}</span><span class="entry">${esc(state.code.join(""))}</span></div>
