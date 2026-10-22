@@ -612,12 +612,19 @@ function renderBoard(cur) {
 
   const st = cur.state || {};
   const fields = cur.fields || {};
+  const ovo = cur.override;
+  const ovText = (ovo && (ovo.text || ovo.override_text)) || st.override_text || "";
+  const ovCfg = layout.override || {};
   const ins = cur.insert && cur.insert.destination;
 
-  // driver messages (override text) are intentionally not shown here
-  let pages = (cur.pages && cur.pages.length ? cur.pages : [fields]).map(p => Object.assign({}, fields, p));
-  if (ins) pages.push({ num: ins.num || fields.num, via: ins.via || "", dest: ins.dest || ins.name || "" });
-  const hide = [];
+  let pages;
+  if (ovText) {
+    pages = [Object.assign({}, fields, { [ovCfg.replaces || "dest"]: ovText })];
+  } else {
+    pages = (cur.pages && cur.pages.length ? cur.pages : [fields]).map(p => Object.assign({}, fields, p));
+    if (ins) pages.push({ num: ins.num || fields.num, via: ins.via || "", dest: ins.dest || ins.name || "" });
+  }
+  const hide = ovText ? (ovCfg.hide || []) : [];
 
   const key = JSON.stringify([cur.layouts.front, pages, hide]);
   if (key === boardKey && screen.querySelector(".board")) return true;
@@ -634,8 +641,7 @@ function renderBoard(cur) {
   let idx = 0;
   const secs = Math.max(1, layout.page_seconds || 3);
   function show() {
-    // always use the route num | dest / via layout (page 1), cycling only the text
-    const pe = layout.page_elements && layout.page_elements["1"];
+    const pe = layout.page_elements && layout.page_elements[String(idx + 1)];
     const els = (pe && pe.length ? pe : layout.elements) || [];
     board.innerHTML = els.map(e => boardElHtml(e, pages[idx], hide)).join("");
     board.querySelectorAll('.el[data-scroll="if_too_long"]').forEach(el => {
