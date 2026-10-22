@@ -126,6 +126,26 @@ def _atomic_symlink(target: str, link_path: str):
     os.replace(new_link, link_path)
 
 
+def _refresh_fonts(slot: str):
+    """Copy Hanover fonts from the new slot into /var/lib/nsl/fonts.
+
+    fonts_dir() prefers /var/lib/nsl/fonts when it exists, so without this
+    a release carrying updated fonts would still render with stale ones.
+    Best-effort: failures must not fail the activation.
+    """
+    try:
+        src_dir = os.path.join(slot, "HANOVERFONTS")
+        names = [n for n in os.listdir(src_dir) if n.endswith(".Fnt")]
+        if not names:
+            return
+        dst_dir = "/var/lib/nsl/fonts"
+        os.makedirs(dst_dir, exist_ok=True)
+        for n in names:
+            shutil.copy(os.path.join(src_dir, n), os.path.join(dst_dir, n))
+    except Exception:
+        pass
+
+
 def activate(version: str) -> dict:
     """Switch symlink to inactive slot, restart services, rollback on failure.
 
@@ -144,6 +164,7 @@ def activate(version: str) -> dict:
     subprocess.run(["systemctl", "restart"] + SERVICES, check=False)
     if health_check():
         result["ok"] = True
+        _refresh_fonts(inactive)
         try:
             os.remove(marker)
         except FileNotFoundError:

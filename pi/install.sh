@@ -43,6 +43,20 @@ sudo apt-get update
 sudo apt-get install -y python3-pip python3-pil python3-fastapi python3-uvicorn \
   sqlite3 flac alsa-utils network-manager evtest watchdog
 sudo mkdir -p /var/lib/nsl /opt/nsl /etc/nsl
+# A/B update slots: services run from /opt/nsl/current (NOT the checkout),
+# so OTA releases installed into /opt/nsl/vN actually take effect on restart.
+# Seed v1 from this checkout on first install only - never clobber an
+# existing slot (re-runs must not wipe a rollback target or staged release).
+if [ ! -f /opt/nsl/v1/.nsl-version ]; then
+  sudo rm -rf /opt/nsl/v1
+  sudo mkdir -p /opt/nsl/v1
+  sudo tar --exclude=.git -cf - -C "$REPO" . | sudo tar -xf - -C /opt/nsl/v1
+  _rev="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo "factory-$_rev" | sudo tee /opt/nsl/v1/.nsl-version >/dev/null
+fi
+if [ ! -e /opt/nsl/current ]; then
+  sudo ln -s v1 /opt/nsl/current
+fi
 # Release signing public key. Replace NSL_RELEASE_PUBLIC_KEY in the environment
 # with the real key before imaging; otherwise OTA updates will fail verification.
 if [ -n "${NSL_RELEASE_PUBLIC_KEY:-}" ] && [ -f "$NSL_RELEASE_PUBLIC_KEY" ]; then
@@ -67,9 +81,9 @@ fi
 # static bus LAN wins over DHCP when both are visible (isolated switch = no DHCP)
 sudo nmcli con mod bus-lan connection.autoconnect-priority 10 2>/dev/null || true
 sudo cp "$REPO"/deploy/nsl-*.service /etc/systemd/system/
-# Code location + role: units run `python3 -m nsl_pi.*`, so both the repo root
-# (for `nslprog`) and `pi/` (for `nsl_pi`) must be on PYTHONPATH. Drop-ins keep
-# this working wherever the repo was cloned from (REPO computed at top).
+# Code location + role: units run `python3 -m nsl_pi.*` from the A/B symlink
+# /opt/nsl/current (seeded above), so OTA releases take effect on restart.
+# Never point this at the checkout dir - updates install into /opt/nsl/vN.
 # Hanover bitmap fonts for the on-bus renderer (ships with the repo)
 if [ -d "$REPO/HANOVERFONTS" ]; then
   sudo mkdir -p /var/lib/nsl/fonts
@@ -81,7 +95,7 @@ for svc in nsl-core nsl-agent nsl-display nsl-local-ui nsl-player nsl-input nsl-
 [Service]
 Environment="NSL_ROLE=$ROLE"
 Environment="NSL_UNIT=$UNIT"
-Environment="PYTHONPATH=$REPO:$REPO/pi"
+Environment="PYTHONPATH=/opt/nsl/current:/opt/nsl/current/pi"
 EOF
 done
 sudo systemctl daemon-reload
