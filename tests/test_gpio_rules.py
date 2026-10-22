@@ -689,3 +689,25 @@ def test_gpio_worker_batches_db_writes(tmp_path):
     finally:
         q.put("stop")
         w.join(timeout=1)
+
+
+def test_overlay_clear_visible_in_second_snapshot(tmp_path):
+    """A display process reading via display_snapshot must see an overlay
+    disappear without restarting - regression: WAL read transaction pinned the
+    first snapshot, so the board stayed forever."""
+    from pi.nsl_pi.core import Core
+    from pi.nsl_pi.gpio import GpioRulesEngine
+    c_in, dest_id = _core_with_board_rule(tmp_path)
+    c_disp = Core(c_in.controller_db, c_in.programs_dir)
+    c_in.select_code("10000001", source="test")
+    e = GpioRulesEngine(c_in.gpio_rules())
+    e.level_event(16, True, now=100.0)
+    c_in.sync_gpio_levels({16}, now=100.0)
+    snap1 = c_disp.display_snapshot()
+    assert set(snap1["gpio_boards"]) == {"all"}
+    # release the pin - overlay should vanish from a fresh snapshot
+    e.level_event(16, False, now=100.5)
+    c_in.sync_gpio_levels(set(), now=100.5)
+    snap2 = c_disp.display_snapshot()
+    assert snap2["gpio_boards"] == {}
+    assert snap2["gpio_overlay"] == {}

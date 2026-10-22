@@ -167,6 +167,9 @@ class Core:
         self._con.execute("DELETE FROM gpio_overlays WHERE latched=1 AND kind='level'")
         for target, o in want.items():
             self._write_gpio_overlay(target, o, None, True, "level", o["position"])
+        # The delete above must commit even when want is empty (pin released),
+        # otherwise other connections never see the overlay clear.
+        self._con.commit()
         return self.gpio_overlay_map(now)
 
     def gpio_overlay_map(self, now: float | None = None) -> dict[str, str]:
@@ -285,6 +288,9 @@ class Core:
             self._con.commit()
             cur = self._con.execute("SELECT * FROM state WHERE id=1")
             row = cur.fetchone()
+        # Close any implicit read transaction so the next read sees the latest
+        # committed state (WAL mode can otherwise keep a stale snapshot open).
+        self._con.commit()
         return dict(row)
 
     def _prog_path(self, program_id: str, version: int) -> str:
@@ -678,48 +684,54 @@ class Core:
 
     def display_snapshot(self) -> dict:
         """Fields + override + layout ids for display driver / receivers."""
-        st = self.state()
-        gpio_overlay = self.gpio_overlay_map()
-        gpio_boards = self.gpio_board_map()
-        if not st["program_id"]:
-            # no program selected: still show an active override (manual message
-            # must reach the boards with or without program context)
-            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
-        pc = self._open_prog(st["program_id"], st["program_version"])
-        if pc is None:
-            # installed row without its bundle (deleted mid-sync?) - empty, not a crash
-            return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+        # Always end the read transaction before returning. In WAL mode a
+        # long-lived implicit read transaction can pin an old snapshot, so the
+        # display process never sees newly-cleared GPIO overlays.
         try:
-            dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
-            svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
-            stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
-            if not dest:
+            st = self.state()
+            gpio_overlay = self.gpio_overlay_map()
+            gpio_boards = self.gpio_board_map()
+            if not st["program_id"]:
+                # no program selected: still show an active override (manual message
+                # must reach the boards with or without program context)
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
-            from .renderer import resolve_fields
-            fields = resolve_fields(dict(dest), svc["number"] if svc else "")
+            pc = self._open_prog(st["program_id"], st["program_version"])
+            if pc is None:
+                # installed row without its bundle (deleted mid-sync?) - empty, not a crash
+                return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
             try:
-                pages = [dict(r) for r in pc.execute(
-                    "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
-                    (dest["id"],))]
-            except Exception:
-                pages = []
-            if stop:
-                fields["__stop_name"] = stop["name"]
-                fields["__board_text"] = stop["board_text"] or stop["name"]
-            layouts = {}
-            names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
-            for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
-                # key by display NAME (front/side/rear): controller outputs and
-                # receivers address layouts by name, UUIDs never leave the bundle
-                layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
-            for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
-                layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
-            return {"state": st, "fields": fields, "pages": pages, "destination": dict(dest),
-                    "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
-                    "layouts": layouts, "override": st["override_text"],
-                    "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
+                svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
+                stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
+                if not dest:
+                    return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
+                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+                from .renderer import resolve_fields
+                fields = resolve_fields(dict(dest), svc["number"] if svc else "")
+                try:
+                    pages = [dict(r) for r in pc.execute(
+                        "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
+                        (dest["id"],))]
+                except Exception:
+                    pages = []
+                if stop:
+                    fields["__stop_name"] = stop["name"]
+                    fields["__board_text"] = stop["board_text"] or stop["name"]
+                layouts = {}
+                names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
+                for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
+                    # key by display NAME (front/side/rear): controller outputs and
+                    # receivers address layouts by name, UUIDs never leave the bundle
+                    layouts[names.get(lr["display_id"], lr["display_id"])] = lr["layout"]
+                for tr in pc.execute("SELECT display_id, layout FROM layout_templates WHERE is_default=1"):
+                    layouts.setdefault("template:" + names.get(tr["display_id"], tr["display_id"]), tr["layout"])
+                return {"state": st, "fields": fields, "pages": pages, "destination": dict(dest),
+                        "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
+                        "layouts": layouts, "override": st["override_text"],
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards}
+            finally:
+                pc.close()
         finally:
-            pc.close()
+            self._con.commit()
