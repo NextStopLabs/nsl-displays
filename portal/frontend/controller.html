@@ -2,108 +2,214 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>NSL Destination Controller</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1c20">
+<title>Destination Controller</title>
 <style>
   :root {
-    --panel: #3a3d42;
-    --panel-dark: #2b2d31;
-    --display-bg: #1a1b1e;
-    --amber: #ffb000;
-    --amber-dim: #b87d00;
-    --key-bg: #565b63;
-    --key-lit: #ffb000;
-    --text: #e8e8e8;
-    --danger: #d85c5c;
+    --case: #2a2d33;
+    --case-dark: #1e2024;
+    --bezel: #111;
+    --lcd-bg: #0b0c0d;
+    --amber: #ffaa00;
+    --amber-glow: rgba(255, 170, 0, 0.45);
+    --amber-lit: #ffcc33;
+    --key-face: #4a4e55;
+    --key-side: #2d3035;
+    --key-text: #e0e0e0;
+    --key-lit: #ffaa00;
+    --key-lit-text: #1a1200;
+    --red: #c94040;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; min-height: 100%; background: #222; color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  body { display: flex; flex-direction: column; align-items: center; padding: 8px; }
-  .panel { width: 100%; max-width: 480px; background: linear-gradient(180deg, var(--panel) 0%, var(--panel-dark) 100%); border-radius: 14px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.5); border: 1px solid #4a4d52; flex: 1; display: flex; flex-direction: column; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .brand { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #aaa; }
-  .brand-dot { width: 10px; height: 10px; background: var(--danger); border-radius: 2px; box-shadow: 0 0 6px var(--danger); }
-  .ctrl-select { background: #222; color: var(--text); border: 1px solid #555; border-radius: 6px; padding: 6px; max-width: 220px; }
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+  .panel {
+    width: 100vw; height: 100vh;
+    background: linear-gradient(180deg, var(--case) 0%, var(--case-dark) 100%);
+    display: flex; flex-direction: column;
+    padding: 8px 14px 12px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  .topbar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 6px;
+  }
+  .topbar .brand { color: #999; font-size: 11px; letter-spacing: 0.5px; }
+  .ctrl-select {
+    background: #151618; color: var(--amber);
+    border: 1px solid #444; border-radius: 6px;
+    padding: 5px 8px; font-size: 13px; max-width: 55vw;
+  }
+  .offline {
+    flex: 0 0 auto; text-align: center;
+    color: #ff5555; font-size: 11px; padding-bottom: 4px;
+  }
+
+  /* --- display --- */
   .display {
-    background: var(--display-bg);
-    border: 3px inset #555;
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-family: "Courier New", Courier, monospace;
+    width: 100%;
+    flex: 0 0 auto;
+    height: 30vh; min-height: 100px; max-height: 160px;
+    background: var(--lcd-bg);
+    border: 4px solid var(--bezel);
+    border-radius: 10px;
+    box-shadow:
+      inset 0 0 20px rgba(0,0,0,0.9),
+      inset 0 0 4px rgba(255,170,0,0.08),
+      0 1px 0 rgba(255,255,255,0.05);
+    padding: 10px 16px;
     color: var(--amber);
-    text-shadow: 0 0 6px rgba(255,176,0,.4);
-    min-height: 110px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    margin-bottom: 12px;
+    font-family: "Courier New", Courier, monospace;
+    text-shadow: 0 0 10px var(--amber-glow), 0 0 2px var(--amber);
+    display: flex; flex-direction: column; justify-content: space-between;
+    position: relative;
   }
-  .display .line { display: flex; justify-content: space-between; align-items: baseline; }
-  .display .big { font-size: 28px; font-weight: bold; letter-spacing: 1px; }
-  .display .small { font-size: 16px; }
-  .display .dim { color: var(--amber-dim); }
+  .display::after {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.18) 2px 4px);
+    border-radius: 6px;
+    opacity: 0.35;
+  }
+  .display .line { display: flex; justify-content: space-between; align-items: baseline; position: relative; z-index: 1; }
+  .display .big { font-size: clamp(22px, 5vw, 38px); font-weight: bold; letter-spacing: 1px; }
+  .display .med { font-size: clamp(15px, 3vw, 22px); }
+  .display .small { font-size: clamp(12px, 2.4vw, 16px); }
+  .display .dim { color: #b87d00; text-shadow: none; }
   .display .right { text-align: right; }
-  .display .list { font-size: 15px; line-height: 1.5; }
-  .display .list .item { display: flex; gap: 6px; }
-  .display .list .item.sel { background: rgba(255,176,0,.18); }
-  .display .entry { font-size: 26px; letter-spacing: 4px; }
-  .controls { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; flex: 1; }
-  .fn-pad { display: flex; flex-direction: column; gap: 8px; }
-  .arrow-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .key {
-    border: none; border-radius: 50%; background: var(--key-bg);
-    color: #fff; font-weight: bold; font-size: 16px;
-    aspect-ratio: 1/1; box-shadow: 0 3px 0 #222, inset 0 1px 0 rgba(255,255,255,.15);
-    display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none;
+  .display .entry { font-size: clamp(24px, 5vw, 40px); letter-spacing: 6px; font-weight: bold; }
+  .display .list { font-size: clamp(13px, 2.8vw, 18px); line-height: 1.55; }
+  .display .list .item { display: flex; gap: 8px; }
+  .display .list .item.sel { background: rgba(255,170,0,0.22); color: var(--amber-lit); }
+
+  /* --- controls --- */
+  .controls {
+    flex: 1 1 auto;
+    display: flex; gap: 14px;
+    padding-top: 12px;
+    min-height: 0;
   }
-  .key:active { transform: translateY(2px); box-shadow: 0 1px 0 #222; }
-  .key.lit { background: var(--key-lit); color: #000; box-shadow: 0 0 12px var(--key-lit); }
-  .key.red { background: #a84b4b; }
-  .key.wide { grid-column: span 2; border-radius: 999px; }
-  .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .numpad .key { font-size: 20px; }
-  .hint { font-size: 11px; color: #999; text-align: center; margin-top: 8px; }
-  .offline { color: #ff5555; font-size: 12px; text-align: center; margin-bottom: 6px; }
-  @media (max-height: 680px) {
-    .display { min-height: 90px; padding: 8px; }
-    .display .big { font-size: 22px; }
-    .display .small, .display .list { font-size: 13px; }
-    .key { font-size: 14px; }
-    .numpad .key { font-size: 16px; }
+  .left-pad {
+    flex: 1 1 50%;
+    display: flex; flex-direction: column; gap: 10px;
+    min-width: 0;
+  }
+  .numpad {
+    flex: 1 1 50%;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .key {
+    border: none; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #62676f, var(--key-face) 55%, var(--key-side) 100%);
+    color: var(--key-text);
+    font-weight: 700; font-size: clamp(15px, 3.2vw, 22px);
+    box-shadow:
+      0 4px 0 #1a1c20,
+      0 5px 6px rgba(0,0,0,0.45),
+      inset 0 1px 0 rgba(255,255,255,0.12);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none;
+    position: relative;
+  }
+  .key:active, .key.pressed {
+    transform: translateY(3px);
+    box-shadow:
+      0 1px 0 #1a1c20,
+      0 2px 3px rgba(0,0,0,0.5),
+      inset 0 2px 4px rgba(0,0,0,0.35);
+  }
+  .key.amber {
+    background: radial-gradient(circle at 35% 30%, #ffcc33, #ffaa00 55%, #b87d00 100%);
+    color: var(--key-lit-text);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+    box-shadow:
+      0 4px 0 #5c4300,
+      0 0 14px rgba(255,170,0,0.35),
+      inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .key.red {
+    background: radial-gradient(circle at 35% 30%, #d65a5a, var(--red) 55%, #802020 100%);
+    color: #fff;
+  }
+  .key.wide { border-radius: 999px; grid-column: span 2; }
+
+  .arrows {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 8px;
+    aspect-ratio: 2 / 1;
+  }
+  .arrows .key[data-btn="up"] { grid-column: 1 / -1; border-radius: 12px 12px 50% 50%; }
+  .arrows .key[data-btn="left"] { border-radius: 12px 50% 50% 12px; }
+  .arrows .key[data-btn="right"] { border-radius: 50% 12px 12px 50%; }
+  .arrows .key[data-btn="down"] { grid-column: 1 / -1; border-radius: 50% 50% 12px 12px; }
+
+  .fn-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    flex: 1;
+  }
+  .fn-grid .key, .ent-wide .key { font-size: clamp(14px, 2.8vw, 20px); }
+  .ent-wide { display: flex; gap: 10px; }
+  .ent-wide .key { flex: 1; min-height: 44px; }
+
+  .hint {
+    flex: 0 0 auto;
+    text-align: center; color: #888;
+    font-size: 11px; padding-top: 6px;
+  }
+
+  @media (min-aspect-ratio: 2/1) {
+    .display { height: 26vh; }
+    .controls { gap: 18px; padding-top: 10px; }
+    .key { font-size: clamp(14px, 2.6vw, 20px); }
   }
 </style>
 </head>
 <body>
 <div class="panel">
-  <div class="header">
-    <div class="brand"><div class="brand-dot"></div><div>NSL Destination Controller</div></div>
-    <select class="ctrl-select" id="ctrlsel"><option value="">loading…</option></select>
+  <div class="topbar">
+    <div class="brand">DESTINATION CONTROLLER</div>
+    <select class="ctrl-select" id="ctrlsel"><option value="">select bus…</option></select>
   </div>
   <div class="offline" id="offline"></div>
+
   <div class="display" id="screen">
-    <div class="line"><span class="big" id="svcnum">--</span><span class="small right" id="destname">Choose a controller</span></div>
-    <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">----</span></div>
+    <div class="line"><span class="big">--</span><span class="med right">Select a bus</span></div>
+    <div class="line"><span class="small dim">Driver message</span><span class="small">----</span></div>
   </div>
+
   <div class="controls">
-    <div class="fn-pad">
-      <div class="arrow-row">
-        <button class="key" data-btn="left" title="Back">◄</button>
-        <button class="key" data-btn="down" title="Down">▼</button>
+    <div class="left-pad">
+      <div class="arrows">
         <button class="key" data-btn="up" title="Up">▲</button>
+        <button class="key" data-btn="left" title="Back">◄</button>
         <button class="key" data-btn="right" title="Enter service">►</button>
+        <button class="key" data-btn="down" title="Down">▼</button>
       </div>
-      <div class="arrow-row">
-        <button class="key red" data-btn="x" title="Cancel">X</button>
+      <div class="fn-grid">
+        <button class="key" data-btn="f">F</button>
+        <button class="key amber" data-btn="d">D</button>
+        <button class="key red" data-btn="x">X</button>
         <button class="key" data-btn="y">Y</button>
         <button class="key" data-btn="i">I</button>
         <button class="key" data-btn="r">R</button>
       </div>
-      <div class="arrow-row">
-        <button class="key lit" data-btn="f">F</button>
-        <button class="key lit" data-btn="d">D</button>
-        <button class="key lit wide" data-btn="ent">ENT</button>
+      <div class="ent-wide">
+        <button class="key amber wide" data-btn="ent">ENT</button>
       </div>
     </div>
+
     <div class="numpad">
       <button class="key" data-num="1">1</button>
       <button class="key" data-num="2">2</button>
@@ -119,13 +225,16 @@
       <button class="key" data-btn="bs">⌫</button>
     </div>
   </div>
-  <div class="hint" id="hint">D = type code · ENT = confirm · ◄ ► navigate</div>
+
+  <div class="hint" id="hint">D = type code · ENT = confirm · ▲▼ select service · ► enter destinations</div>
 </div>
+
 <script>
 const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const ORG = localStorage.getItem("nsl_org") || "";
 const TOKEN = localStorage.getItem("nsl_token") || "";
-const state = { controllers: [], cid: null, services: [], live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "" };
+const urlCid = new URLSearchParams(location.search).get("cid");
+const state = { controllers: [], cid: urlCid || null, services: [], live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "" };
 const MAX_CODE = 5;
 const screen = document.getElementById("screen");
 const hint = document.getElementById("hint");
@@ -142,11 +251,13 @@ async function loadControllers() {
   try {
     const res = await api("/api/controllers?organisation_id=" + encodeURIComponent(ORG));
     state.controllers = (res.controllers || []).filter(c => c.paired);
-    ctrlsel.innerHTML = `<option value="">-- select bus --</option>` +
+    ctrlsel.innerHTML = `<option value="">select bus…</option>` +
       state.controllers.map(c => `<option value="${esc(c.id)}">${esc(c.name || c.id)} ${c.online ? "●" : "○"}</option>`).join("");
-    if (state.cid && !state.controllers.find(c => c.id === state.cid)) state.cid = null;
+    if (state.cid && state.controllers.find(c => c.id === state.cid)) ctrlsel.value = state.cid;
+    else if (!state.controllers.find(c => c.id === state.cid)) state.cid = null;
   } catch(e) {
     ctrlsel.innerHTML = `<option value="">login required</option>`;
+    state.cid = null;
   }
 }
 async function refresh() {
@@ -166,7 +277,7 @@ function fmtCode(c) {
 }
 function render() {
   if (!state.cid) {
-    screen.innerHTML = `<div class="line"><span class="big">--</span><span class="small right">Select a controller</span></div>`;
+    screen.innerHTML = `<div class="line"><span class="big">--</span><span class="med right">Select a bus</span></div><div class="line"><span class="small dim">Driver message</span><span class="small">----</span></div>`;
     hint.textContent = "Choose a bus from the dropdown";
     return;
   }
@@ -177,9 +288,9 @@ function render() {
   if (state.mode === "code") {
     const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
     screen.innerHTML = `
-      <div class="line"><span class="small dim">CURRENT CODE</span><span class="small right">ENTER CODE</span></div>
+      <div class="line"><span class="small dim">CURRENT</span><span class="small right">ENTER CODE</span></div>
       <div class="line"><span class="big">${code}</span><span class="entry">${entry}</span></div>
-      ${state.codeError ? `<div class="line"><span class="small" style="color:#ff5555">${state.codeError}</span></div>` : ""}`;
+      ${state.codeError ? `<div class="line"><span class="small" style="color:#ff5555;text-shadow:none">${state.codeError}</span></div>` : ""}`;
     hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
     return;
   }
@@ -199,7 +310,7 @@ function render() {
     return;
   }
   screen.innerHTML = `
-    <div class="line"><span class="big" id="svcnum">${esc(svc.number||"--")}</span><span class="small right" id="destname">${esc(msg)}</span></div>
+    <div class="line"><span class="big" id="svcnum">${esc(svc.number||"--")}</span><span class="med right" id="destname">${esc(msg)}</span></div>
     <div class="line"><span class="small dim" id="msg">Driver message</span><span class="small" id="code">${esc(code)}</span></div>`;
   hint.textContent = "D = type code · ▲▼ = services · ENT = select";
 }
@@ -241,7 +352,7 @@ async function confirm() {
       state.mode = "view";
       await refresh();
     } catch(e) {
-      screen.innerHTML += `<div class="line"><span class="small" style="color:#ff5555">ERROR</span></div>`;
+      screen.innerHTML += `<div class="line"><span class="small" style="color:#ff5555;text-shadow:none">ERROR</span></div>`;
     }
     return;
   }
@@ -281,6 +392,25 @@ ctrlsel.addEventListener("change", () => {
   state.cid = ctrlsel.value || null;
   state.services = []; state.live = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0;
   refresh();
+});
+
+const KEY_MAP = {
+  ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
+  Enter:"ent", " ":"ent",
+  Escape:"x", c:"clr", Backspace:"bs", Delete:"bs",
+  f:"f", d:"d", x:"x", y:"y", i:"i", r:"r"
+};
+document.addEventListener("keydown", (e) => {
+  if (e.key >= "0" && e.key <= "9") { appendDigit(e.key); return; }
+  const btn = KEY_MAP[e.key];
+  if (!btn) return;
+  const el = document.querySelector(`button[data-btn="${btn}"]`);
+  if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); }
+  if (btn === "d") enterCode();
+  else if (btn === "ent") confirm();
+  else if (btn === "x" || btn === "clr") cancelCode();
+  else if (btn === "bs") backspace();
+  else if (["up","down","left","right"].includes(btn)) move(btn);
 });
 
 loadControllers().then(() => { render(); setInterval(refresh, 3000); });
