@@ -20,7 +20,7 @@ import sqlite3
 import zipfile
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .core import Core
 
@@ -292,6 +292,28 @@ def _controller_html() -> str:
 def index():
     return INDEX_HTML
 
+def _nsl_image(filename: str):
+    p = os.path.join(os.path.dirname(__file__), filename)
+    if not os.path.exists(p):
+        raise HTTPException(404, filename + " missing")
+    return FileResponse(p, media_type="image/png")
+
+@app.get("/NSL-Displays-1.png")
+def NSL_Displays_1():
+    # returns the NSL-Displays-1.png image
+    return _nsl_image("NSL-Displays-1.png")
+
+
+@app.get("/NSL-Displays-2.png")
+def NSL_Displays_2():
+    # returns the NSL-Displays-2.png image
+    return _nsl_image("NSL-Displays-2.png")
+
+
+@app.get("/NSL-Displays-3.png")
+def NSL_Displays_3():
+    # returns the NSL-Displays-3.png image
+    return _nsl_image("NSL-Displays-3.png")
 
 @app.get("/controller", response_class=HTMLResponse)
 def controller():
