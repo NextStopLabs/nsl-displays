@@ -88,8 +88,9 @@ class GpioRulesEngine:
         """Electrical config for a pin (first rule wins)."""
         rs = self.by_pin.get(int(pin), [])
         if not rs:
-            return {"active_low": True, "debounce_ms": 50}
+            return {"active_low": True, "pull": "up", "debounce_ms": 50}
         return {"active_low": bool(rs[0].get("active_low", 1)),
+                "pull": rs[0].get("pull") or "up",
                 "debounce_ms": int(rs[0].get("debounce_ms") or 50)}
 
     def level_event(self, pin: int, active: bool, now: float | None = None) -> list[dict]:

@@ -53,8 +53,20 @@ def test_engine_press_timing():
 def test_engine_active_high_pin():
     e = GpioRulesEngine(_rules())
     assert e.pin_config(6)["active_low"] is False
+    assert e.pin_config(6)["pull"] == "up"
     e.level_event(6, True, now=100.0)
     assert [r["id"] for r in e.active_overlays()] == ["rev"]
+
+
+def test_pin_config_includes_pull():
+    """The input service reads pull from pin_config to set gpiozero's pull_up.
+    Regression: it was missing, so every pin got the default pull-up."""
+    e = GpioRulesEngine([{"id": "r", "pin": 7, "trigger": "while_active",
+                          "pull": "down", "active_low": 0, "debounce_ms": 20,
+                          "position": 0}])
+    assert e.pin_config(7)["pull"] == "down"
+    assert e.pin_config(7)["active_low"] is False
+    assert e.pin_config(7)["debounce_ms"] == 20
 
 
 def test_old_dispatcher_untouched():

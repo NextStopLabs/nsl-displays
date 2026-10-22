@@ -37,6 +37,7 @@ def _gpio_loop(core):
     devices: dict[int, object] = {}
     last_sig = None
     last_levels: dict[int, bool] = {}
+    last_active_set: set[int] = set()
     print("nsl-input: gpio loop started", flush=True)
     while True:
         try:
@@ -86,6 +87,7 @@ def _gpio_loop(core):
                     for p in active:
                         engine.level_event(p, True)
                     core.sync_gpio_levels(active)
+                    last_active_set = set(active)
                 except Exception as e:
                     print(f"nsl-input: gpio initial sync failed ({e})", flush=True)
         if not devices:
@@ -110,11 +112,15 @@ def _gpio_loop(core):
                                 print(f"nsl-input: gpio announcement played={prep.get('played')}", flush=True)
                         except Exception as e:
                             print(f"nsl-input: gpio pin {pin} action failed ({e})", flush=True)
-                    # latched boards follow the live level (reverse off restores)
+                    # latched boards follow the live level (reverse off restores).
+                    # Only write to controller.db when the active set actually
+                    # changes; constant commits every 20 ms starve other services.
                     try:
                         cur = {p for p, d in devices.items()
                                if last_levels.get(p, False)}
-                        core.sync_gpio_levels(cur)
+                        if cur != last_active_set:
+                            core.sync_gpio_levels(cur)
+                            last_active_set = set(cur)
                         shown = sorted(set(core.gpio_overlay_map()) | set(core.gpio_board_map()))
                         print(f"nsl-input: gpio pin {pin} {'active' if active else 'released'} "
                               f"fired={[r.get('label') or r.get('trigger') for r in fired]} "
