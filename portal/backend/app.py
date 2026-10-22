@@ -746,6 +746,54 @@ def delete_destination_page(pgid: str, u: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@app.post("/api/destinations/{did}/duplicate")
+def duplicate_destination(did: str, body: dict, u: dict = Depends(current_user)):
+    """Copy a destination with its stops, board pages and layouts.
+
+    Body: {service_id?, code?} - target service defaults to the source
+    service (must be in the same program); code defaults to a free
+    suggestion. The copy keeps name/num/via/dest/extra, stops, pages
+    and per-display layouts.
+    """
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor")
+    d = dict(d)
+    target_sid = (body.get("service_id") if isinstance(body, dict) else None) or d["service_id"]
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (target_sid,)).fetchone()
+    if not s or s["program_id"] != d["program_id"]:
+        raise HTTPException(400, "service must be in the same program")
+    code = ((body.get("code") if isinstance(body, dict) else None) or "").strip() or suggest_code(d["program_id"])
+    if not _check_code_shape(code):
+        raise HTTPException(400, "code must be 1-8 digits 0-9")
+    if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (d["program_id"], code)).fetchone():
+        raise HTTPException(400, "duplicate code in program")
+    nid = str(uuid.uuid4())
+    pos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=?", (target_sid,)).fetchone()[0]
+    con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (nid, d["organisation_id"], d["program_id"], target_sid, code, d["name"], pos,
+                 d["num"], d["via"], d["dest"], d["extra_fields"] or "{}"))
+    for pg in _destination_pages(con, did):
+        _insert_destination_page(con, d["organisation_id"], d["program_id"], nid,
+                                 pg["position"], pg["via"] or "", pg["dest"] or "")
+    for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (did,)):
+        st = dict(st)
+        con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), st["organisation_id"], st["program_id"], nid,
+                     st["position"], st["name"], st["audio"], st["board_text"],
+                     st["board_override"], st["is_terminus"]))
+    for lo in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (did,)):
+        lo = dict(lo)
+        con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), lo["organisation_id"], lo["program_id"], nid,
+                     lo["display_id"], lo["layout"]))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    return {"destination_id": nid, "code": code}
+
+
 @app.delete("/api/destinations/{did}")
 def delete_destination(did: str, u: dict = Depends(current_user)):
     con = db()

@@ -442,6 +442,7 @@ function renderProgram() {
           `<button data-pages="${d.id}">Pages</button>` +
           `<button data-stops="${d.id}">Stops</button>` +
           `<button data-edit="${d.id}">Edit</button>` +
+          `<button data-dup="${d.id}">Duplicate</button>` +
           `<button class=danger data-del="${d.id}">Delete</button></td></tr>`;
       }
       h += `</tbody></table></div>`;
@@ -620,6 +621,16 @@ function renderProgram() {
     <div class=col><label for=ed-dest>Page 1 dest board</label><input id=ed-dest></div></div>
     <div class=err id=ed-err></div>
     <div class=row style="justify-content:flex-end"><button id=ed-close>Cancel</button><button id=ed-save class=primary value=default>Save</button></div>
+    </form></dialog>`;
+
+  // ---- Duplicate destination dialog (service + code, copies stops/pages/layouts) ----
+  h += `<dialog id=dup-dialog><form method=dialog>
+    <h3 style="margin-top:0">Duplicate destination</h3>
+    <p class=hint id=dup-src style="margin:4px 0"></p>
+    <div class=row><div style="flex:0 0 140px"><label for=dup-code>New code (1–8 digits) <span class=req>(required)</span></label><input id=dup-code maxlength=8 inputmode=numeric></div>
+    <div class=col><label for=dup-service>Service</label><select id=dup-service></select></div></div>
+    <div class=err id=dup-err></div>
+    <div class=row style="justify-content:flex-end"><button id=dup-close>Cancel</button><button id=dup-save class=primary value=default>Duplicate</button></div>
     </form></dialog>`;
 
   h += `<div id=pd-edit></div>`;
@@ -862,6 +873,31 @@ function renderProgram() {
     try { await api(`/api/destinations/${b.dataset.del}`, { method: "DELETE" }); openProgram(p.id); }
     catch (e) { err(String(e.message || e)); }
   });
+  const dupDlg = $("dup-dialog");
+  const openDup = async (did) => {
+    const found = findDest(did); if (!found) return;
+    $("dup-service").innerHTML = (p.services || []).map((s) =>
+      `<option value="${s.id}"${s.id === found.s.id ? " selected" : ""}>${esc(s.number)}${s.name ? " - " + esc(s.name) : ""}</option>`).join("");
+    $("dup-src").textContent = `Copy ${found.d.code} ${found.d.name || ""} with its stops, board pages and layouts.`;
+    $("dup-err").textContent = "";
+    try {
+      const chk = await api(`/api/programs/${p.id}/destinations/check-code?code=${encodeURIComponent(found.d.code)}`);
+      $("dup-code").value = (chk && chk.suggestion) || "";
+    } catch (e) { $("dup-code").value = ""; }
+    dupDlg.dataset.did = did;
+    (dupDlg.showModal ? dupDlg.showModal() : null);
+  };
+  $("dup-close").onclick = () => { if (dupDlg) dupDlg.close(); };
+  $("dup-save").onclick = async (e) => {
+    e.preventDefault();
+    const did = dupDlg.dataset.did;
+    try {
+      await api(`/api/destinations/${did}/duplicate`, { method: "POST", body: {
+        code: $("dup-code").value.trim(), service_id: $("dup-service").value } });
+      dupDlg.close(); openProgram(p.id);
+    } catch (ex) { $("dup-err").textContent = String(ex.message || ex); }
+  };
+  $("pd-body").querySelectorAll("[data-dup]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); openDup(b.dataset.dup); });
   $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editStops(b.dataset.stops); });
   $("pd-body").querySelectorAll("[data-pages]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editPages(b.dataset.pages); });
   $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout));
