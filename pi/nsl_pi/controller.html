@@ -633,8 +633,6 @@ function renderBoard(cur) {
 
   const scale = DISPLAY_W / layout.width;
   const dispH = Math.round(layout.height * scale);
-  screen.style.height = dispH + "px";
-  screen.style.top = (DISPLAY_CY - dispH / 2) + "px";
   screen.innerHTML = `<div class="board" style="width:${layout.width}px;height:${layout.height}px;background:${esc(layout.background || "#000")};transform:scale(${scale})"></div>`;
   const board = screen.firstChild;
 
