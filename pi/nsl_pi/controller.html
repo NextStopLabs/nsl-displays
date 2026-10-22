@@ -235,6 +235,54 @@
       top: 65px;
     }
 
+    /* board replica (main screen): drawn in the layout's own pixel space
+       and scaled up to fill the display */
+    .board {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+      overflow: hidden;
+      text-shadow: 0 0 3px rgba(255, 170, 0, .5);
+      font-family: "DejaVu Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-weight: 700;
+    }
+
+    .board .el {
+      position: absolute;
+      display: flex;
+      overflow: hidden;
+      line-height: 1;
+    }
+
+    .board .el .t {
+      flex: 0 0 auto;
+      white-space: pre;
+    }
+
+    .board .el .logo {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid currentColor;
+      border-radius: 20%;
+      text-shadow: none;
+    }
+
+    @keyframes mq {
+
+      0%,
+      15% {
+        transform: translateX(0)
+      }
+
+      85%,
+      100% {
+        transform: translateX(var(--d))
+      }
+    }
+
     /* non-default screens (code entry, service / destination lists) */
     .hv-flex {
       position: absolute;
@@ -518,6 +566,101 @@ function listHtml(items, sel, label) {
   return `<div class="list">${h}</div>`;
 }
 
+/* ---------- board replica ---------- */
+const DISPLAY_W = 313;            // on-screen width of the display area
+const DISPLAY_CY = 128;           // vertical centre of the display area
+let boardTimer = null, boardKey = null;
+
+function stopBoard() {
+  clearTimeout(boardTimer); boardTimer = null; boardKey = null;
+  screen.style.height = ""; screen.style.top = "";
+}
+// "han-2423B3E1" -> 24px tall, bold ; "han-1610N2E1" -> 16px tall, normal ; "han-LOGO17" -> logo glyph 17px
+function parseFont(f) {
+  f = String(f || "");
+  if (/LOGO/i.test(f)) return { h: parseInt((f.match(/(\d+)\s*$/) || [0, 17])[1], 10) || 17, bold: true, logo: true };
+  const m = /(\d{2})\d{2}([A-Z])/.exec(f);
+  return { h: m ? parseInt(m[1], 10) : 16, bold: m ? m[2] === "B" : true, logo: false };
+}
+function boardElHtml(e, vals, hide) {
+  let txt;
+  if (e.type === "field") {
+    if (hide.includes(e.field)) return "";
+    txt = vals[e.field] || "";
+  } else txt = e.text || "";
+  if (e.show_if === "has_text" && !String(txt).trim()) return "";
+  const f = parseFont(e.font), sc = e.scale || 1;
+  const jc = { left: "flex-start", centre: "center", center: "center", right: "flex-end" }[e.align] || "center";
+  const ai = { top: "flex-start", middle: "center", bottom: "flex-end" }[e.valign] || "center";
+  const fg = e.colour || "#FFB000";
+  const st = `left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;justify-content:${jc};align-items:${ai};` +
+    (e.invert ? `background:${fg};color:#000;text-shadow:none;` : `color:${fg};`);
+  const ls = ((e.spacing || 1) - 1);
+  let inner;
+  if (f.logo) {
+    const sz = Math.round(f.h * sc);
+    inner = `<span class="t logo" style="width:${sz}px;height:${sz}px;font-size:${Math.round(sz * .6)}px">${esc(txt)}</span>`;
+  } else {
+    inner = `<span class="t" style="font-size:${Math.round(f.h * sc * .85)}px;font-weight:${f.bold ? 700 : 400};letter-spacing:${ls}px">${esc(txt)}</span>`;
+  }
+  return `<div class="el" data-scroll="${esc(e.scroll || "none")}" style="${st}">${inner}</div>`;
+}
+function renderBoard(cur) {
+  let layout;
+  try { layout = JSON.parse(cur.layouts.front); } catch (e) { return false; }
+  if (!layout || !layout.width) return false;
+
+  const st = cur.state || {};
+  const fields = cur.fields || {};
+  const ovo = cur.override;
+  const ovText = (ovo && (ovo.text || ovo.override_text)) || st.override_text || "";
+  const ovCfg = layout.override || {};
+  const ins = cur.insert && cur.insert.destination;
+
+  let pages;
+  if (ovText) {
+    pages = [Object.assign({}, fields, { [ovCfg.replaces || "dest"]: ovText })];
+  } else {
+    pages = (cur.pages && cur.pages.length ? cur.pages : [fields]).map(p => Object.assign({}, fields, p));
+    if (ins) pages.push({ num: ins.num || fields.num, via: ins.via || "", dest: ins.dest || ins.name || "" });
+  }
+  const hide = ovText ? (ovCfg.hide || []) : [];
+
+  const key = JSON.stringify([cur.layouts.front, pages, hide]);
+  if (key === boardKey && screen.querySelector(".board")) return true;
+  clearTimeout(boardTimer);
+  boardKey = key;
+
+  const scale = DISPLAY_W / layout.width;
+  const dispH = Math.round(layout.height * scale);
+  screen.style.height = dispH + "px";
+  screen.style.top = (DISPLAY_CY - dispH / 2) + "px";
+  screen.innerHTML = `<div class="board" style="width:${layout.width}px;height:${layout.height}px;background:${esc(layout.background || "#000")};transform:scale(${scale})"></div>`;
+  const board = screen.firstChild;
+
+  let idx = 0;
+  const secs = Math.max(1, layout.page_seconds || 3);
+  function show() {
+    const pe = layout.page_elements && layout.page_elements[String(idx + 1)];
+    const els = (pe && pe.length ? pe : layout.elements) || [];
+    board.innerHTML = els.map(e => boardElHtml(e, pages[idx], hide)).join("");
+    board.querySelectorAll('.el[data-scroll="if_too_long"]').forEach(el => {
+      const t = el.firstChild, over = t.offsetWidth - el.clientWidth;
+      if (over > 1) {
+        el.style.justifyContent = "flex-start";
+        t.style.setProperty("--d", -over + "px");
+        t.style.animation = `mq ${Math.max(3, over / 18 + 2)}s linear infinite alternate`;
+      }
+    });
+    if (pages.length > 1) {
+      idx = (idx + 1) % pages.length;
+      boardTimer = setTimeout(show, secs * 1000);
+    }
+  }
+  show();
+  return true;
+}
+
 /* ---------- render ---------- */
 function render() {
   const cur = state.current || {};
@@ -525,6 +668,8 @@ function render() {
   const svc = cur.service || {};
   const msg = dest.name || dest.dest || svc.description || "No destination";
   const code = fmtCode(dest.code || svc.number || "");
+
+  if (state.mode !== "view") stopBoard();
 
   if (state.mode === "code") {
     const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
@@ -585,17 +730,23 @@ function render() {
     return;
   }
 
+  const ins = state.current.insert;
+  hint.textContent = (ins && ins.destination)
+    ? `${code} · I = change insert (${ins.destination.code}) · ENT empty clears · D = type code`
+    : `${code} · D = type code · I = insert page · ▲▼ = services · ENT = select`;
+
+  // main screen: replicate what the board is actually showing
+  if (renderBoard(cur)) return;
+
+  // fallback if the state has no usable front layout
+  stopBoard();
   const num = String(svc.number || "--");
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
-  const ins = state.current.insert;
   const insTag = ins && ins.destination ? ` +${esc(ins.destination.code || "INS")}` : "";
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
     <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
     <div class="hv-right">${esc(code)}${insTag}</div>`;
-  hint.textContent = (ins && ins.destination)
-    ? `I = change insert (${ins.destination.code}) · ENT empty clears · D = type code`
-    : "D = type code · I = insert page · ▲▼ = services · ENT = select";
 }
 
 /* ---------- actions (logic unchanged) ---------- */
