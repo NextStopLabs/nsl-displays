@@ -600,7 +600,7 @@ async function refresh() {
     state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null };
     offline.textContent = state.live.online ? "" : (state.live.stale ? "bus offline / stale state" : "");
     if (!state.services.length) {
-      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortByCode(); } catch(e){}
+      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortLists(); } catch(e){}
     }
     // a queued ENT is "loaded" once the bus reports the expected destination
     if (state.pending) {
@@ -630,8 +630,11 @@ function showPending(num, codeFmt, destId, codeStr) {
 }
 
 /* ---------- helpers ---------- */
-function sortByCode() {
-  for (const s of state.services || []) {
+function sortLists() {
+  const svcs = state.services || [];
+  svcs.sort((a, b) =>
+    String(a.number || "").localeCompare(String(b.number || ""), undefined, {numeric: true}));
+  for (const s of svcs) {
     (s.destinations || []).sort((a, b) =>
       String(a.code || "").localeCompare(String(b.code || ""), undefined, {numeric: true}));
   }
@@ -931,7 +934,7 @@ async function confirm() {
       return;
     }
     if (!state.services.length) {
-      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortByCode(); } catch(e){}
+      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortLists(); } catch(e){}
     }
     const hitI = lookupCode(ci);
     const keepI = state.code.slice();
@@ -950,7 +953,7 @@ async function confirm() {
     const c = state.code.join("");
     if (c.length === 0) return;
     if (!state.services.length) {
-      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortByCode(); } catch(e){}
+      try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortLists(); } catch(e){}
     }
     const hit = lookupCode(c);
     const keep = state.code.slice();

@@ -539,14 +539,17 @@ async function api(path, body) {
 async function refresh() {
   try { state.current = await api("/api/state") || {}; } catch(e){}
   if (!state.services.length) {
-    try { const b = await api("/api/browse"); state.services = b.services || []; sortByCode(); } catch(e){}
+    try { const b = await api("/api/browse"); state.services = b.services || []; sortLists(); } catch(e){}
   }
   if (state.mode === "view") render();
 }
 
 /* ---------- helpers ---------- */
-function sortByCode() {
-  for (const s of state.services || []) {
+function sortLists() {
+  const svcs = state.services || [];
+  svcs.sort((a, b) =>
+    String(a.number || "").localeCompare(String(b.number || ""), undefined, {numeric: true}));
+  for (const s of svcs) {
     (s.destinations || []).sort((a, b) =>
       String(a.code || "").localeCompare(String(b.code || ""), undefined, {numeric: true}));
   }
