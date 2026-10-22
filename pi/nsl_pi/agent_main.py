@@ -86,8 +86,10 @@ def main():
                     con.close()
             rep = ag.sync_once(db)
             audio = (rep or {}).get("audio", {})
+            rel = (rep or {}).get("release", {})
             if (rep or {}).get("programs") or (rep or {}).get("errors") or (rep or {}).get("skipped") \
-                    or audio.get("ok") or audio.get("failed"):
+                    or audio.get("ok") or audio.get("failed") \
+                    or rel.get("error") or rel.get("ok"):
                 print("sync:", json.dumps(rep)[:2000], flush=True)
         except Exception as e:
             print("agent cycle failed:", e, flush=True)

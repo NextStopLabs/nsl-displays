@@ -268,12 +268,35 @@ class Agent:
             return {"info": "no release available"}
         new_ver = str(rel["version"])
         # Don't re-download same version.
-        from .update import current_version, staged_version
+        from .update import (activation_failure, clear_activation_failure,
+                             current_version, pending_activation,
+                             staged_version)
         if current_version() == new_ver:
+            clear_activation_failure(new_ver, self.base_dir)
             return {"version": new_ver, "info": "already running"}
         if staged_version() == new_ver:
-            print(f"software {new_ver}: already staged, waiting for activation", flush=True)
-            return {"version": new_ver, "info": "already staged"}
+            pending = pending_activation()
+            if pending and pending.get("version") == new_ver:
+                print(f"software {new_ver}: already staged, waiting for activation", flush=True)
+                return {"version": new_ver, "info": "already staged"}
+            # Staged but no activation scheduled: a previous helper run died
+            # before activating, or a rollback left the failed build in the
+            # inactive slot. Without this recovery the Pi reports the old
+            # version forever and every Update click is a no-op.
+            failed = activation_failure(new_ver, self.base_dir)
+            if failed:
+                print(f"software {new_ver}: staged but activation failed before "
+                      f"({failed}); not retrying automatically", flush=True)
+                return {"version": new_ver,
+                        "error": f"staged but activation failed before ({failed}); "
+                                 "check update.log / journal, then delete "
+                                 f"{new_ver}.failed from NSL_BASE to retry"}
+            print(f"software {new_ver}: staged but no activation scheduled; "
+                  f"re-triggering", flush=True)
+            from .update import run_activation_helper, schedule_activation
+            schedule_activation(new_ver)
+            run_activation_helper(new_ver)
+            return {"version": new_ver, "info": "staged; activation re-triggered"}
         if rel.get("min_agent_version") and rel["min_agent_version"] > APP_VERSION:
             print(f"software {new_ver}: needs agent >= {rel['min_agent_version']} "
                   f"(have {APP_VERSION})", flush=True)

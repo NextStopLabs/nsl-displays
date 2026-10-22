@@ -40,6 +40,11 @@ def main():
     print(f"software {version}: activation "
           + ("done" if result.get("ok") else f"FAILED ({result.get('error', 'unknown')})"),
           flush=True)
+    from .update import clear_activation_failure, record_activation_failure
+    if result.get("ok"):
+        clear_activation_failure(version)
+    else:
+        record_activation_failure(version, str(result.get("error", "unknown")))
     # Report result via outbox for next heartbeat.
     db = os.path.join(BASE, "controller.db")
     try:

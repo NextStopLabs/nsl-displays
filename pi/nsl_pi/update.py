@@ -207,6 +207,39 @@ def pending_activation() -> dict | None:
         return None
 
 
+def _base_dir() -> str:
+    return os.environ.get("NSL_BASE", "/var/lib/nsl")
+
+
+def failure_sentinel(version: str, base: str | None = None) -> str:
+    return os.path.join(base or _base_dir(), f"release-{version}.failed")
+
+
+def record_activation_failure(version: str, error: str, base: str | None = None):
+    """Remember that this version failed to activate so sync doesn't
+    restart services in a tight loop forever. Cleared on next success."""
+    try:
+        with open(failure_sentinel(version, base), "w") as f:
+            f.write(error[:500] + "\n")
+    except OSError:
+        pass
+
+
+def activation_failure(version: str, base: str | None = None) -> str | None:
+    try:
+        with open(failure_sentinel(version, base)) as f:
+            return f.read().strip() or "unknown"
+    except Exception:
+        return None
+
+
+def clear_activation_failure(version: str, base: str | None = None):
+    try:
+        os.remove(failure_sentinel(version, base))
+    except OSError:
+        pass
+
+
 def run_activation_helper(version: str):
     """Fork a background process that will activate the update and survive
     the agent service restart. Helper output goes to NSL_BASE/update.log
@@ -247,6 +280,7 @@ def check_and_apply(release_info: dict, bundle_path: str) -> dict:
     schedule_activation(version)
     result["phase"] = "scheduled"
     result["ok"] = True
+    clear_activation_failure(version)
     return result
 
 

@@ -74,6 +74,110 @@ def pairing_frame(out: dict, code: str, portal_host: str = ""):
     return img
 
 
+SPLASH_HOLD_S = 5.0
+SPLASH_SCROLL_PX_S = 60.0
+
+
+def _splash_logo(out: dict):
+    """Full-colour logo frame for one output: NSL-Displays-3.png scaled to
+    fit (aspect kept) and centred on black. Falls back to blank on error."""
+    from PIL import Image
+    w, h = int(out["width_px"]), int(out["height_px"])
+    frame = Image.new("RGB", (w, h), "#000000")
+    try:
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "NSL-Displays-3.png")
+        logo = Image.open(logo_path).convert("RGB")
+        scale = min(w / logo.width, h / logo.height)
+        if scale <= 0:
+            return frame
+        nw, nh = max(1, int(logo.width * scale)), max(1, int(logo.height * scale))
+        logo = logo.resize((nw, nh), Image.LANCZOS)
+        frame.paste(logo, ((w - nw) // 2, (h - nh) // 2))
+    except Exception as e:
+        print(f"display: splash logo failed ({e}) - holding black", flush=True)
+    return frame
+
+
+def _splash_version_frames(out: dict, version: str):
+    """Frames scrolling the version string right-to-left across one output."""
+    from PIL import Image, ImageDraw, ImageFont
+    w, h = int(out["width_px"]), int(out["height_px"])
+    try:
+        fnt = ImageFont.load_default(size=min(24, h // 2 + 8))
+    except TypeError:  # ancient Pillow without size=
+        fnt = ImageFont.load_default()
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    try:
+        bb = probe.textbbox((0, 0), version, font=fnt)
+        tw = max(1, bb[2] - bb[0])
+        ascent, descent = fnt.getmetrics() if hasattr(fnt, "getmetrics") else (h // 2, 0)
+        th = max(1, ascent + descent)
+    except Exception:
+        tw, th = max(1, len(version) * 6), 10
+    y = max(0, (h - th) // 2)
+    step_px = max(1, int(SPLASH_SCROLL_PX_S / RENDER_HZ))
+    frames = []
+    for x in range(w, -tw - 1, -step_px):
+        img = Image.new("RGB", (w, h), "#000000")
+        ImageDraw.Draw(img).text((x, y), version, fill="#FFB000", font=fnt)
+        frames.append(img)
+    return frames
+
+
+def boot_splash(drv, outputs):
+    """Reboot splash: logo in full colour for 5 s, then scroll the running
+    software version across, then return (caller boots into normal loop,
+    which shows a blank board until a destination is selected)."""
+    try:
+        from nsl_pi.update import current_version
+        version = current_version() or "unknown"
+    except Exception:
+        version = "unknown"
+    local = [o for o in outputs
+             if o.get("enabled", 1) and (o.get("transport") or "local") == "local"]
+    if not local:
+        return
+    print(f"display: boot splash logo 5s + version scroll ({version})", flush=True)
+    for out in local:
+        try:
+            drv.last_frames[out["display_name"]] = _splash_logo(out)
+            drv._draw(out, drv.last_frames[out["display_name"]])
+        except Exception as e:
+            print(f"display: splash logo draw failed ({e})", flush=True)
+    try:
+        drv.present()
+    except Exception as e:
+        print(f"display: splash logo present failed ({e})", flush=True)
+    time.sleep(SPLASH_HOLD_S)
+    strips = [(out, _splash_version_frames(out, version)) for out in local]
+    depth = max((len(fr) for _, fr in strips), default=0)
+    blank = {}
+    for i in range(depth):
+        for out, fr in strips:
+            if i < len(fr):
+                try:
+                    drv.last_frames[out["display_name"]] = fr[i]
+                    drv._draw(out, fr[i])
+                except Exception:
+                    pass
+            elif out["display_name"] not in blank:
+                # smaller boards finish first; park them on blank while the
+                # widest board finishes its pass.
+                try:
+                    from PIL import Image as _I
+                    drv._draw(out, _I.new("RGB", (int(out["width_px"]),
+                                                 int(out["height_px"])), "#000000"))
+                    blank[out["display_name"]] = True
+                except Exception:
+                    pass
+        try:
+            drv.present()
+        except Exception:
+            pass
+        time.sleep(1.0 / RENDER_HZ)
+
+
 def pairing_status():
     """(code, portal_url) when this front Pi is unpaired, else (None, portal)."""
     from nsl_pi import pairing as _P
@@ -110,14 +214,13 @@ def main():
         print(f"display: {len(_han_found)} Hanover fonts in {_han_dir()}", flush=True)
     except Exception as e:
         print(f"display: Hanover font scan failed ({e})", flush=True)
-    # boot self-test: full-white 1.5 s proves panels/power/HAT before any content.
-    # If this flash never appears, the fault is hardware, not software.
+    # reboot splash: logo in full colour for 5 s, then scroll the running
+    # software version across. Afterwards the normal loop takes over, which
+    # shows a blank board until a destination/program is selected.
     try:
-        print("display self-test: white pattern 1.5s - look at the panels", flush=True)
-        drv.test_pattern("white")
+        boot_splash(drv, outputs)
     except Exception as e:
-        print(f"display self-test failed: {e}", flush=True)
-    time.sleep(1.5)
+        print(f"display: boot splash failed ({e})", flush=True)
     if ROLE != "front":
         from nsl_pi.receiver import Receiver
         w, h = {"side": (160, 40), "rear": (80, 40)}[ROLE]
