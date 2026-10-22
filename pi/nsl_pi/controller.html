@@ -452,373 +452,229 @@
   </div>
   <div class="hint" id="hint">D = type code · ▲▼ = services · ENT = select</div>
 
-  <script>
-    const state = {
-      services: [],
-      current: {},
-      mode: "view",
-      selSvc: 0,
-      selDest: 0,
-      code: [],
-      codeError: "",
-      listError: ""
-    };
-    const MAX_CODE = 5;
-    const LIST_ROWS = 4;
-    const screen = document.getElementById("screen");
-    const hint = document.getElementById("hint");
+<script>
+const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "" };
+const MAX_CODE = 5;
+const LIST_ROWS = 4;
+const screen = document.getElementById("screen");
+const hint = document.getElementById("hint");
 
-    /* ---------- scale the faceplate to fit ---------- */
-    const stage = document.getElementById("stage");
-    const unit = document.getElementById("unit");
+/* ---------- scale the faceplate to fit ---------- */
+const stage = document.getElementById("stage");
+const unit = document.getElementById("unit");
+function fit() {
+  const s = Math.min(stage.clientWidth / 677, stage.clientHeight / 214);
+  unit.style.transform = `translate(-50%,-50%) scale(${s})`;
+}
+new ResizeObserver(fit).observe(stage);
+fit();
 
-    function fit() {
-      const s = Math.min(stage.clientWidth / 677, stage.clientHeight / 214);
-      unit.style.transform = `translate(-50%,-50%) scale(${s})`;
-    }
-    new ResizeObserver(fit).observe(stage);
-    fit();
+/* ---------- API ---------- */
+async function api(path, body) {
+  const opts = body ? { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(()=>null))?.detail || ("HTTP "+r.status));
+  return r.json().catch(()=>null);
+}
+async function refresh() {
+  try { state.current = await api("/api/state") || {}; } catch(e){}
+  if (!state.services.length) {
+    try { const b = await api("/api/browse"); state.services = b.services || []; } catch(e){}
+  }
+  if (state.mode === "view") render();
+}
 
-    /* ---------- API ---------- */
-    async function api(path, body) {
-      const opts = body ? {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-      } : {};
-      const r = await fetch(path, opts);
-      if (!r.ok) throw new Error((await r.json().catch(() => null)) ? .detail || ("HTTP " + r.status));
-      return r.json().catch(() => null);
-    }
-    async function refresh() {
-      try {
-        state.current = await api("/api/state") || {};
-      } catch (e) {}
-      if (!state.services.length) {
-        try {
-          const b = await api("/api/browse");
-          state.services = b.services || [];
-        } catch (e) {}
-      }
-      if (state.mode === "view") render();
-    }
+/* ---------- helpers ---------- */
+function fmtCode(c) {
+  if (!c && c !== "0") return "----";
+  return String(c).padStart(4, "0");
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function splitDest(s) {
+  s = String(s || "");
+  const words = s.split(" ");
+  if (s.length <= 16 || words.length < 2) return [s];
+  let best = 1, bd = 1e9;
+  for (let i = 1; i < words.length; i++) {
+    const d = Math.abs(words.slice(0,i).join(" ").length - words.slice(i).join(" ").length);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return [words.slice(0,best).join(" "), words.slice(best).join(" ")];
+}
+function windowRange(n, sel, size) {
+  const start = Math.max(0, Math.min(sel - Math.floor(size / 2), n - size));
+  return [start, Math.min(n, start + size)];
+}
+function listHtml(items, sel, label) {
+  if (!items.length) return `<div class="list"><div class="item"><span>&nbsp;</span><span>NONE</span></div></div>`;
+  const [a, b] = windowRange(items.length, sel, LIST_ROWS);
+  let h = "";
+  for (let i = a; i < b; i++) {
+    h += `<div class="item ${i===sel?"sel":""}"><span>${i===sel?">":" "}</span><span>${esc(label(items[i]))}</span></div>`;
+  }
+  return `<div class="list">${h}</div>`;
+}
 
-    /* ---------- helpers ---------- */
-    function fmtCode(c) {
-      if (!c && c !== "0") return "----";
-      return String(c).padStart(4, "0");
-    }
+/* ---------- render ---------- */
+function render() {
+  const cur = state.current || {};
+  const dest = cur.destination || {};
+  const svc = cur.service || {};
+  const msg = dest.name || dest.dest || svc.description || "No destination";
+  const code = fmtCode(dest.code || svc.number || "");
 
-    function esc(s) {
-      return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-      } [c]));
-    }
-
-    function splitDest(s) {
-      s = String(s || "");
-      const words = s.split(" ");
-      if (s.length <= 16 || words.length < 2) return [s];
-      let best = 1,
-        bd = 1e9;
-      for (let i = 1; i < words.length; i++) {
-        const d = Math.abs(words.slice(0, i).join(" ").length - words.slice(i).join(" ").length);
-        if (d < bd) {
-          bd = d;
-          best = i;
-        }
-      }
-      return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
-    }
-
-    function windowRange(n, sel, size) {
-      const start = Math.max(0, Math.min(sel - Math.floor(size / 2), n - size));
-      return [start, Math.min(n, start + size)];
-    }
-
-    function listHtml(items, sel, label) {
-      if (!items.length) return `<div class="list"><div class="item"><span>&nbsp;</span><span>NONE</span></div></div>`;
-      const [a, b] = windowRange(items.length, sel, LIST_ROWS);
-      let h = "";
-      for (let i = a; i < b; i++) {
-        h +=
-          `<div class="item ${i===sel?"sel":""}"><span>${i===sel?">":" "}</span><span>${esc(label(items[i]))}</span></div>`;
-      }
-      return `<div class="list">${h}</div>`;
-    }
-
-    /* ---------- render ---------- */
-    function render() {
-      const cur = state.current || {};
-      const dest = cur.destination || {};
-      const svc = cur.service || {};
-      const msg = dest.name || dest.dest || svc.description || "No destination";
-      const code = fmtCode(dest.code || svc.number || "");
-
-      if (state.mode === "code") {
-        const entry = Array(MAX_CODE).fill("-").map((d, i) => state.code[i] || d).join("");
-        screen.innerHTML = `<div class="hv-flex">
+  if (state.mode === "code") {
+    const entry = Array(MAX_CODE).fill("-").map((d,i) => state.code[i] || d).join("");
+    screen.innerHTML = `<div class="hv-flex">
       <div class="line"><span class="small dim">CURRENT</span><span class="small">ENTER CODE</span></div>
       <div class="line"><span class="big">${esc(code)}</span><span class="entry">${entry}</span></div>
       <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
     </div>`;
-        hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
-        return;
-      }
-      if (state.mode === "services") {
-        screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+    hint.textContent = "Type 5 digits · ENT = confirm · X/C = cancel";
+    return;
+  }
+  if (state.mode === "services") {
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="small dim">SELECT SERVICE</div>
       ${listHtml(state.services, state.selSvc, s => `${s.number||"-"} ${s.name||""}`)}
     </div>`;
-        hint.textContent = "▲▼ choose service · ► enter destinations";
-        return;
-      }
-      if (state.mode === "destinations") {
-        const sv = state.services[state.selSvc] || {};
-        screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+    hint.textContent = "▲▼ choose service · ► enter destinations";
+    return;
+  }
+  if (state.mode === "destinations") {
+    const sv = state.services[state.selSvc] || {};
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="line"><span class="small dim">${esc(sv.number||"-")} ${esc(sv.name||"")}</span><span class="small err">${esc(state.listError)}</span></div>
       ${listHtml(sv.destinations || [], state.selDest, d => `${d.code||""} ${d.name||""}`)}
     </div>`;
-        hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
-        return;
-      }
+    hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
+    return;
+  }
 
-      const num = String(svc.number || "--");
-      const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
-      screen.innerHTML = `
+  const num = String(svc.number || "--");
+  const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
+  screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
     <div class="hv-dest">${splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("")}</div>
     <div class="hv-left dim">Driver message</div>
     <div class="hv-right">${esc(code)}</div>`;
-      hint.textContent = "D = type code · ▲▼ = services · ENT = select";
-    }
+  hint.textContent = "D = type code · ▲▼ = services · ENT = select";
+}
 
-    /* ---------- actions (logic unchanged) ---------- */
-    function enterCode() {
-      state.mode = "code";
-      state.code = [];
-      state.codeError = "";
+/* ---------- actions (logic unchanged) ---------- */
+function enterCode() {
+  state.mode = "code"; state.code = []; state.codeError = ""; render();
+}
+function appendDigit(n) {
+  if (state.mode !== "code") return;
+  if (state.code.length >= MAX_CODE) state.code.shift();
+  state.code.push(n); state.codeError = ""; render();
+}
+function backspace() {
+  if (state.mode !== "code") return;
+  state.code.pop(); state.codeError = ""; render();
+}
+function cancelCode() {
+  if (state.mode === "code") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
+  if (state.mode === "services") { state.mode = "view"; render(); }
+}
+async function confirm() {
+  if (state.mode === "code") {
+    const c = state.code.join("");
+    if (c.length === 0) return;
+    try {
+      await api("/api/command", {command:"select_code", code:c});
+      state.mode = "view"; state.code = []; state.codeError = "";
+      await refresh();
+    } catch(e) {
+      state.codeError = "NOT FOUND";
       render();
     }
-
-    function appendDigit(n) {
-      if (state.mode !== "code") return;
-      if (state.code.length >= MAX_CODE) state.code.shift();
-      state.code.push(n);
-      state.codeError = "";
+    return;
+  }
+  if (state.mode === "destinations") {
+    const svc = state.services[state.selSvc];
+    const dest = (svc&&svc.destinations||[])[state.selDest];
+    if (!dest) return;
+    try {
+      await api("/api/command", {command:"select_destination", destination_id:dest.id});
+      state.mode = "view"; state.listError = "";
+      await refresh();
+    } catch(e) {
+      state.listError = "ERROR";
       render();
     }
-
-    function backspace() {
-      if (state.mode !== "code") return;
-      state.code.pop();
-      state.codeError = "";
-      render();
-    }
-
-    function cancelCode() {
-      if (state.mode === "code") {
-        state.mode = "view";
-        state.codeError = "";
-        render();
-        return;
-      }
-      if (state.mode === "destinations") {
-        state.mode = "services";
-        state.listError = "";
-        render();
-        return;
-      }
-      if (state.mode === "services") {
-        state.mode = "view";
-        render();
-      }
-    }
-    async function confirm() {
-      if (state.mode === "code") {
-        const c = state.code.join("");
-        if (c.length === 0) return;
-        try {
-          await api("/api/command", {
-            command: "select_code",
-            code: c
-          });
-          state.mode = "view";
-          state.code = [];
-          state.codeError = "";
-          await refresh();
-        } catch (e) {
-          state.codeError = "NOT FOUND";
-          render();
-        }
-        return;
-      }
-      if (state.mode === "destinations") {
-        const svc = state.services[state.selSvc];
-        const dest = (svc && svc.destinations || [])[state.selDest];
-        if (!dest) return;
-        try {
-          await api("/api/command", {
-            command: "select_destination",
-            destination_id: dest.id
-          });
-          state.mode = "view";
-          state.listError = "";
-          await refresh();
-        } catch (e) {
-          state.listError = "ERROR";
-          render();
-        }
-        return;
-      }
-      if (state.mode === "services") {
-        state.mode = "destinations";
-        state.selDest = 0;
-        state.listError = "";
-        render();
-      }
-    }
-
-    function move(dir) {
-      if (state.mode === "code") {
-        if (dir === "left") backspace(); // ◄ deletes a digit while typing a code
-        return;
-      }
-      if (state.mode === "services") {
-        if (dir === "up") state.selSvc = Math.max(0, state.selSvc - 1);
-        if (dir === "down") state.selSvc = Math.min(state.services.length - 1, state.selSvc + 1);
-        if (dir === "right") {
-          confirm();
-          return;
-        }
-        render();
-      } else if (state.mode === "destinations") {
-        const svc = state.services[state.selSvc] || {};
-        const n = (svc.destinations || []).length;
-        if (dir === "up") state.selDest = Math.max(0, state.selDest - 1);
-        if (dir === "down") state.selDest = Math.min(n - 1, state.selDest + 1);
-        if (dir === "left") {
-          state.mode = "services";
-        }
-        state.listError = "";
-        render();
-      } else if (state.mode === "view") {
-        if (dir === "up" || dir === "down") {
-          state.mode = "services";
-          state.selSvc = 0;
-          render();
-        }
-      }
-    }
-
-    /* ---------- input ---------- */
-    document.body.addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      e.preventDefault();
-      const num = b.dataset.num;
-      const btn = b.dataset.btn;
-      if (num !== undefined) {
-        appendDigit(num);
-        return;
-      }
-      if (btn === "d") enterCode();
-      else if (btn === "ent") confirm();
-      else if (btn === "x") cancelCode();
-      else if (["up", "down", "left", "right"].includes(btn)) move(btn);
-    });
-
-    // keyboard support for desktop testing
-    const KEY_MAP = {
-      ArrowUp: "up",
-      ArrowDown: "down",
-      ArrowLeft: "left",
-      ArrowRight: "right",
-      Enter: "ent",
-      " ": "ent",
-      Escape: "x",
-      c: "x",
-      Backspace: "bs",
-      Delete: "bs",
-      f: "f",
-      d: "d",
-      x: "x",
-      y: "y",
-      i: "i",
-      r: "r"
-    };
-
-    function flash(el) {
-      if (el) {
-        el.classList.add("pressed");
-        setTimeout(() => el.classList.remove("pressed"), 120);
-      }
-    }
-    document.addEventListener("keydown", (e) => {
-      if (e.key >= "0" && e.key <= "9") {
-        flash(document.querySelector(`button[data-num="${e.key}"]`));
-        appendDigit(e.key);
-        return;
-      }
-      const btn = KEY_MAP[e.key];
-      if (!btn) return;
-      e.preventDefault();
-      flash(document.querySelector(`button[data-btn="${btn}"]`));
-      if (btn === "d") enterCode();
-      else if (btn === "ent") confirm();
-      else if (btn === "x") cancelCode();
-      else if (btn === "bs") backspace();
-      else if (["up", "down", "left", "right"].includes(btn)) move(btn);
-    });
-
-    setInterval(refresh, 2000);
+    return;
+  }
+  if (state.mode === "services") {
+    state.mode = "destinations"; state.selDest = 0; state.listError = ""; render();
+  }
+}
+function move(dir) {
+  if (state.mode === "code") {
+    if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
+    return;
+  }
+  if (state.mode === "services") {
+    if (dir === "up") state.selSvc = Math.max(0, state.selSvc-1);
+    if (dir === "down") state.selSvc = Math.min(state.services.length-1, state.selSvc+1);
+    if (dir === "right") { confirm(); return; }
     render();
-    refresh();
-  </script>
-  <!-- Code injected by live-server -->
-  <script>
-    // <![CDATA[  <-- For SVG support
-    if ('WebSocket' in window) {
-      (function () {
-        function refreshCSS() {
-          var sheets = [].slice.call(document.getElementsByTagName("link"));
-          var head = document.getElementsByTagName("head")[0];
-          for (var i = 0; i < sheets.length; ++i) {
-            var elem = sheets[i];
-            var parent = elem.parentElement || head;
-            parent.removeChild(elem);
-            var rel = elem.rel;
-            if (elem.href && typeof rel != "string" || rel.length == 0 || rel.toLowerCase() == "stylesheet") {
-              var url = elem.href.replace(/(&|\?)_cacheOverride=\d+/, '');
-              elem.href = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_cacheOverride=' + (new Date().valueOf());
-            }
-            parent.appendChild(elem);
-          }
-        }
-        var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
-        var address = protocol + window.location.host + window.location.pathname + '/ws';
-        var socket = new WebSocket(address);
-        socket.onmessage = function (msg) {
-          if (msg.data == 'reload') window.location.reload();
-          else if (msg.data == 'refreshcss') refreshCSS();
-        };
-        if (sessionStorage && !sessionStorage.getItem('IsThisFirstTime_Log_From_LiveServer')) {
-          console.log('Live reload enabled.');
-          sessionStorage.setItem('IsThisFirstTime_Log_From_LiveServer', true);
-        }
-      })();
-    } else {
-      console.error('Upgrade your browser. This Browser is NOT supported WebSocket for Live-Reloading.');
-    }
-    // ]]>
-  </script>
+  } else if (state.mode === "destinations") {
+    const svc = state.services[state.selSvc] || {};
+    const n = (svc.destinations||[]).length;
+    if (dir === "up") state.selDest = Math.max(0, state.selDest-1);
+    if (dir === "down") state.selDest = Math.min(n-1, state.selDest+1);
+    if (dir === "left") { state.mode = "services"; }
+    state.listError = "";
+    render();
+  } else if (state.mode === "view") {
+    if (dir === "up" || dir === "down") { state.mode = "services"; state.selSvc = 0; render(); }
+  }
+}
 
+/* ---------- input ---------- */
+document.body.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  e.preventDefault();
+  const num = b.dataset.num;
+  const btn = b.dataset.btn;
+  if (num !== undefined) { appendDigit(num); return; }
+  if (btn === "d") enterCode();
+  else if (btn === "ent") confirm();
+  else if (btn === "x") cancelCode();
+  else if (["up","down","left","right"].includes(btn)) move(btn);
+});
+
+// keyboard support for desktop testing
+const KEY_MAP = {
+  ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
+  Enter:"ent", " ":"ent",
+  Escape:"x", c:"x", Backspace:"bs", Delete:"bs",
+  f:"f", d:"d", x:"x", y:"y", i:"i", r:"r"
+};
+function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.classList.remove("pressed"), 120); } }
+document.addEventListener("keydown", (e) => {
+  if (e.key >= "0" && e.key <= "9") {
+    flash(document.querySelector(`button[data-num="${e.key}"]`));
+    appendDigit(e.key); return;
+  }
+  const btn = KEY_MAP[e.key];
+  if (!btn) return;
+  e.preventDefault();
+  flash(document.querySelector(`button[data-btn="${btn}"]`));
+  if (btn === "d") enterCode();
+  else if (btn === "ent") confirm();
+  else if (btn === "x") cancelCode();
+  else if (btn === "bs") backspace();
+  else if (["up","down","left","right"].includes(btn)) move(btn);
+});
+
+setInterval(refresh, 2000);
+render();
+refresh();
+</script>
 </body>
-
 </html>
