@@ -19,6 +19,17 @@ BASE = os.environ.get("NSL_BASE", "/var/lib/nsl")
 ROLE = os.environ.get("NSL_ROLE", "front")
 
 
+def _gpio_pull_arg(pull: str):
+    """Map a rule's pull setting to gpiozero's ``pull_up`` argument.
+
+    up -> True (pin idles high, switch pulls it to ground),
+    down -> False, none -> None (floating, something else drives the line).
+    """
+    if (pull or "up") == "none":
+        return None
+    return (pull or "up") != "down"
+
+
 def _gpio_loop(core):
     """Poll GPIO pins for per-program rules. Never crashes the keypad loop."""
     from nsl_pi.gpio import GpioRulesEngine
@@ -59,7 +70,7 @@ def _gpio_loop(core):
                 cfg = engine.pin_config(pin)
                 try:
                     devices[pin] = DigitalInputDevice(
-                        pin, pull_up=(cfg.get("pull", "up") != "down"),
+                        pin, pull_up=_gpio_pull_arg(cfg.get("pull", "up")),
                         bounce_time=max(0.01, min(0.5, cfg.get("debounce_ms", 50) / 1000.0)))
                     print(f"nsl-input: watching gpio pin {pin} (active_low={cfg.get('active_low')})",
                           flush=True)

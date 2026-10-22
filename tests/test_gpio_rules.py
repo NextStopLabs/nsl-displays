@@ -558,3 +558,11 @@ def test_portal_gpio_audio_only_and_edit(tmp_path, monkeypatch):
     r = cl.post(f"/api/programs/{pid}/publish", json={"notes": "welcome"}, headers=H)
     assert r.status_code == 200, r.text
     assert r.json()["audio_count"] >= 1
+
+
+def test_gpio_pull_arg_mapping():
+    from pi.nsl_pi.input_main import _gpio_pull_arg
+    assert _gpio_pull_arg("up") is True
+    assert _gpio_pull_arg("down") is False
+    assert _gpio_pull_arg("none") is None
+    assert _gpio_pull_arg("") is True
