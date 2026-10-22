@@ -502,7 +502,7 @@ const PREFIX = location.pathname.startsWith("/portal") ? "/portal" : "";
 const ORG = localStorage.getItem("nsl_org") || "";
 const TOKEN = localStorage.getItem("nsl_token") || "";
 const urlCid = new URLSearchParams(location.search).get("cid");
-const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", pending: null };
+const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", pending: null, selAdmin: 0, adminMsg: "", programs: [], selProg: 0, seq: [], upd: null };
 const MAX_CODE = 5;
 const LIST_ROWS = 4;
 const screen = document.getElementById("screen");
@@ -583,7 +583,7 @@ function selectBus(i, silent) {
   state.selBus = i;
   try { localStorage.setItem("nsl_cid", c.id); } catch(e){}
   ctrlsel.value = c.id;
-  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null;
+  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null; state.programs = []; state.upd = null; state.seq = [];
   const url = new URL(location.href);
   url.searchParams.set("cid", c.id);
   history.replaceState(null, "", url);
@@ -728,6 +728,29 @@ function render() {
     hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
     return;
   }
+  if (state.mode === "admin") {
+    const items = ["RELOAD PROGRAM", "SELECT PROGRAM", "CHECK UPDATE"];
+    const ap = (state.programs || []).find(p => p.active);
+    const u = state.upd || {};
+    const updLine = u.latest_version
+      ? (u.up_to_date ? `v${u.current_version} OK` : `v${u.current_version || "?"} → v${u.latest_version}`)
+      : "";
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="small dim">ADMIN</div>
+      ${listHtml(items, state.selAdmin, x => x)}
+      <div class="small">${esc(state.adminMsg || (ap ? `${ap.name} v${ap.version}` : "") || updLine)}&nbsp;</div>
+    </div>`;
+    hint.textContent = "▲▼ choose · ENT = run · X = exit";
+    return;
+  }
+  if (state.mode === "programs") {
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="line"><span class="small dim">SELECT PROGRAM</span><span class="small err">${esc(state.adminMsg)}</span></div>
+      ${listHtml(state.programs, state.selProg, p => `${p.active ? "* " : "  "}${p.name} v${p.version}`)}
+    </div>`;
+    hint.textContent = "▲▼ choose program · ENT = load · ◄ back";
+    return;
+  }
 
   const num = String(svc.number || "--");
   if (state.pending) {
@@ -762,6 +785,36 @@ function enterInsert() {
   state.pending = null;
   state.mode = "insert"; state.code = []; state.codeError = ""; render();
 }
+/* hidden admin menu: press R, X, ENT in sequence from the main screen */
+function adminSeq(btn) {
+  if (!state.cid || state.mode !== "view") { state.seq = []; return false; }
+  if (btn !== "r" && btn !== "x" && btn !== "ent") { state.seq = []; return false; }
+  state.seq.push(btn);
+  if (state.seq.length > 3) state.seq.shift();
+  if (state.seq.length === 3 && state.seq[0] === "r" && state.seq[1] === "x" && state.seq[2] === "ent") {
+    state.seq = [];
+    openAdmin();
+    return true;
+  }
+  return false;
+}
+async function openAdmin() {
+  state.mode = "admin"; state.selAdmin = 0; state.adminMsg = ""; state.pending = null;
+  buildCloudPrograms();
+  try {
+    state.upd = await api("/api/controllers/" + state.cid + "/update");
+  } catch(e) { state.upd = null; }
+  render();
+}
+function buildCloudPrograms() {
+  const c = (state.controllers || []).find(x => x.id === state.cid);
+  const livePid = (state.live.program || {}).id;
+  state.programs = (((c && c.programs) || []).map(p => ({
+    id: p.program_id, name: p.name || String(p.program_id || "").slice(0, 8),
+    version: p.active_version ?? p.installed_version ?? p.desired_version ?? "?",
+    active: p.program_id === livePid
+  })));
+}
 function appendDigit(n) {
   if (state.mode !== "code" && state.mode !== "insert") return;
   if (state.code.length >= MAX_CODE) state.code.shift();
@@ -773,6 +826,8 @@ function backspace() {
 }
 function cancelCode() {
   if (state.mode === "code" || state.mode === "insert") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
+  if (state.mode === "programs") { state.mode = "admin"; state.adminMsg = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
   if (state.mode === "services") { state.mode = "view"; state.pending = null; render(); }
 }
@@ -780,6 +835,49 @@ async function confirm() {
   if (!state.cid) {
     // bus-picker mode: ENT/► selects the highlighted bus
     if (state.controllers.length) selectBus(state.selBus);
+    return;
+  }
+  if (state.mode === "admin") {
+    if (state.selAdmin === 0) {  // reload the running program on the bus
+      const pid = (state.live.program || {}).id;
+      if (!pid) { state.adminMsg = "NO PROGRAM LOADED"; render(); return; }
+      state.adminMsg = "SENDING…"; render();
+      try {
+        await cmdPath("select_program", {program_id: pid});
+        state.adminMsg = "SENT — bus reloads shortly";
+      } catch(e) { state.adminMsg = "OFFLINE"; }
+      render();
+      return;
+    }
+    if (state.selAdmin === 1) {
+      buildCloudPrograms();
+      state.mode = "programs";
+      state.selProg = Math.max(0, (state.programs || []).findIndex(p => p.active));
+      state.adminMsg = "";
+      render();
+      return;
+    }
+    if (state.selAdmin === 2) {  // tell the bus to sync now (next heartbeat)
+      state.adminMsg = "SENDING…"; render();
+      try {
+        await cmdPath("update_now", {});
+        const u = state.upd || {};
+        state.adminMsg = (u.latest_version && u.current_version !== u.latest_version)
+          ? ("SYNC SENT → v" + u.latest_version) : "SYNC SENT";
+      } catch(e) { state.adminMsg = "OFFLINE"; }
+      render();
+      return;
+    }
+  }
+  if (state.mode === "programs") {
+    const p = (state.programs || [])[state.selProg];
+    if (!p) return;
+    state.adminMsg = "SENDING…"; render();
+    try {
+      await cmdPath("select_program", {program_id: p.id});
+      state.adminMsg = "SENT — bus applies shortly";
+    } catch(e) { state.adminMsg = "OFFLINE"; }
+    render();
     return;
   }
   if (state.mode === "insert") {
@@ -868,7 +966,18 @@ function move(dir) {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
   }
-  if (state.mode === "services") {
+  if (state.mode === "admin") {
+    if (dir === "up") state.selAdmin = Math.max(0, state.selAdmin - 1);
+    if (dir === "down") state.selAdmin = Math.min(2, state.selAdmin + 1);
+    if (dir === "right") { confirm(); return; }
+    if (dir === "left") { state.mode = "view"; state.adminMsg = ""; }
+    render();
+  } else if (state.mode === "programs") {
+    if (dir === "up") state.selProg = Math.max(0, state.selProg - 1);
+    if (dir === "down") state.selProg = Math.min(state.programs.length - 1, state.selProg + 1);
+    if (dir === "left") { state.mode = "admin"; state.adminMsg = ""; }
+    render();
+  } else if (state.mode === "services") {
     if (dir === "up") state.selSvc = Math.max(0, state.selSvc-1);
     if (dir === "down") state.selSvc = Math.min(state.services.length-1, state.selSvc+1);
     if (dir === "right") { confirm(); return; }
@@ -893,7 +1002,9 @@ document.body.addEventListener("click", (e) => {
   e.preventDefault();
   const num = b.dataset.num;
   const btn = b.dataset.btn;
-  if (num !== undefined) { appendDigit(num); return; }
+  if (num !== undefined) { state.seq = []; appendDigit(num); return; }
+  if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
+  else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
@@ -909,7 +1020,7 @@ ctrlsel.addEventListener("change", () => {
   } else {
     try { localStorage.removeItem("nsl_cid"); } catch(e){}
   }
-  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null;
+  state.services = []; state.live = {}; state.current = {}; state.mode = "view"; state.selSvc = 0; state.selDest = 0; state.pending = null; state.programs = []; state.upd = null; state.seq = [];
   const url = new URL(location.href);
   if (state.cid) url.searchParams.set("cid", state.cid); else url.searchParams.delete("cid");
   history.replaceState(null, "", url);
@@ -927,12 +1038,14 @@ function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.cl
 document.addEventListener("keydown", (e) => {
   if (e.key >= "0" && e.key <= "9") {
     flash(document.querySelector(`button[data-num="${e.key}"]`));
-    appendDigit(e.key); return;
+    state.seq = []; appendDigit(e.key); return;
   }
   const btn = KEY_MAP[e.key];
   if (!btn) return;
   e.preventDefault();
   flash(document.querySelector(`button[data-btn="${btn}"]`));
+  if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
+  else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();

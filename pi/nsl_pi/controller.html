@@ -450,7 +450,7 @@
   <div class="hint" id="hint">D = type code · ▲▼ = services · ENT = select</div>
 
 <script>
-const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "" };
+const state = { services: [], current: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", selAdmin: 0, adminMsg: "", programs: [], selProg: 0, seq: [] };
 const MAX_CODE = 5;
 const LIST_ROWS = 4;
 const screen = document.getElementById("screen");
@@ -565,6 +565,25 @@ function render() {
     hint.textContent = "▲▼ choose destination · ENT = select · ◄ back";
     return;
   }
+  if (state.mode === "admin") {
+    const items = ["RELOAD PROGRAM", "SELECT PROGRAM", "CHECK UPDATE"];
+    const ap = (state.programs || []).find(p => p.active);
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="small dim">ADMIN</div>
+      ${listHtml(items, state.selAdmin, x => x)}
+      <div class="small">${esc(state.adminMsg || (ap ? `${ap.name} v${ap.version}` : ""))}&nbsp;</div>
+    </div>`;
+    hint.textContent = "▲▼ choose · ENT = run · X = exit";
+    return;
+  }
+  if (state.mode === "programs") {
+    screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
+      <div class="line"><span class="small dim">SELECT PROGRAM</span><span class="small err">${esc(state.adminMsg)}</span></div>
+      ${listHtml(state.programs, state.selProg, p => `${p.active ? "* " : "  "}${p.name} v${p.version}`)}
+    </div>`;
+    hint.textContent = "▲▼ choose program · ENT = load · ◄ back";
+    return;
+  }
 
   const num = String(svc.number || "--");
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
@@ -586,6 +605,38 @@ function enterCode() {
 function enterInsert() {
   state.mode = "insert"; state.code = []; state.codeError = ""; render();
 }
+/* hidden admin menu: press R, X, ENT in sequence from the main screen */
+function adminSeq(btn) {
+  if (state.mode !== "view") { state.seq = []; return false; }
+  if (btn !== "r" && btn !== "x" && btn !== "ent") { state.seq = []; return false; }
+  state.seq.push(btn);
+  if (state.seq.length > 3) state.seq.shift();
+  if (state.seq.length === 3 && state.seq[0] === "r" && state.seq[1] === "x" && state.seq[2] === "ent") {
+    state.seq = [];
+    openAdmin();
+    return true;
+  }
+  return false;
+}
+async function openAdmin() {
+  state.mode = "admin"; state.selAdmin = 0; state.adminMsg = "";
+  try {
+    const p = await api("/api/programs");
+    state.programs = collapsePrograms(p.installed || [], (state.current.state || {}).program_id);
+  } catch(e) { state.programs = []; }
+  render();
+}
+function collapsePrograms(rows, activePid) {
+  const m = {};
+  for (const r of rows || []) {
+    const pid = r.program_id;
+    if (!m[pid] || (r.version || 0) > (m[pid].version || 0)) {
+      m[pid] = { id: pid, name: r.program_name || String(pid || "").slice(0, 8),
+                 version: r.version, active: pid === activePid };
+    }
+  }
+  return Object.values(m);
+}
 function appendDigit(n) {
   if (state.mode !== "code" && state.mode !== "insert") return;
   if (state.code.length >= MAX_CODE) state.code.shift();
@@ -597,10 +648,50 @@ function backspace() {
 }
 function cancelCode() {
   if (state.mode === "code" || state.mode === "insert") { state.mode = "view"; state.codeError = ""; render(); return; }
+  if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
+  if (state.mode === "programs") { state.mode = "admin"; state.adminMsg = ""; render(); return; }
   if (state.mode === "destinations") { state.mode = "services"; state.listError = ""; render(); return; }
   if (state.mode === "services") { state.mode = "view"; render(); }
 }
 async function confirm() {
+  if (state.mode === "admin") {
+    if (state.selAdmin === 0) {  // reload the running program from disk
+      const pid = (state.current.state || {}).program_id;
+      if (!pid) { state.adminMsg = "NO PROGRAM LOADED"; render(); return; }
+      try {
+        await api("/api/command", {command: "select_program", program_id: pid});
+        state.mode = "view"; state.services = []; state.adminMsg = "";
+        await refresh();
+      } catch(e) { state.adminMsg = "FAILED"; render(); }
+      return;
+    }
+    if (state.selAdmin === 1) {
+      state.mode = "programs";
+      state.selProg = Math.max(0, (state.programs || []).findIndex(p => p.active));
+      state.adminMsg = "";
+      render();
+      return;
+    }
+    if (state.selAdmin === 2) {  // join hotspot + sync programs/software
+      state.adminMsg = "SYNCING…"; render();
+      try {
+        const r = await api("/api/update", {});
+        state.adminMsg = (r && r.ok) ? ("STAGED " + (r.version || "")) : "NO UPDATE";
+      } catch(e) { state.adminMsg = "FAILED"; }
+      render();
+      return;
+    }
+  }
+  if (state.mode === "programs") {
+    const p = (state.programs || [])[state.selProg];
+    if (!p) return;
+    try {
+      await api("/api/command", {command: "select_program", program_id: p.id});
+      state.mode = "view"; state.services = []; state.adminMsg = "";
+      await refresh();
+    } catch(e) { state.adminMsg = "FAILED"; render(); }
+    return;
+  }
   if (state.mode === "insert") {
     const c = state.code.join("");
     if (c.length === 0) {
@@ -661,7 +752,18 @@ function move(dir) {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
   }
-  if (state.mode === "services") {
+  if (state.mode === "admin") {
+    if (dir === "up") state.selAdmin = Math.max(0, state.selAdmin - 1);
+    if (dir === "down") state.selAdmin = Math.min(2, state.selAdmin + 1);
+    if (dir === "right") { confirm(); return; }
+    if (dir === "left") { state.mode = "view"; state.adminMsg = ""; }
+    render();
+  } else if (state.mode === "programs") {
+    if (dir === "up") state.selProg = Math.max(0, state.selProg - 1);
+    if (dir === "down") state.selProg = Math.min(state.programs.length - 1, state.selProg + 1);
+    if (dir === "left") { state.mode = "admin"; state.adminMsg = ""; }
+    render();
+  } else if (state.mode === "services") {
     if (dir === "up") state.selSvc = Math.max(0, state.selSvc-1);
     if (dir === "down") state.selSvc = Math.min(state.services.length-1, state.selSvc+1);
     if (dir === "right") { confirm(); return; }
@@ -686,7 +788,9 @@ document.body.addEventListener("click", (e) => {
   e.preventDefault();
   const num = b.dataset.num;
   const btn = b.dataset.btn;
-  if (num !== undefined) { appendDigit(num); return; }
+  if (num !== undefined) { state.seq = []; appendDigit(num); return; }
+  if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
+  else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
@@ -705,12 +809,14 @@ function flash(el) { if (el) { el.classList.add("pressed"); setTimeout(()=>el.cl
 document.addEventListener("keydown", (e) => {
   if (e.key >= "0" && e.key <= "9") {
     flash(document.querySelector(`button[data-num="${e.key}"]`));
-    appendDigit(e.key); return;
+    state.seq = []; appendDigit(e.key); return;
   }
   const btn = KEY_MAP[e.key];
   if (!btn) return;
   e.preventDefault();
   flash(document.querySelector(`button[data-btn="${btn}"]`));
+  if (btn === "r" || btn === "x" || btn === "ent") { if (adminSeq(btn)) return; }
+  else state.seq = [];
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "ent") confirm();
