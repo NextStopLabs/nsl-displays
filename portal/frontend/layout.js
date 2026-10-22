@@ -358,9 +358,9 @@ const LayoutEditor = (() => {
   // ---------- properties panel ----------
   function fontSizeKey(font) {
     if (FONTS.includes(font)) return font;
-    // Hanover font ids: han-<stem>. Numeric prefix gives the size group;
-    // stems with no digits (e.g. LOGO) keep their full id as the group.
-    const m = (font || "").match(/^han-.*?\b(\d+)/);
+    // Standard Hanover names begin with the pixel height as two digits.
+    // Non-numeric names (LOGO, movia18, bigbus17...) keep their full id.
+    const m = (font || "").match(/^han-(\d{2})/);
     return m ? "han-" + m[1] : (font || "");
   }
   function fontSizeOptions(selectedFont) {
@@ -390,7 +390,11 @@ const LayoutEditor = (() => {
     if (FONTS.includes(size)) {
       return `<option value="${esc(size)}" selected>${esc(size)}</option>`;
     }
-    const han = (ed.hanIds || []).filter((f) => typeof f === "string" && fontSizeKey(f) === size);
+    // For numeric sizes, list every font that starts with that size prefix.
+    // For non-numeric full-id groups, list fonts with the same group key.
+    const numeric = /^han-\d+$/.test(size);
+    const han = (ed.hanIds || []).filter((f) => typeof f === "string" &&
+      (numeric ? f.startsWith(size) : fontSizeKey(f) === size));
     const currentStyle = styleSuffix(selectedFont);
     return han.map((f) => {
       const label = styleSuffix(f) || f;
@@ -398,15 +402,18 @@ const LayoutEditor = (() => {
     }).join("");
   }
   function styleSuffix(font) {
-    // Return the part after the size digits, or the stem if there are no digits.
-    const m = font.match(/^han-.*?\b(\d+)(.*)$/);
+    // For numeric ids return the part after the leading two digits;
+    // for non-numeric ids return the whole stem.
+    const m = font.match(/^han-(\d{2})(.*)$/);
     if (m) return m[2] || font;
     const stem = font.replace(/^han-/, "");
     return stem || font;
   }
   function stylesForSize(size) {
     if (FONTS.includes(size)) return [size];
-    return (ed.hanIds || []).filter((f) => typeof f === "string" && fontSizeKey(f) === size);
+    const numeric = /^han-\d+$/.test(size);
+    return (ed.hanIds || []).filter((f) => typeof f === "string" &&
+      (numeric ? f.startsWith(size) : fontSizeKey(f) === size));
   }
   function renderProps() {
     const box = document.getElementById("lay-props");
