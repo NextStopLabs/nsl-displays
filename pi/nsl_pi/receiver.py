@@ -56,10 +56,14 @@ class Receiver:
             insert = None
         departure = snapshot.get("departure") or {}
         dep_text = departure.get("text")
-        if not dep_text and departure.get("mins_remaining"):
+        if not dep_text and (departure.get("secs_remaining") or departure.get("mins_remaining")):
             try:
-                _n = int(departure.get("mins_remaining") or 0)
-                dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
+                if departure.get("secs_remaining") is not None and int(departure.get("secs_remaining") or 0) <= 30:
+                    _n = int(departure.get("secs_remaining") or 0)
+                    dep_text = f"Departing in {_n}s"
+                else:
+                    _n = int(departure.get("mins_remaining") or 0)
+                    dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
             except (TypeError, ValueError):
                 dep_text = ""
         dep_active = bool(departure.get("active")) and bool(dep_text)

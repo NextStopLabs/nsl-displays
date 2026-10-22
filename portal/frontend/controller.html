@@ -340,14 +340,6 @@
       color: #ffd36b;
     }
 
-    @keyframes depblink {
-      0%, 49% { opacity: 1; }
-      50%, 100% { opacity: 0; }
-    }
-    .blink {
-      animation: depblink 1s steps(2, start) infinite;
-    }
-
     /* key legends */
     .hv-abc {
       position: absolute;
@@ -771,9 +763,8 @@ function renderScreen() {
     const live = (dep && (dep.text || dep.time))
       ? ((dep.text || `Departing ${dep.time}`) + (dep.time && dep.text ? ` · ${dep.time}` : ""))
       : "NO DEPART TIME";
-    const liveFinal = !!(dep && dep.text && dep.expires_at && (dep.expires_at - Date.now() / 1000) <= 30);
     screen.innerHTML = `<div class="hv-flex">
-      <div class="line"><span class="small dim ${liveFinal ? "blink" : ""}">${esc(live)}</span><span class="small">DEPART AT</span></div>
+      <div class="line"><span class="small dim">${esc(live)}</span><span class="small">DEPART AT</span></div>
       <div class="line"><span class="big">${esc(fmtDepEntry(state.code))}</span><span class="entry">${esc(state.code.join(""))}</span></div>
       <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
     </div>`;
@@ -835,9 +826,8 @@ function renderScreen() {
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
   const insTag = cur.insert ? ` +${esc(cur.insert.code || "INS")}` : "";
   const dep = cur.departure || {};
-  const depFinal = !!(dep && dep.text && dep.expires_at && (dep.expires_at - Date.now() / 1000) <= 30);
   const depDest = (dep && dep.text)
-    ? `<div>${esc(msg)}</div><div class="${depFinal ? "blink" : ""}">${esc(dep.text)}</div>`
+    ? `<div>${esc(msg)}</div><div>${esc(dep.text)}</div>`
     : splitDest(msg).map(l => `<div>${esc(l)}</div>`).join("");
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>

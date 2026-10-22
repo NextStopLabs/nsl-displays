@@ -14,27 +14,6 @@ except ImportError:
     HAS_MATRIX = False
 
 
-def _with_via_flash(layout: dict, ms: int = 500) -> dict:
-    """Copy of `layout` with the via element(s) flashing (final 30 s of
-    the departure countdown). The renderer's `flash_ms` blanks the element
-    on the off-phase; other elements are untouched."""
-    def _flash(els):
-        out = []
-        for e in els or []:
-            if isinstance(e, dict) and e.get("field") == "via":
-                e = dict(e)
-                e["flash_ms"] = ms
-            out.append(e)
-        return out
-
-    nl = dict(layout)
-    nl["elements"] = _flash(layout.get("elements"))
-    pe = layout.get("page_elements")
-    if pe:
-        nl["page_elements"] = {k: _flash(v) for k, v in pe.items()}
-    return nl
-
-
 class DisplayDriver:
     def __init__(self, matrix_options: dict, outputs: list[dict], virtual_dir: str | None = None):
         self.opts = matrix_options
@@ -174,20 +153,21 @@ class DisplayDriver:
             svc_number = service.get("number", "") if isinstance(service, dict) else ""
             dep = snapshot.get("departure") or {}
             dep_text = dep.get("text")
-            if not dep_text and dep.get("mins_remaining"):
+            if not dep_text and (dep.get("secs_remaining") or dep.get("mins_remaining")):
                 try:
-                    _n = int(dep.get("mins_remaining") or 0)
-                    dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
+                    if dep.get("secs_remaining") is not None and int(dep.get("secs_remaining") or 0) <= 30:
+                        _n = int(dep.get("secs_remaining") or 0)
+                        dep_text = f"Departing in {_n}s"
+                    else:
+                        _n = int(dep.get("mins_remaining") or 0)
+                        dep_text = f"Departing in {_n} min" if _n == 1 else f"Departing in {_n} mins"
                 except (TypeError, ValueError):
                     dep_text = ""
             dep_active = bool(dep.get("active")) and bool(dep_text) and allow_depart
-            try:
-                dep_secs_left = float(dep.get("expires_at") or 0) - now
-            except (TypeError, ValueError):
-                dep_secs_left = 9999
             if dep_active:
                 # F-key departure time: freeze everything on P1, suppress inserts.
-                # Final 30 s: the front countdown flashes.
+                # Final 30 s: dep_text is a live seconds readout, refreshed
+                # with every snapshot (display re-renders at 10 Hz).
                 is_front = (prog_display == "front") or (out.get("display_name") == "front")
                 if pages and destination:
                     from .renderer import fields_for_page_index as _ffpi
@@ -210,8 +190,6 @@ class DisplayDriver:
                                 break
                     if layout_d is None:
                         layout_d = autofit_layout(w, h)
-                    if is_front and dep_secs_left <= 30:
-                        layout_d = _with_via_flash(layout_d)
                     return render_frame(layout_d, page_fields, override,
                                         now=now, pages=pages, board_position=bpos)
                 flds = dict(fields)
@@ -229,8 +207,6 @@ class DisplayDriver:
                             break
                 if layout_d is None:
                     layout_d = autofit_layout(w, h)
-                if is_front and dep_secs_left <= 30:
-                    layout_d = _with_via_flash(layout_d)
                 return render_frame(layout_d, flds, override)
             if insert and destination and allow_insert:
                 ins_pages = insert.get("pages") or []

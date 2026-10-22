@@ -512,21 +512,27 @@ class Core:
             except Exception:
                 tstr = None
         import math as _m
-        rem = max(1, _m.ceil((exp - now) / 60))
-        text = f"Departing in {rem} min" if rem == 1 else f"Departing in {rem} mins"
+        secs = exp - now
+        rem = max(1, _m.ceil(secs / 60))
+        text = self.departure_text(secs)
         return {"active": True, "time": tstr, "text": text, "expires_at": exp,
-                "mins_remaining": int(rem)}
+                "mins_remaining": int(rem), "secs_remaining": max(1, _m.ceil(secs))}
 
     @staticmethod
-    def departure_text(mins_remaining: int | None) -> str | None:
-        """Board text: live countdown derived from the set departure time."""
+    def departure_text(secs_remaining: int | float | None) -> str | None:
+        """Board text for the departure countdown: 'Departing in X mins',
+        switching to a live seconds readout for the final 30 s."""
+        import math as _m
         try:
-            n = int(mins_remaining)  # type: ignore[arg-type]
+            n = _m.ceil(float(secs_remaining))  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return None
         if n < 1:
             return None
-        return f"Departing in {n} min" if n == 1 else f"Departing in {n} mins"
+        if n <= 30:
+            return f"Departing in {n}s"
+        mins = -(-n // 60)  # ceil division
+        return f"Departing in {mins} min" if mins == 1 else f"Departing in {mins} mins"
 
     # ---- selection ----
     def select_program(self, program_id: str, source: str = "local", user_id: str | None = None) -> dict:
