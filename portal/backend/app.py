@@ -434,6 +434,22 @@ def update_program_display(pid: str, did: str, body: dict, u: dict = Depends(cur
 
     con.execute("UPDATE program_displays SET name=?, width_px=?, height_px=? WHERE id=?",
                 (name, int(body.get("width_px", d["width_px"])), int(body.get("height_px", d["height_px"])), did))
+    new_w, new_h = int(body.get("width_px", d["width_px"])), int(body.get("height_px", d["height_px"]))
+    if new_w != d["width_px"] or new_h != d["height_px"]:
+        # Resizing a display must carry its layouts with it: stored layouts
+        # keep their own canvas size, so without this every later layout
+        # save fails with "element lies outside the display".
+        from nslprog.layouts import rescale_layout
+        for table, col in (("p_layouts", "display_id"), ("p_templates", "display_id")):
+            rows = con.execute(f"SELECT id, layout FROM {table} WHERE program_id=? AND {col}=?",
+                               (pid, did)).fetchall()
+            for r in rows:
+                try:
+                    lj = json.loads(r["layout"])
+                except Exception:
+                    continue
+                rescale_layout(lj, new_w, new_h)
+                con.execute(f"UPDATE {table} SET layout=? WHERE id=?", (json.dumps(lj), r["id"]))
     con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], pid))
     con.commit()
     return {"ok": True}

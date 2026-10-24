@@ -76,7 +76,8 @@ class DisplayDriver:
         frames at the same origin, i.e. garbled flickering text.
         """
         from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
-                               fields_for_page_index, fields_for_slot, render_frame, slot_for_layout)
+                               fields_for_page_index, fields_for_slot, page_duration, pick_slot,
+                               render_frame, slot_for_layout)
         import json as _j
         import time as _t
         fields = snapshot.get("fields", {})
@@ -190,8 +191,11 @@ class DisplayDriver:
                                 break
                     if layout_d is None:
                         layout_d = autofit_layout(w, h)
+                    dur = page_duration(layout_d, page_fields, override, bpos)
+                    elapsed = now % dur if dur > 0 else 0.0
                     return render_frame(layout_d, page_fields, override,
-                                        now=now, pages=pages, board_position=bpos)
+                                        now=now, pages=pages, board_position=bpos,
+                                        page_elapsed=elapsed)
                 flds = dict(fields)
                 if is_front:
                     flds["via"] = dep_text
@@ -210,44 +214,89 @@ class DisplayDriver:
                 return render_frame(layout_d, flds, override)
             if insert and destination and allow_insert:
                 ins_pages = insert.get("pages") or []
-                kind, idx, _total = combined_slot(
-                    layout, now, len(pages) if pages else 1,
-                    len(ins_pages) if ins_pages else 1)
-                if kind == "insert":
-                    ins_layout = _resolve(w, h, insert.get("layouts") or {},
-                                          prog_display, out.get("display_name"))
-                    ins_svc = insert.get("service") or {}
-                    ins_svc_number = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
-                    ins_dest = insert.get("destination") or {}
-                    if ins_pages and ins_dest:
-                        page_fields = fields_for_page_index(
-                            ins_dest, ins_svc_number, ins_pages, idx)
-                        return render_frame(
-                            ins_layout, page_fields, override, now=now,
-                            pages=ins_pages, board_position=_page_position(ins_pages, idx))
-                    return render_frame(ins_layout, insert.get("fields", {}), override)
-                # main slot inside the combined loop
+                n_main = len(pages) if pages else 1
+                n_ins = len(ins_pages) if ins_pages else 1
+                ins_layout0 = _resolve(w, h, insert.get("layouts") or {},
+                                       prog_display, out.get("display_name"))
+                ins_svc = insert.get("service") or {}
+                ins_svc_number = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
+                ins_dest = insert.get("destination") or {}
+                # Per-page durations: each page holds until its own scroll
+                # finishes, so long text is never cut off by page_seconds.
+                main_fields_list: list[dict] = []
+                main_bpos_list: list[int] = []
+                main_durs: list[float] = []
                 if pages and destination:
-                    page_fields = fields_for_page_index(
-                        destination, svc_number, pages, idx)
+                    for i in range(n_main):
+                        pf = fields_for_page_index(destination, svc_number, pages, i)
+                        for k, v in fields.items():
+                            if k.startswith("__"):
+                                pf[k] = v
+                        bp = _page_position(pages, i)
+                        main_fields_list.append(pf)
+                        main_bpos_list.append(bp)
+                        main_durs.append(page_duration(layout, pf, override, bp))
+                else:
+                    main_fields_list.append(dict(fields))
+                    main_bpos_list.append(0)
+                    main_durs.append(page_duration(layout, fields, override, 0))
+                ins_fields_list: list[dict] = []
+                ins_bpos_list: list[int] = []
+                ins_durs: list[float] = []
+                if ins_pages and ins_dest:
+                    for j in range(n_ins):
+                        pf = fields_for_page_index(ins_dest, ins_svc_number, ins_pages, j)
+                        bp = _page_position(ins_pages, j)
+                        ins_fields_list.append(pf)
+                        ins_bpos_list.append(bp)
+                        ins_durs.append(page_duration(ins_layout0, pf, override, bp))
+                else:
+                    ins_fields_list.append(dict(insert.get("fields", {})))
+                    ins_bpos_list.append(0)
+                    ins_durs.append(page_duration(ins_layout0, ins_fields_list[0], override, 0))
+                all_durs = main_durs + ins_durs
+                pos, elapsed = pick_slot(all_durs, now)
+                if pos < len(main_durs):
+                    idx = pos
+                    if pages and destination:
+                        return render_frame(layout, main_fields_list[idx], override,
+                                            now=now, pages=pages,
+                                            board_position=main_bpos_list[idx],
+                                            page_elapsed=elapsed)
+                    return render_frame(layout, fields, override, now=now,
+                                        page_elapsed=elapsed)
+                idx = pos - len(main_durs)
+                ins_layout = ins_layout0
+                if ins_pages and ins_dest:
+                    return render_frame(
+                        ins_layout, ins_fields_list[idx], override, now=now,
+                        pages=ins_pages, board_position=ins_bpos_list[idx],
+                        page_elapsed=elapsed)
+                return render_frame(ins_layout, insert.get("fields", {}), override,
+                                    now=now, page_elapsed=elapsed)
+            if pages and destination:
+                n = len(pages)
+                fields_list = []
+                bpos_list = []
+                durs = []
+                for i in range(n):
+                    pf = fields_for_page_index(destination, svc_number, pages, i)
                     for k, v in fields.items():
                         if k.startswith("__"):
-                            page_fields[k] = v
-                    return render_frame(layout, page_fields, override,
-                                        now=now, pages=pages,
-                                        board_position=_page_position(pages, idx))
-                return render_frame(layout, fields, override)
-            if pages and destination:
-                slot = slot_for_layout(layout, now)
-                page_fields = fields_for_slot(
-                    destination, svc_number, layout, now, pages)
-                # keep stop-derived fields (__board_text etc.) from snapshot
-                for k, v in fields.items():
-                    if k.startswith("__"):
-                        page_fields[k] = v
-                return render_frame(layout, page_fields, override,
+                            pf[k] = v
+                    bp = _page_position(pages, i)
+                    fields_list.append(pf)
+                    bpos_list.append(bp)
+                    durs.append(page_duration(layout, pf, override, bp))
+                idx, elapsed = pick_slot(durs, now)
+                return render_frame(layout, fields_list[idx], override,
                                     now=now, pages=pages,
-                                    board_position=board_position_for_slot(pages, slot))
+                                    board_position=bpos_list[idx],
+                                    page_elapsed=elapsed)
+            if not pages or not destination:
+                elapsed = now % page_duration(layout, fields, override, 0)
+                return render_frame(layout, fields, override, now=now,
+                                    page_elapsed=elapsed)
             return render_frame(layout, fields, override)
 
         for out in self.outputs:

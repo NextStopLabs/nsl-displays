@@ -310,6 +310,57 @@ def test_program_display_crud(tmp_path, monkeypatch):
     assert not any(d["id"] == did for d in prog["displays"])
 
 
+def test_display_resize_rescales_layouts(tmp_path, monkeypatch):
+    """Resizing a display carries its layouts with it.
+
+    Regression: the side display was once resized 160x40 -> 120x32 while
+    its layouts stayed 160x40, so every later save failed with
+    "page 2, element #1 lies outside the display".
+    """
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "r@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "R"}, headers=H).json()["program_id"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    disp = prog["displays"][0]
+    w0, h0 = disp["width_px"], disp["height_px"]
+    sid = c.post(f"/api/programs/{pid}/services", json={"number": "1", "name": "S"}, headers=H).json()["service_id"]
+    did = c.post(f"/api/services/{sid}/destinations",
+                 json={"code": "00000001", "name": "D", "via": "V", "dest": "DEST"}, headers=H).json()["destination_id"]
+
+    def _el(x, y, w, h, field="dest"):
+        return {"type": "field", "field": field, "x": x, "y": y, "w": w, "h": h,
+                "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "middle",
+                "scroll": "none", "show_if": "always"}
+
+    lay = {"schema": 1, "width": w0, "height": h0, "background": "#000000", "page_seconds": 3,
+           "override": {"mode": "replace", "replaces": "dest", "hide": []},
+           "elements": [_el(0, 0, w0, h0)],
+           "page_elements": {"1": [_el(0, 0, w0, h0, "dest")],
+                             "2": [_el(0, 0, w0, h0, "via")]}}
+    r = c.put(f"/api/destinations/{did}/layouts/{disp['name']}", json={"layout": lay}, headers=H)
+    assert r.status_code == 200, r.text
+    # shrink the display: stored layouts must follow, staying inside bounds
+    nw, nh = w0 // 2, h0 // 2
+    r = c.put(f"/api/programs/{pid}/displays/{disp['id']}",
+              json={"name": disp["name"], "width_px": nw, "height_px": nh}, headers=H)
+    assert r.status_code == 200, r.text
+    got = c.get(f"/api/destinations/{did}/layouts/{disp['name']}", headers=H).json()["layout"]
+    assert got["width"] == nw and got["height"] == nh, got
+    groups = [got["elements"]] + list((got.get("page_elements") or {}).values())
+    assert len(groups) == 3
+    for els in groups:
+        for e in els:
+            assert 0 <= e["x"] and 0 <= e["y"] and e["w"] >= 1 and e["h"] >= 1, e
+            assert e["x"] + e["w"] <= nw and e["y"] + e["h"] <= nh, e
+    # rename-only update leaves geometry alone
+    r = c.put(f"/api/programs/{pid}/displays/{disp['id']}",
+              json={"name": disp["name"], "width_px": nw, "height_px": nh}, headers=H)
+    assert r.status_code == 200, r.text
+    again = c.get(f"/api/destinations/{did}/layouts/{disp['name']}", headers=H).json()["layout"]
+    assert again == got
+
+
 def test_program_template_crud_and_default(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/auth/signup", data={"email": "t@x.com", "password": "secret123"}).json()

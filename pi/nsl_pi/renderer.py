@@ -121,7 +121,13 @@ def board_position_for_slot(pages: list[dict] | None, slot: int) -> int:
 
 
 def slot_for_layout(layout: dict | None, now: float | None) -> int:
-    """Time slot index for board rotation (`page_seconds` per board page)."""
+    """Time slot index for board rotation (`page_seconds` per board page).
+
+    Legacy fixed-timing helper, kept for tests/callers without scrolling
+    text. Scroll-aware rotation uses :func:`pick_slot` with per-page
+    durations from :func:`page_duration` so a page with scrolling text is
+    held until its scroll finishes.
+    """
     import time as _t
     secs = 3.0
     if layout:
@@ -131,6 +137,169 @@ def slot_for_layout(layout: dict | None, now: float | None) -> int:
             secs = 3.0
     t = _t.time() if now is None else now
     return int(t // secs) if secs > 0 else 0
+
+
+# Scroll timing: every page entry holds the text static for HOLD_S, then
+# scrolls at PX_S, then holds a short blank (END_HOLD_S + GAP_PX) before the
+# page changes. GAP/END replace the old `tw + ww` loop whose blank lasted
+# `ww / 20` seconds (up to ~8 s on a 240px board).
+SCROLL_PX_S = 20.0
+SCROLL_HOLD_S = 1.0
+SCROLL_END_HOLD_S = 0.5
+SCROLL_GAP_PX = 8
+
+
+def page_seconds_of(layout: dict | None) -> float:
+    try:
+        return float((layout or {}).get("page_seconds", 3) or 3)
+    except (TypeError, ValueError):
+        return 3.0
+
+
+def scroll_offset_for_width(tw: int, page_elapsed: float | None) -> int:
+    """Pixel offset into a scrolling strip for time since page entry."""
+    try:
+        total = int(tw) + int(SCROLL_GAP_PX)
+    except (TypeError, ValueError):
+        return 0
+    if total <= 0:
+        return 0
+    try:
+        el = float(page_elapsed) if page_elapsed is not None else 0.0
+    except (TypeError, ValueError):
+        el = 0.0
+    if el < SCROLL_HOLD_S:
+        return 0
+    dist = (el - SCROLL_HOLD_S) * SCROLL_PX_S
+    if dist <= 0:
+        return 0
+    return int(min(total, dist))
+
+
+def _tw_for_element(el: dict, text: str) -> int | None:
+    """Measure rendered text width for one element (han scaled or PIL)."""
+    if not text:
+        return None
+    font_id = el.get("font", DEFAULT_FONT)
+    if isinstance(font_id, str) and font_id.startswith("han-"):
+        try:
+            from .hanover import get_font as _get_han, text_width as _han_width
+            han = _get_han(font_id)
+        except Exception:
+            return None
+        try:
+            spacing = max(-8, min(16, int(el.get("spacing", 0) or 0)))
+        except (TypeError, ValueError):
+            spacing = 0
+        try:
+            scale = max(1, min(8, int(el.get("scale", 1) or 1)))
+        except (TypeError, ValueError):
+            scale = 1
+        try:
+            return int(_han_width(han, text, spacing) * scale)
+        except Exception:
+            return None
+    fh = FONT_HEIGHTS.get(font_id, 12)
+    try:
+        hh = int(el.get("h", fh) or fh)
+    except (TypeError, ValueError):
+        hh = fh
+    try:
+        fnt = _font_for(font_id, min(hh - 2, fh + 4) if hh > 4 else fh)
+        probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+        bbox = probe.textbbox((0, 0), text, font=fnt)
+        return int(bbox[2] - bbox[0])
+    except Exception:
+        return None
+
+
+def _active_elements_for_board(layout: dict, board_position: int | None) -> tuple[list[dict], bool]:
+    page_elements = (layout or {}).get("page_elements", {})
+    if board_position and page_elements:
+        active = page_elements.get(str(board_position))
+        if active is None:
+            active = (layout or {}).get("elements", [])
+        return active, False
+    return (layout or {}).get("elements", []), bool(board_position)
+
+
+def page_scroll_need(layout: dict, fields: dict, override_text: str,
+                     board_position: int | None) -> float:
+    """Extra seconds a page needs so its scrolling text finishes.
+
+    Max over visible scrolling elements of ``(tw + GAP) / PX_S``; 0 when
+    nothing scrolls.
+    """
+    active_elements, legacy_filter = _active_elements_for_board(layout, board_position)
+    ov = (layout or {}).get("override", {})
+    mode = ov.get("mode", "replace")
+    override_active = bool(override_text)
+    if mode == "full" and override_active:
+        return 0.0
+    hide = set(ov.get("hide", [])) if override_active and mode in ("replace", "hide_others") else set()
+    if mode == "hide_others" and override_active:
+        replaces = ov.get("replaces", "dest")
+        for el in active_elements:
+            if el.get("field") == replaces:
+                hide = {e.get("field") for e in active_elements if e.get("field") != replaces}
+                break
+    need = 0.0
+    for el in active_elements:
+        if legacy_filter and not element_shows_on(el, board_position or 0):
+            continue
+        if el.get("field") in hide:
+            continue
+        if el.get("type") == "image":
+            continue
+        if not _visible(el, fields, override_active):
+            continue
+        text = _element_text(el, fields, override_text, layout)
+        if not text:
+            continue
+        try:
+            ww = int(el["w"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        tw = _tw_for_element(el, text)
+        if tw is None:
+            continue
+        scroll = el.get("scroll", "none")
+        if scroll != "always" and not (scroll == "if_too_long" and tw > ww):
+            continue
+        need = max(need, (float(tw) + float(SCROLL_GAP_PX)) / SCROLL_PX_S)
+    return need
+
+
+def page_duration(layout: dict, fields: dict, override_text: str = "",
+                  board_position: int | None = None) -> float:
+    """Seconds a board page stays up: `page_seconds` floor, extended until
+    any scrolling text on it finishes (hold + scroll + end-hold)."""
+    base = page_seconds_of(layout)
+    if base <= 0:
+        base = 3.0
+    need = page_scroll_need(layout, fields, override_text, board_position)
+    if need <= 0:
+        return base
+    return max(base, SCROLL_HOLD_S + need + SCROLL_END_HOLD_S)
+
+
+def pick_slot(durations: list[float], now: float) -> tuple[int, float]:
+    """Map wall-clock to variable-duration rotation. Returns (idx, elapsed)
+    where elapsed is seconds since the active page started (drives scroll)."""
+    safe = [(float(d) if d and float(d) > 0 else 3.0) for d in durations] if durations else [3.0]
+    total = sum(safe)
+    if total <= 0:
+        return 0, 0.0
+    try:
+        pos = float(now) % total
+    except (TypeError, ValueError):
+        return 0, 0.0
+    cum = 0.0
+    for i, d in enumerate(safe):
+        if pos < cum + d:
+            return i, pos - cum
+        cum += d
+    return len(safe) - 1, safe[-1]
 
 
 def combined_slot(layout: dict | None, now: float | None,
@@ -288,7 +457,8 @@ def _element_text(el: dict, fields: dict, override_text: str, layout: dict) -> s
 def render_frame(layout: dict, fields: dict, override_text: str = "",
                  now: float | None = None, scroll_px: int | None = None,
                  pages: list[dict] | None = None,
-                 board_position: int | None = None) -> Image.Image:
+                 board_position: int | None = None,
+                 page_elapsed: float | None = None) -> Image.Image:
     """Render one frame. now controls flash; scroll_px offsets scrolling text.
 
     Each board page can have its own layout. ``page_elements`` maps a
@@ -296,6 +466,12 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
     entry the fallback ``elements`` list is used. Pass ``pages`` (or the
     resolved ``board_position``) so the frame matches the rotation slot;
     without them everything draws.
+
+    ``page_elapsed`` is seconds since the current board page started: the
+    scroll offset resets to the text start on every page entry, holds
+    static for 1 s, then scrolls. Callers doing scroll-aware rotation
+    (``pick_slot`` + ``page_duration``) pass it; without it scrolling falls
+    back to the legacy wall-clock offset.
     """
     w, h = int(layout["width"]), int(layout["height"])
     bg = layout.get("background", "#000000")
@@ -409,14 +585,29 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
             ty = y if valign == "top" else (y + (hh - th) // 2 if valign == "middle" else y + hh - th)
             scroll = el.get("scroll", "none")
             if scroll == "always" or (scroll == "if_too_long" and tw > ww):
-                off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
-                tmp = Image.new("RGB", (tw + ww, hh), colour if invert else bg)
-                if not invert:
-                    tmp.paste(strip, (0, ty - y), strip)
+                if scroll_px is not None:
+                    off = int(scroll_px)
+                elif page_elapsed is not None:
+                    off = scroll_offset_for_width(tw, page_elapsed)
                 else:
-                    tmp.paste(strip, (0, ty - y))
-                window = tmp.crop((off, 0, min(off + ww, tmp.width), hh))
-                img.paste(window, (x, y))
+                    off = int(now * 20) % (tw + ww)
+                # Element-sized box: text starts at the left edge (off=0)
+                # and scrolls out, leaving only a short trailing gap before
+                # the page changes (no more `ww`-wide blank dwell).
+                box = Image.new("RGB", (ww, hh), colour if invert else bg)
+                sy = ty - y
+                sx0 = max(0, off)
+                sx1 = min(tw, off + ww)
+                if sx1 > sx0:
+                    dy0 = max(0, sy)
+                    dy1 = min(hh, sy + th)
+                    if dy1 > dy0:
+                        crop = strip.crop((sx0, dy0 - sy, sx1, dy1 - sy))
+                        if not invert and crop.mode == "RGBA":
+                            box.paste(crop, (sx0 - off, dy0), crop)
+                        else:
+                            box.paste(crop, (sx0 - off, dy0))
+                img.paste(box, (x, y))
             else:
                 if invert:
                     # Full-box invert to match portal LED preview:
@@ -432,15 +623,18 @@ def render_frame(layout: dict, fields: dict, override_text: str = "",
         if invert:
             dr.rectangle([x, y, x + ww - 1, y + hh - 1], fill=colour)
         if needs_scroll:
-            off = scroll_px if scroll_px is not None else int(now * 20) % (tw + ww)
-            tx = x + ww - off
-            tmp = Image.new("RGB", (tw + ww, hh), colour if invert else bg)
-            d2 = ImageDraw.Draw(tmp)
-            d2.text((0, hh // 2 if valign == "middle" else 0), text, fill=(bg if invert else colour), font=fnt,
-                    anchor="lm" if valign == "middle" else "lt")
-            sx = off
-            window = tmp.crop((sx, 0, min(sx + ww, tmp.width), hh))
-            img.paste(window, (x, y))
+            if scroll_px is not None:
+                off = int(scroll_px)
+            elif page_elapsed is not None:
+                off = scroll_offset_for_width(tw, page_elapsed)
+            else:
+                off = int(now * 20) % (tw + ww)
+            box = Image.new("RGB", (ww, hh), colour if invert else bg)
+            dbox = ImageDraw.Draw(box)
+            dbox.text((-off, hh // 2 if valign == "middle" else 0), text,
+                      fill=(bg if invert else colour), font=fnt,
+                      anchor="lm" if valign == "middle" else "lt")
+            img.paste(box, (x, y))
         else:
             if align in ("centre", "center"):
                 tx = x + ww // 2

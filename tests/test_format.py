@@ -151,3 +151,19 @@ def test_layout_overflow_override_flag(tmp_path):
     res = validate_file(p, check_hash=False)
     assert res.ok, [e.message for e in res.errors]
     assert any(e.code == "layout_overflow" for e in res.warnings)
+
+
+def test_rescale_layout_moves_elements_inside():
+    import json
+    from nslprog.layouts import layout_overflows, rescale_layout
+    lj = {"schema": 1, "width": 160, "height": 40, "background": "#000000", "page_seconds": 3,
+          "elements": [{"type": "field", "field": "num", "x": 0, "y": 0, "w": 40, "h": 40}],
+          "page_elements": {"2": [{"type": "field", "field": "dest", "x": 40, "y": 0, "w": 120, "h": 40}]}}
+    assert layout_overflows(lj, 120, 32) == ["default, element #1", "page 2, element #1"]
+    rescale_layout(lj, 120, 32)
+    assert (lj["width"], lj["height"]) == (120, 32)
+    assert layout_overflows(lj, 120, 32) == []
+    # already-fitting layouts are untouched
+    before = json.dumps(lj, sort_keys=True)
+    rescale_layout(lj, 120, 32)
+    assert json.dumps(lj, sort_keys=True) == before

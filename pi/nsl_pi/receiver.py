@@ -41,7 +41,8 @@ class Receiver:
 
     def render(self, snapshot: dict):
         from .renderer import (autofit_layout, board_position_for_slot, combined_slot,
-                               fields_for_page_index, fields_for_slot, render_frame, slot_for_layout)
+                               fields_for_page_index, fields_for_slot, page_duration, pick_slot,
+                               render_frame, slot_for_layout)
         import time as _t
         now = _t.time()
         base = snapshot.get("fields", {})
@@ -78,52 +79,76 @@ class Receiver:
                 layout = json.loads(layout)
         if layout is None:
             layout = autofit_layout(self.width, self.height)
+        def _bpos(_pages, i: int) -> int:
+            try:
+                ordered = sorted(_pages, key=lambda p: int(p.get("position", 0) or 0))
+                if not ordered:
+                    return 0
+                return int(ordered[i % len(ordered)].get("position", 0) or 0)
+            except Exception:
+                return 0
+
         if insert and destination:
             from .renderer import autofit_layout as _af
             ins_pages = insert.get("pages") or []
             ins_layouts = insert.get("layouts") or {}
-            kind, idx, _total = combined_slot(
-                layout, now, len(pages) if pages else 1,
-                len(ins_pages) if ins_pages else 1)
-            if kind == "insert":
-                ins_layout = ins_layouts.get(self.display_name)
-                if isinstance(ins_layout, str):
-                    ins_layout = json.loads(ins_layout)
-                if ins_layout is None:
-                    for k, v in ins_layouts.items():
-                        if k.startswith("template:"):
-                            ins_layout = json.loads(v) if isinstance(v, str) else dict(v)
-                            ins_layout["width"], ins_layout["height"] = self.width, self.height
-                            break
-                if ins_layout is None:
-                    ins_layout = _af(self.width, self.height)
-                ins_svc = insert.get("service") or {}
-                ins_num = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
-                ins_dest = insert.get("destination") or {}
-                if ins_pages and ins_dest:
-                    ordered = sorted(ins_pages, key=lambda p: int(p.get("position", 0) or 0))
-                    bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
-                    flds = fields_for_page_index(ins_dest, ins_num, ins_pages, idx)
-                    frame = render_frame(ins_layout, flds, override, now=now,
-                                         pages=ins_pages, board_position=bpos)
-                else:
-                    frame = render_frame(ins_layout, insert.get("fields", {}), override)
-                if self.virtual_dir:
-                    import os
-                    os.makedirs(self.virtual_dir, exist_ok=True)
-                    frame.save(os.path.join(self.virtual_dir, f"{self.display_name}.png"))
-                return frame
+            ins_layout0 = ins_layouts.get(self.display_name)
+            if isinstance(ins_layout0, str):
+                ins_layout0 = json.loads(ins_layout0)
+            if ins_layout0 is None:
+                for k, v in ins_layouts.items():
+                    if k.startswith("template:"):
+                        ins_layout0 = json.loads(v) if isinstance(v, str) else dict(v)
+                        ins_layout0["width"], ins_layout0["height"] = self.width, self.height
+                        break
+            if ins_layout0 is None:
+                ins_layout0 = _af(self.width, self.height)
+            ins_svc = insert.get("service") or {}
+            ins_num = ins_svc.get("number", "") if isinstance(ins_svc, dict) else ""
+            ins_dest = insert.get("destination") or {}
+            n_main = len(pages) if pages else 1
+            n_ins = len(ins_pages) if ins_pages else 1
+            main_f, main_b, main_d = [], [], []
             if pages and destination:
-                ordered = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
-                bpos = int(ordered[idx % len(ordered)].get("position", 0) or 0) if ordered else 0
-                fields = fields_for_page_index(destination, svc_number, pages, idx)
-                for k, v in base.items():
-                    if k.startswith("__"):
-                        fields[k] = v
-                frame = render_frame(layout, fields, override, now=now, pages=pages,
-                                     board_position=bpos)
+                for i in range(n_main):
+                    f = fields_for_page_index(destination, svc_number, pages, i)
+                    for k, v in base.items():
+                        if k.startswith("__"):
+                            f[k] = v
+                    b = _bpos(pages, i)
+                    main_f.append(f)
+                    main_b.append(b)
+                    main_d.append(page_duration(layout, f, override, b))
             else:
-                frame = render_frame(layout, base, override)
+                main_f.append(dict(base))
+                main_b.append(0)
+                main_d.append(page_duration(layout, base, override, 0))
+            ins_f, ins_b, ins_d = [], [], []
+            if ins_pages and ins_dest:
+                for j in range(n_ins):
+                    f = fields_for_page_index(ins_dest, ins_num, ins_pages, j)
+                    b = _bpos(ins_pages, j)
+                    ins_f.append(f)
+                    ins_b.append(b)
+                    ins_d.append(page_duration(ins_layout0, f, override, b))
+            else:
+                ins_f.append(dict(insert.get("fields", {})))
+                ins_b.append(0)
+                ins_d.append(page_duration(ins_layout0, ins_f[0], override, 0))
+            pos, elapsed = pick_slot(main_d + ins_d, now)
+            if pos < len(main_d):
+                if pages and destination:
+                    frame = render_frame(layout, main_f[pos], override, now=now, pages=pages,
+                                         board_position=main_b[pos], page_elapsed=elapsed)
+                else:
+                    frame = render_frame(layout, base, override, now=now, page_elapsed=elapsed)
+            elif ins_pages and ins_dest:
+                frame = render_frame(ins_layout0, ins_f[pos - len(main_d)], override, now=now,
+                                     pages=ins_pages, board_position=ins_b[pos - len(main_d)],
+                                     page_elapsed=elapsed)
+            else:
+                frame = render_frame(ins_layout0, insert.get("fields", {}), override,
+                                     now=now, page_elapsed=elapsed)
             if self.virtual_dir:
                 import os
                 os.makedirs(self.virtual_dir, exist_ok=True)
@@ -139,21 +164,31 @@ class Receiver:
                     fields["via"] = dep_text
                 ordered0 = sorted(pages, key=lambda p: int(p.get("position", 0) or 0))
                 bpos0 = int(ordered0[0].get("position", 0) or 0) if ordered0 else 0
+                dur0 = page_duration(layout, fields, override, bpos0)
                 frame = render_frame(layout, fields, override, now=now, pages=pages,
-                                     board_position=bpos0)
+                                     board_position=bpos0,
+                                     page_elapsed=(now % dur0) if dur0 > 0 else 0.0)
             else:
-                slot = slot_for_layout(layout, now)
-                fields = fields_for_slot(destination, svc_number, layout, now, pages)
-                for k, v in base.items():
-                    if k.startswith("__"):
-                        fields[k] = v
-                frame = render_frame(layout, fields, override, now=now, pages=pages,
-                                     board_position=board_position_for_slot(pages, slot))
+                n = len(pages)
+                fl, bl, dl = [], [], []
+                for i in range(n):
+                    f = fields_for_page_index(destination, svc_number, pages, i)
+                    for k, v in base.items():
+                        if k.startswith("__"):
+                            f[k] = v
+                    b = _bpos(pages, i)
+                    fl.append(f)
+                    bl.append(b)
+                    dl.append(page_duration(layout, f, override, b))
+                idx, elapsed = pick_slot(dl, now)
+                frame = render_frame(layout, fl[idx], override, now=now, pages=pages,
+                                     board_position=bl[idx], page_elapsed=elapsed)
         else:
             flds = dict(base)
             if dep_active and self.display_name == "front":
                 flds["via"] = dep_text
-            frame = render_frame(layout, flds, override)
+            frame = render_frame(layout, flds, override, now=now,
+                                 page_elapsed=now % page_duration(layout, flds, override, 0))
         if self.virtual_dir:
             import os
             os.makedirs(self.virtual_dir, exist_ok=True)
