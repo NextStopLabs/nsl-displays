@@ -829,7 +829,7 @@ const LayoutEditor = (() => {
           <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
           <div class=group><div class=grouptitle>Advanced</div>
             <div><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox id=lay-overflow> Allow elements outside display</label></div>
-            <div class=hint>Out-of-bounds elements save anyway (publish validation only warns when the override is ticked). "Fit to display" pulls every element on every board page inside.</div>
+            <div class=hint>Out-of-bounds elements (e.g. wide scrolling fields) save anyway; the override flag is set automatically so publish treats them as warnings. "Fit to display" pulls every element on every board page inside.</div>
             <div class=row><button id=lay-fitbtn>Fit to display</button><button id=lay-jsonbtn>Edit JSON</button></div>
             <div id=lay-jsonbox style="display:none;margin-top:8px"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=8></textarea>
             <div class=row><button id=lay-jsonapply>Apply JSON</button></div></div>
@@ -998,11 +998,16 @@ const LayoutEditor = (() => {
           }
         }
         // Out-of-bounds elements are deliberate (e.g. wide scrolling dest
-        // fields) - save anyway and only note it. The "Fit to display"
-        // button in Advanced pulls them inside on demand.
+        // fields) - save anyway, flagging the layout so publish treats the
+        // overflow as warnings instead of failing the build.
+        if (outside.length && !ed.lay.allow_overflow) {
+          ed.lay.allow_overflow = true;
+          const ovBox = document.getElementById("lay-overflow");
+          if (ovBox) ovBox.checked = true;
+        }
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
         box.textContent = outside.length
-          ? `Saved with ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}) - they render partially or not at all.`
+          ? `Saved with ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}) - flagged to publish as warnings.`
           : "";
         ed.src = "destination (saved)";
         updateStatus();

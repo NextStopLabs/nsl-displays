@@ -361,6 +361,40 @@ def test_display_resize_rescales_layouts(tmp_path, monkeypatch):
     assert again == got
 
 
+def test_publish_allows_flagged_overflow_layout(tmp_path, monkeypatch):
+    """Wide scrolling dest fields (element wider than the display) publish.
+
+    Unflagged overflow fails the build; the layout editor stamps
+    allow_overflow automatically on save, which downgrades it to warnings.
+    """
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/auth/signup", data={"email": "o@x.com", "password": "secret123"}).json()
+    H, org = {"Authorization": f"Bearer {r['token']}"}, r["organisation_id"]
+    pid = c.post("/api/programs", json={"organisation_id": org, "name": "O"}, headers=H).json()["program_id"]
+    prog = c.get(f"/api/programs/{pid}", headers=H).json()
+    disp = prog["displays"][0]
+    w0, h0 = disp["width_px"], disp["height_px"]
+    sid = c.post(f"/api/programs/{pid}/services", json={"number": "1", "name": "S"}, headers=H).json()["service_id"]
+    did = c.post(f"/api/services/{sid}/destinations",
+                 json={"code": "00000001", "name": "D", "via": "V", "dest": "DEST"}, headers=H).json()["destination_id"]
+    c.put(f"/api/destinations/{did}/stops", json={"stops": [{"name": "A"}, {"name": "B"}]}, headers=H)
+    lay = {"schema": 1, "width": w0, "height": h0, "background": "#000000", "page_seconds": 3,
+           "override": {"mode": "replace", "replaces": "dest", "hide": []},
+           "elements": [{"type": "field", "field": "dest", "x": 0, "y": 5, "w": w0 + 15, "h": h0 - 9,
+                          "font": "pixel-medium", "colour": "#FFB000", "align": "left", "valign": "middle",
+                          "scroll": "if_too_long", "show_if": "always"}]}
+    r = c.put(f"/api/destinations/{did}/layouts/{disp['name']}", json={"layout": lay}, headers=H)
+    assert r.status_code == 200, r.text
+    r = c.post(f"/api/programs/{pid}/publish", json={"notes": "overflow"}, headers=H)
+    assert r.status_code == 400 and "element outside display" in r.text, r.text
+    lay["allow_overflow"] = True
+    r = c.put(f"/api/destinations/{did}/layouts/{disp['name']}", json={"layout": lay}, headers=H)
+    assert r.status_code == 200, r.text
+    r = c.post(f"/api/programs/{pid}/publish", json={"notes": "overflow flagged"}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 1
+
+
 def test_program_template_crud_and_default(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/auth/signup", data={"email": "t@x.com", "password": "secret123"}).json()
