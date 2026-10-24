@@ -214,6 +214,22 @@ const LayoutEditor = (() => {
       if (o) o.checked = !!ed.lay.allow_overflow;
     }
   }
+  function clampElToDisplay(el, W, H) {
+    // Move/resize an element box inside a WxH display (mirrors
+    // nslprog.layouts rescaling on the backend).
+    if (!el || typeof el !== "object") return;
+    el.x = Math.max(0, Math.min(Number.isFinite(+el.x) ? Math.round(+el.x) : 0, W - 1));
+    el.y = Math.max(0, Math.min(Number.isFinite(+el.y) ? Math.round(+el.y) : 0, H - 1));
+    el.w = Math.max(1, Number.isFinite(+el.w) ? Math.round(+el.w) : 1);
+    el.h = Math.max(1, Number.isFinite(+el.h) ? Math.round(+el.h) : 1);
+    if (el.x + el.w > W) el.w = Math.max(1, W - el.x);
+    if (el.y + el.h > H) el.h = Math.max(1, H - el.y);
+  }
+  function elOutside(el, W, H) {
+    return !el || typeof el !== "object" || !(Number.isFinite(+el.x) && Number.isFinite(+el.y) &&
+      Number.isFinite(+el.w) && Number.isFinite(+el.h)) ||
+      el.x < 0 || el.y < 0 || el.w <= 0 || el.h <= 0 || el.x + el.w > W || el.y + el.h > H;
+  }
   function visible(el, fields, ovActive) {
     const sh = el.show_if || "always";
     if (sh === "always") return true;
@@ -691,8 +707,18 @@ const LayoutEditor = (() => {
       if (!drag || ed.sel < 0) return;
       const p = canvasPos(e);
       const el = ed.lay.elements[ed.sel];
-      if (drag.mode === "move") { el.x = p.x - drag.dx; el.y = p.y - drag.dy; }
-      else { el.w = Math.max(1, p.x - el.x + 1); el.h = Math.max(1, p.y - el.y + 1); }
+      const W = ed.lay.width, H = ed.lay.height;
+      if (drag.mode === "move") {
+        el.x = p.x - drag.dx; el.y = p.y - drag.dy;
+        if (!ed.lay.allow_overflow) {
+          el.x = Math.max(0, Math.min(Math.round(el.x), W - el.w));
+          el.y = Math.max(0, Math.min(Math.round(el.y), H - el.h));
+        }
+      }
+      else {
+        el.w = Math.max(1, p.x - el.x + 1); el.h = Math.max(1, p.y - el.y + 1);
+        if (!ed.lay.allow_overflow) clampElToDisplay(el, W, H);
+      }
       drawEditor();
     };
     cv.onmouseup = () => {
@@ -813,7 +839,7 @@ const LayoutEditor = (() => {
           <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
           <div class=group><div class=grouptitle>Advanced</div>
             <div><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox id=lay-overflow> Allow elements outside display</label></div>
-            <div class=hint>Override: out-of-bounds elements save anyway and publish only warns (they render partially or not at all).</div>
+            <div class=hint>Without the override, out-of-bounds elements are moved/resized to fit on save. With it they save untouched and publish only warns (they render partially or not at all).</div>
             <button id=lay-jsonbtn>Edit JSON</button>
             <div id=lay-jsonbox style="display:none;margin-top:8px"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=8></textarea>
             <div class=row><button id=lay-jsonapply>Apply JSON</button></div></div>
@@ -959,18 +985,39 @@ const LayoutEditor = (() => {
         const outside = [];
         for (const { name, els } of allLayouts) {
           for (const [i, e] of els.entries()) {
-            if (e.x < 0 || e.y < 0 || e.w <= 0 || e.h <= 0 || e.x + e.w > d.width_px || e.y + e.h > d.height_px)
+            if (elOutside(e, d.width_px, d.height_px))
               outside.push(`${name}, element #${i + 1}`);
           }
         }
-        if (outside.length && !ed.lay.allow_overflow)
-          throw new Error(`Layout ${outside[0]} lies outside the display - move or resize it, or tick "Allow elements outside display" in Advanced to override.`);
+        let fitted = [];
+        if (outside.length && !ed.lay.allow_overflow) {
+          // Self-heal instead of blocking: move/resize the offending
+          // element(s) inside the display, then save. Ticking "Allow
+          // elements outside display" still saves them untouched.
+          for (const { els } of allLayouts) {
+            for (const e of els) {
+              if (elOutside(e, d.width_px, d.height_px)) {
+                const before = `${e.x},${e.y} ${e.w}x${e.h}`;
+                clampElToDisplay(e, d.width_px, d.height_px);
+                fitted.push(`${before} -> ${e.x},${e.y} ${e.w}x${e.h}`);
+              }
+            }
+          }
+          ed.sel = Math.max(0, Math.min(ed.sel, (ed.lay.elements || []).length - 1));
+          updateStatus(); drawEditor(); renderProps();
+        }
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
-        box.textContent = outside.length
-          ? `Saved with override: ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}). Publish validation will only warn.`
-          : "";
+        if (fitted.length) {
+          box.textContent = `Saved: moved/resized ${fitted.length} element(s) to fit the display (${fitted.slice(0, 3).join("; ")}${fitted.length > 3 ? "; …" : ""}).`;
+        } else {
+          box.textContent = outside.length
+            ? `Saved with override: ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}). Publish validation will only warn.`
+            : "";
+        }
         ed.src = "destination (saved)";
-        updateStatus(); alert(outside.length ? "Layout saved (overflow override on)." : "Layout saved.");
+        updateStatus();
+        alert(fitted.length ? "Layout saved (out-of-bounds elements moved inside)."
+          : outside.length ? "Layout saved (overflow override on)." : "Layout saved.");
       } catch (e) { box.textContent = String(e.message || e); }
     };
     bindMouse();
