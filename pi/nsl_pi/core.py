@@ -50,6 +50,22 @@ def _ensure_depart_columns(con: sqlite3.Connection):
         pass
 
 
+def _ensure_rotation_column(con):
+    """Migration for controller.db files created before rotation anchoring.
+
+    ``rotation_started_at`` (wall-clock seconds) marks when the current
+    board rotation began: selecting a program/destination/insert restarts
+    the loop at page 1 instead of landing mid-rotation on wall-clock.
+    """
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
+        if "rotation_started_at" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN rotation_started_at REAL DEFAULT NULL")
+            con.commit()
+    except Exception:
+        pass
+
+
 def _utcnow() -> str:
     import datetime as dt
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -58,6 +74,7 @@ def _utcnow() -> str:
 def ensure_state_row(con: sqlite3.Connection):
     _ensure_insert_column(con)
     _ensure_depart_columns(con)
+    _ensure_rotation_column(con)
     con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at, insert_destination_id) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?,NULL)",
                 (_utcnow(),))
 
@@ -87,6 +104,7 @@ class Core:
         self._con = _db_connect(controller_db, row_factory=sqlite3.Row)
         _ensure_insert_column(self._con)
         _ensure_depart_columns(self._con)
+        _ensure_rotation_column(self._con)
         self._con.executescript("""
         CREATE TABLE IF NOT EXISTS gpio_overlays (
           target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',
@@ -347,6 +365,15 @@ class Core:
         except Exception:
             pass
 
+    def _reset_rotation(self, now: float | None = None) -> None:
+        """Restart the board rotation at page 1 (new program/destination/insert)."""
+        import time as _t
+        try:
+            self._con.execute("UPDATE state SET rotation_started_at=? WHERE id=1",
+                              (now if now is not None else _t.time(),))
+        except Exception:
+            pass
+
     # ---- insert (temp extra board page) ----
     def set_insert_destination(self, destination_id: str, source: str = "local",
                                user_id: str | None = None) -> dict:
@@ -366,6 +393,7 @@ class Core:
                 raise ValueError("INVALID")
             self._con.execute("UPDATE state SET insert_destination_id=?, updated_at=? WHERE id=1",
                               (destination_id, _utcnow()))
+            self._reset_rotation()
             self._log(source, f"insert_destination {destination_id}", user_id)
             self._con.commit()
         finally:
@@ -392,6 +420,7 @@ class Core:
                 raise ValueError("INVALID")
             self._con.execute("UPDATE state SET insert_destination_id=?, updated_at=? WHERE id=1",
                               (dest["id"], _utcnow()))
+            self._reset_rotation()
             self._log(source, f"insert_code {code}", user_id)
             self._con.commit()
         finally:
@@ -402,6 +431,7 @@ class Core:
     def clear_insert(self, source: str = "local", user_id: str | None = None) -> dict:
         self._con.execute("UPDATE state SET insert_destination_id=NULL, updated_at=? WHERE id=1",
                           (_utcnow(),))
+        self._reset_rotation()
         self._log(source, "insert_clear", user_id)
         self._con.commit()
         self._emit("state")
@@ -443,6 +473,7 @@ class Core:
         expires = self._expires_for_time(hhmm, now)
         self._con.execute("UPDATE state SET depart_time=?, depart_mins=NULL, depart_expires_at=?, updated_at=? WHERE id=1",
                           (hhmm, expires, _utcnow()))
+        self._reset_rotation(now if now is not None else None)
         self._log(source, f"depart_set {hhmm}", user_id)
         self._con.commit()
         self._emit("state")
@@ -467,6 +498,7 @@ class Core:
                         silent: bool = False) -> dict:
         self._con.execute("UPDATE state SET depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                           (_utcnow(),))
+        self._reset_rotation()
         if not silent:
             self._log(source, "depart_clear", user_id)
         self._con.commit()
@@ -555,6 +587,7 @@ class Core:
             self._con.execute(
                 "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (program_id, version, dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
+            self._reset_rotation()
             self._log(source, f"program_select {program_id}@{version}", user_id)
             self._con.commit()
         finally:
@@ -583,6 +616,7 @@ class Core:
             self._con.execute(
                 "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
+            self._reset_rotation()
             self._log(source, f"destination_code {code}", user_id)
             self._con.commit()
         finally:
@@ -603,6 +637,7 @@ class Core:
             self._con.execute(
                 "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], destination_id, stop["id"] if stop else None, _utcnow()))
+            self._reset_rotation()
             self._log(source, f"destination_select {destination_id}", user_id)
             self._con.commit()
         finally:
@@ -782,6 +817,7 @@ class Core:
                               (program_id,))
             self._con.execute("UPDATE installed_programs SET status='active' WHERE program_id=? AND version=?",
                               (program_id, version))
+            self._reset_rotation()
             self._log(source, f"activate {program_id}@{version}", None)
             self._con.commit()
         finally:
@@ -990,13 +1026,13 @@ class Core:
                 # must reach the boards with or without program context)
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
-                        "departure": departure}
+                        "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
             pc = self._open_prog(st["program_id"], st["program_version"])
             if pc is None:
                 # installed row without its bundle (deleted mid-sync?) - empty, not a crash
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
-                        "departure": departure}
+                        "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
             try:
                 dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
                 svc = pc.execute("SELECT * FROM services WHERE id=?", (st["service_id"],)).fetchone() if st["service_id"] else None
@@ -1004,7 +1040,7 @@ class Core:
                 if not dest:
                     return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
                             "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
-                            "departure": departure}
+                            "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
                 from .renderer import resolve_fields
                 fields = resolve_fields(dict(dest), svc["number"] if svc else "")
                 try:
@@ -1029,7 +1065,8 @@ class Core:
                         "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                         "layouts": layouts, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards,
-                        "insert": insert, "departure": departure}
+                        "insert": insert, "departure": departure,
+                        "rotation_epoch": st.get("rotation_started_at")}
             finally:
                 pc.close()
         finally:

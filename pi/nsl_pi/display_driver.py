@@ -86,6 +86,14 @@ class DisplayDriver:
         service = snapshot.get("service") or {}
         override = snapshot.get("override") or ""
         now = _t.time()
+        try:
+            _epoch = float(snapshot.get("rotation_epoch") or 0)
+        except (TypeError, ValueError):
+            _epoch = 0.0
+        # Rotation runs from the last program/destination/insert selection,
+        # so a new selection always restarts at page 1 (flash timing in
+        # render_frame keeps using wall-clock `now`).
+        rnow = max(0.0, now - _epoch) if _epoch > 0 else now
         layouts = snapshot.get("layouts", {})
         state = snapshot.get("state", {})
         gpio_overlay = snapshot.get("gpio_overlay") or {}
@@ -192,7 +200,7 @@ class DisplayDriver:
                     if layout_d is None:
                         layout_d = autofit_layout(w, h)
                     dur = page_duration(layout_d, page_fields, override, bpos)
-                    elapsed = now % dur if dur > 0 else 0.0
+                    elapsed = rnow % dur if dur > 0 else 0.0
                     return render_frame(layout_d, page_fields, override,
                                         now=now, pages=pages, board_position=bpos,
                                         page_elapsed=elapsed)
@@ -255,7 +263,7 @@ class DisplayDriver:
                     ins_bpos_list.append(0)
                     ins_durs.append(page_duration(ins_layout0, ins_fields_list[0], override, 0))
                 all_durs = main_durs + ins_durs
-                pos, elapsed = pick_slot(all_durs, now)
+                pos, elapsed = pick_slot(all_durs, rnow)
                 if pos < len(main_durs):
                     idx = pos
                     if pages and destination:
@@ -288,13 +296,13 @@ class DisplayDriver:
                     fields_list.append(pf)
                     bpos_list.append(bp)
                     durs.append(page_duration(layout, pf, override, bp))
-                idx, elapsed = pick_slot(durs, now)
+                idx, elapsed = pick_slot(durs, rnow)
                 return render_frame(layout, fields_list[idx], override,
                                     now=now, pages=pages,
                                     board_position=bpos_list[idx],
                                     page_elapsed=elapsed)
             if not pages or not destination:
-                elapsed = now % page_duration(layout, fields, override, 0)
+                elapsed = rnow % page_duration(layout, fields, override, 0)
                 return render_frame(layout, fields, override, now=now,
                                     page_elapsed=elapsed)
             return render_frame(layout, fields, override)

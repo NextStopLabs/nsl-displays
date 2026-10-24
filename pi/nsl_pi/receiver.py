@@ -45,6 +45,11 @@ class Receiver:
                                render_frame, slot_for_layout)
         import time as _t
         now = _t.time()
+        try:
+            _epoch = float(snapshot.get("rotation_epoch") or 0)
+        except (TypeError, ValueError):
+            _epoch = 0.0
+        rnow = max(0.0, now - _epoch) if _epoch > 0 else now
         base = snapshot.get("fields", {})
         pages = snapshot.get("pages") or []
         destination = snapshot.get("destination") or {}
@@ -135,7 +140,7 @@ class Receiver:
                 ins_f.append(dict(insert.get("fields", {})))
                 ins_b.append(0)
                 ins_d.append(page_duration(ins_layout0, ins_f[0], override, 0))
-            pos, elapsed = pick_slot(main_d + ins_d, now)
+            pos, elapsed = pick_slot(main_d + ins_d, rnow)
             if pos < len(main_d):
                 if pages and destination:
                     frame = render_frame(layout, main_f[pos], override, now=now, pages=pages,
@@ -167,7 +172,7 @@ class Receiver:
                 dur0 = page_duration(layout, fields, override, bpos0)
                 frame = render_frame(layout, fields, override, now=now, pages=pages,
                                      board_position=bpos0,
-                                     page_elapsed=(now % dur0) if dur0 > 0 else 0.0)
+                                     page_elapsed=(rnow % dur0) if dur0 > 0 else 0.0)
             else:
                 n = len(pages)
                 fl, bl, dl = [], [], []
@@ -180,7 +185,7 @@ class Receiver:
                     fl.append(f)
                     bl.append(b)
                     dl.append(page_duration(layout, f, override, b))
-                idx, elapsed = pick_slot(dl, now)
+                idx, elapsed = pick_slot(dl, rnow)
                 frame = render_frame(layout, fl[idx], override, now=now, pages=pages,
                                      board_position=bl[idx], page_elapsed=elapsed)
         else:
@@ -188,7 +193,7 @@ class Receiver:
             if dep_active and self.display_name == "front":
                 flds["via"] = dep_text
             frame = render_frame(layout, flds, override, now=now,
-                                 page_elapsed=now % page_duration(layout, flds, override, 0))
+                                 page_elapsed=rnow % page_duration(layout, flds, override, 0))
         if self.virtual_dir:
             import os
             os.makedirs(self.virtual_dir, exist_ok=True)

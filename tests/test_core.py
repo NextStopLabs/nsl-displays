@@ -167,3 +167,26 @@ def test_autofit_default_matches_spec(tmp_path):
     els160 = {e["field"]: e for e in lay160["elements"]}
     assert els160["num"]["w"] == round(160 * 70 / 240)
     assert els160["num"]["font"] == "han-1912B3E1"
+
+
+def test_rotation_restarts_at_page_one_on_select(tmp_path):
+    """Selecting a program/destination anchors the rotation epoch: the
+    boards restart at page 1 instead of landing mid-loop on wall-clock."""
+    import time
+    from pi.nsl_pi.renderer import pick_slot
+    c, pid = _core(tmp_path)
+    before = time.time()
+    c.select_program(pid, source="test")
+    st = c.state()
+    assert st["rotation_started_at"] is not None and st["rotation_started_at"] >= before
+    snap = c.display_snapshot()
+    assert snap["rotation_epoch"] == st["rotation_started_at"]
+    # rotation time just after selection sits at the start of page 1
+    idx, elapsed = pick_slot([3.0, 3.0], time.time() - snap["rotation_epoch"])
+    assert idx == 0 and elapsed < 5.0
+    # a destination change re-anchors too
+    first = st["rotation_started_at"]
+    time.sleep(0.02)
+    c.select_code("10000002", source="test")
+    assert c.state()["rotation_started_at"] > first
+    assert c.display_snapshot()["rotation_epoch"] == c.state()["rotation_started_at"]

@@ -48,6 +48,8 @@ def init_controller_db(path: str, controller_name: str = "", role: str = "front"
             con.execute("ALTER TABLE state ADD COLUMN depart_time TEXT DEFAULT NULL")
         if "depart_expires_at" not in cols:
             con.execute("ALTER TABLE state ADD COLUMN depart_expires_at REAL DEFAULT NULL")
+        if "rotation_started_at" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN rotation_started_at REAL DEFAULT NULL")
     except Exception:
         pass
     if fresh:
