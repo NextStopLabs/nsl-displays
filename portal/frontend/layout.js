@@ -707,18 +707,8 @@ const LayoutEditor = (() => {
       if (!drag || ed.sel < 0) return;
       const p = canvasPos(e);
       const el = ed.lay.elements[ed.sel];
-      const W = ed.lay.width, H = ed.lay.height;
-      if (drag.mode === "move") {
-        el.x = p.x - drag.dx; el.y = p.y - drag.dy;
-        if (!ed.lay.allow_overflow) {
-          el.x = Math.max(0, Math.min(Math.round(el.x), W - el.w));
-          el.y = Math.max(0, Math.min(Math.round(el.y), H - el.h));
-        }
-      }
-      else {
-        el.w = Math.max(1, p.x - el.x + 1); el.h = Math.max(1, p.y - el.y + 1);
-        if (!ed.lay.allow_overflow) clampElToDisplay(el, W, H);
-      }
+      if (drag.mode === "move") { el.x = p.x - drag.dx; el.y = p.y - drag.dy; }
+      else { el.w = Math.max(1, p.x - el.x + 1); el.h = Math.max(1, p.y - el.y + 1); }
       drawEditor();
     };
     cv.onmouseup = () => {
@@ -839,8 +829,8 @@ const LayoutEditor = (() => {
           <div class=group><div class=grouptitle>Override behaviour</div><div id=lay-ov></div></div>
           <div class=group><div class=grouptitle>Advanced</div>
             <div><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type=checkbox id=lay-overflow> Allow elements outside display</label></div>
-            <div class=hint>Without the override, out-of-bounds elements are moved/resized to fit on save. With it they save untouched and publish only warns (they render partially or not at all).</div>
-            <button id=lay-jsonbtn>Edit JSON</button>
+            <div class=hint>Out-of-bounds elements save anyway (publish validation only warns when the override is ticked). "Fit to display" pulls every element on every board page inside.</div>
+            <div class=row><button id=lay-fitbtn>Fit to display</button><button id=lay-jsonbtn>Edit JSON</button></div>
             <div id=lay-jsonbox style="display:none;margin-top:8px"><label for=lay-json>Layout JSON</label><textarea id=lay-json rows=8></textarea>
             <div class=row><button id=lay-jsonapply>Apply JSON</button></div></div>
           </div>
@@ -944,6 +934,24 @@ const LayoutEditor = (() => {
     };
     document.getElementById("lay-seconds").addEventListener("input", syncPageSeconds);
     document.getElementById("lay-overflow").addEventListener("change", syncOverflow);
+    document.getElementById("lay-fitbtn").onclick = () => {
+      if (!ed.lay) return;
+      const d = disp();
+      const pe = ed.lay.page_elements || (ed.lay.page_elements = {});
+      pe[ed.tab] = ed.lay.elements;
+      const groups = [ed.lay.elements || []];
+      for (const k of Object.keys(pe)) if (Array.isArray(pe[k]) && pe[k] !== ed.lay.elements) groups.push(pe[k]);
+      let n = 0;
+      for (const els of groups) {
+        for (const e of els) {
+          if (elOutside(e, d.width_px, d.height_px)) { clampElToDisplay(e, d.width_px, d.height_px); n++; }
+        }
+      }
+      // a resize changes the canvas the tab was arranged for - stamp it
+      ed.lay.width = d.width_px; ed.lay.height = d.height_px;
+      document.getElementById("lay-err").textContent = n ? `Moved/resized ${n} element(s) to fit.` : "All elements already fit.";
+      updateStatus(); drawEditor(); renderProps();
+    };
     document.getElementById("lay-jsonbtn").onclick = () => {
       const box = document.getElementById("lay-jsonbox");
       box.style.display = box.style.display === "none" ? "" : "none";
@@ -989,35 +997,16 @@ const LayoutEditor = (() => {
               outside.push(`${name}, element #${i + 1}`);
           }
         }
-        let fitted = [];
-        if (outside.length && !ed.lay.allow_overflow) {
-          // Self-heal instead of blocking: move/resize the offending
-          // element(s) inside the display, then save. Ticking "Allow
-          // elements outside display" still saves them untouched.
-          for (const { els } of allLayouts) {
-            for (const e of els) {
-              if (elOutside(e, d.width_px, d.height_px)) {
-                const before = `${e.x},${e.y} ${e.w}x${e.h}`;
-                clampElToDisplay(e, d.width_px, d.height_px);
-                fitted.push(`${before} -> ${e.x},${e.y} ${e.w}x${e.h}`);
-              }
-            }
-          }
-          ed.sel = Math.max(0, Math.min(ed.sel, (ed.lay.elements || []).length - 1));
-          updateStatus(); drawEditor(); renderProps();
-        }
+        // Out-of-bounds elements are deliberate (e.g. wide scrolling dest
+        // fields) - save anyway and only note it. The "Fit to display"
+        // button in Advanced pulls them inside on demand.
         await apiFn(`/api/destinations/${did}/layouts/${encodeURIComponent(d.name)}`, { method: "PUT", body: { layout: ed.lay } });
-        if (fitted.length) {
-          box.textContent = `Saved: moved/resized ${fitted.length} element(s) to fit the display (${fitted.slice(0, 3).join("; ")}${fitted.length > 3 ? "; …" : ""}).`;
-        } else {
-          box.textContent = outside.length
-            ? `Saved with override: ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}). Publish validation will only warn.`
-            : "";
-        }
+        box.textContent = outside.length
+          ? `Saved with ${outside.length} element(s) outside the display (${outside.slice(0, 3).join("; ")}${outside.length > 3 ? "; …" : ""}) - they render partially or not at all.`
+          : "";
         ed.src = "destination (saved)";
         updateStatus();
-        alert(fitted.length ? "Layout saved (out-of-bounds elements moved inside)."
-          : outside.length ? "Layout saved (overflow override on)." : "Layout saved.");
+        alert(outside.length ? "Layout saved (some elements sit outside the display)." : "Layout saved.");
       } catch (e) { box.textContent = String(e.message || e); }
     };
     bindMouse();
