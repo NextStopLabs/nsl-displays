@@ -140,9 +140,11 @@ def test_layout_overflow_override_flag(tmp_path):
     con.execute("UPDATE layouts SET layout=? WHERE id=?", (json.dumps(lj), row[0]))
     con.commit()
     con.close()
+    # overflow is a warning, never a build failure (renderers clip it)
     res = validate_file(p, check_hash=False)
-    assert not res.ok and any(e.code == "layout_overflow" for e in res.errors)
-    # opt out per layout: same geometry passes as a warning
+    assert res.ok, [e.message for e in res.errors]
+    assert any(e.code == "layout_overflow" for e in res.warnings)
+    # the explicit flag keeps working and changes nothing
     con = sqlite3.connect(p)
     lj["allow_overflow"] = True
     con.execute("UPDATE layouts SET layout=? WHERE id=?", (json.dumps(lj), row[0]))

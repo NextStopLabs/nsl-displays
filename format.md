@@ -270,8 +270,8 @@ A JSON object of extra named board fields, for example `{"note": "Via Tamworth"}
 | `keep_aspect` | For `image` elements: `true` (default) scales to fit the box while preserving aspect ratio, `false` stretches to fill |
 | `tint` | For `image` elements: `true` (default) recolours the image to `colour`, `false` keeps the original full-colour pixels |
 | `aspect` | For `image` elements: cached natural width/height ratio (used by editors when resizing) |
-| `x`, `y`, `w`, `h` | Pixels, element must lie inside the display (unless `allow_overflow` is set) |
-| `allow_overflow` | Layout-level `true` overrides the bounds check: out-of-bounds elements save anyway, publish validation only warns, and they render partially or not at all |
+| `x`, `y`, `w`, `h` | Pixels; elements may extend past the display (e.g. a scrolling field wider than the board) - validation warns and every renderer clips them |
+| `allow_overflow` | Optional layout-level `true` marking out-of-bounds elements as deliberate (kept for backwards compatibility; overflow only ever warns) |
 | `font` | Pixel font id, or `han-<STEM>` for a Hanover bitmap font (1:1 pixels, see README §19.1). Unknown font falls back to a default and raises a warning |
 | `scale` | Integer 1–8, default 1. Integer-upscales Hanover glyphs (ignored by pixel fonts) |
 | `spacing` | Integer −8…16 pixels, default 0. Extra tracking between Hanover glyphs (negative tightens; ignored by pixel fonts) |
@@ -319,7 +319,7 @@ Run on the server when a user presses Publish, and again on the Pi before a down
 - Stop positions are not 1, 2, 3 … with no gaps
 - Destination page positions are not 1, 2, 3 … with no gaps
 - A stop marked `is_terminus` is not the last stop of its destination, or a destination has more than one
-- A layout's `width`/`height` differs from its display, an element lies outside the display, or the JSON is invalid
+- A layout's `width`/`height` differs from its display, or the JSON is invalid
 - An audio hash used by a service or stop is missing from the `audio` table
 - `PRAGMA integrity_check` or `PRAGMA foreign_key_check` reports a problem (Pi side)
 - `content_hash` does not match the recomputed value (Pi side)
@@ -330,6 +330,7 @@ Run on the server when a user presses Publish, and again on the Pi before a down
 - A stop has no audio (it will be silent)
 - A destination has no terminus flagged
 - An unknown font id, or text that cannot fit and is not set to scroll
+- A layout element that lies outside its display (renderers clip it)
 - A display name in the program that no controller output uses
 
 ### 8.1 `content_hash` (identity of the data)

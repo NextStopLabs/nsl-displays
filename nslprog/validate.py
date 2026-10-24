@@ -322,11 +322,11 @@ def _check_elements(els: list, ref: str, res: ValidationResult, disp: dict | Non
             res.errors.append(Issue("layout_geom", "x/y/w/h must be integers", "layouts", tag))
             continue
         if disp is not None and (x < 0 or y < 0 or ww <= 0 or hh <= 0 or x + ww > disp["width_px"] or y + hh > disp["height_px"]):
-            issue = Issue("layout_overflow", f"element outside display: {x},{y} {ww}x{hh}", "layouts", tag)
-            # allow_overflow is a deliberate per-layout override (set in the
-            # layout editor): out-of-bounds elements render partially/blank
-            # instead of failing validation, so the bus still accepts the file.
-            (res.warnings if allow_overflow else res.errors).append(issue)
+            # Overflow (e.g. a scrolling dest field wider than the board) is
+            # always a warning, never a build failure: every renderer clips
+            # it, so the bus still accepts the file. `allow_overflow` remains
+            # as an explicit deliberate-intent marker.
+            res.warnings.append(Issue("layout_overflow", f"element outside display: {x},{y} {ww}x{hh}", "layouts", tag))
         font = el.get("font", "pixel-medium")
         if font not in KNOWN_FONTS and not (isinstance(font, str) and font.startswith("han-")):
             res.warnings.append(Issue("unknown_font", f"unknown font {font!r}, will fall back", "layouts", tag))

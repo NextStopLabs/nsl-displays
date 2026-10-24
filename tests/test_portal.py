@@ -364,8 +364,9 @@ def test_display_resize_rescales_layouts(tmp_path, monkeypatch):
 def test_publish_allows_flagged_overflow_layout(tmp_path, monkeypatch):
     """Wide scrolling dest fields (element wider than the display) publish.
 
-    Unflagged overflow fails the build; the layout editor stamps
-    allow_overflow automatically on save, which downgrades it to warnings.
+    Overflow is a build warning, never a failure; the layout editor also
+    stamps allow_overflow automatically on save as a deliberate-intent
+    marker.
     """
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/auth/signup", data={"email": "o@x.com", "password": "secret123"}).json()
@@ -386,13 +387,14 @@ def test_publish_allows_flagged_overflow_layout(tmp_path, monkeypatch):
     r = c.put(f"/api/destinations/{did}/layouts/{disp['name']}", json={"layout": lay}, headers=H)
     assert r.status_code == 200, r.text
     r = c.post(f"/api/programs/{pid}/publish", json={"notes": "overflow"}, headers=H)
-    assert r.status_code == 400 and "element outside display" in r.text, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 1
     lay["allow_overflow"] = True
     r = c.put(f"/api/destinations/{did}/layouts/{disp['name']}", json={"layout": lay}, headers=H)
     assert r.status_code == 200, r.text
     r = c.post(f"/api/programs/{pid}/publish", json={"notes": "overflow flagged"}, headers=H)
     assert r.status_code == 200, r.text
-    assert r.json()["version"] == 1
+    assert r.json()["version"] == 2
 
 
 def test_program_template_crud_and_default(tmp_path, monkeypatch):
