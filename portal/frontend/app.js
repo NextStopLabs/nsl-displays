@@ -493,6 +493,7 @@ function renderProgram() {
           `<button data-stops="${d.id}">Stops</button>` +
           `<button data-edit="${d.id}">Edit</button>` +
           `<button data-dup="${d.id}">Duplicate</button>` +
+          `<button data-move="${d.id}">Move</button>` +
           `<button class=danger data-del="${d.id}">Delete</button></td></tr>`;
       }
       h += `</tbody></table></div>`;
@@ -748,6 +749,20 @@ function renderProgram() {
     <div class=col><label for=dup-service>Service</label><select id=dup-service></select></div></div>
     <div class=err id=dup-err></div>
     <div class=row style="justify-content:flex-end"><button id=dup-close>Cancel</button><button id=dup-save class=primary value=default>Duplicate</button></div>
+    </form></dialog>`;
+
+  // ---- Move board dialog (destination → another program, keeps stops/pages/layouts) ----
+  h += `<dialog id=mv-dialog><form method=dialog>
+    <h3 style="margin-top:0">Move board to another program</h3>
+    <p class=hint id=mv-src style="margin:4px 0"></p>
+    <div class=row><div class=col><label for=mv-program>Target program <span class=req>(required)</span></label><select id=mv-program></select></div>
+    <div class=col><label for=mv-service>Target service</label><select id=mv-service></select></div></div>
+    <p class=hint style="margin:4px 0">No matching service? Pick “Same number as now (create if missing)”.</p>
+    <div class=row><div style="flex:0 0 140px"><label for=mv-code>Code (1–8 digits) <span class=req>(required)</span></label><input id=mv-code maxlength=8 inputmode=numeric></div>
+    <div style="align-self:end"><button id=mv-suggest type=button>Suggest</button></div></div>
+    <p class=hint style="margin:4px 0">Stops and board pages move with it. Layouts follow displays matched by name (rescaled); layouts for missing displays are skipped.</p>
+    <div class=err id=mv-err></div>
+    <div class=row style="justify-content:flex-end"><button id=mv-close>Cancel</button><button id=mv-save class=primary value=default>Move board</button></div>
     </form></dialog>`;
 
   h += `<div id=pd-edit></div>`;
@@ -1018,6 +1033,60 @@ function renderProgram() {
     } catch (ex) { $("dup-err").textContent = String(ex.message || ex); }
   };
   $("pd-body").querySelectorAll("[data-dup]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); openDup(b.dataset.dup); });
+  const mvDlg = $("mv-dialog");
+  const mvCache = {};
+  const mvSvcOptions = (services, selectedId) =>
+    `<option value="">Same number as now (create if missing)</option>` +
+    svcSorted(services).map((s) =>
+      `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${esc(s.number)}${s.name ? " - " + esc(s.name) : ""} (${(s.destinations || []).length})</option>`).join("");
+  const mvRefreshServices = async (tpid, preferSid) => {
+    if (!tpid) { $("mv-service").innerHTML = `<option value="">Pick a target program first</option>`; return; }
+    try {
+      if (!mvCache[tpid]) mvCache[tpid] = await api(`/api/programs/${tpid}`);
+      $("mv-service").innerHTML = mvSvcOptions(mvCache[tpid].services || [], preferSid || "");
+    } catch (e) { $("mv-service").innerHTML = `<option value="">Could not load services</option>`; }
+  };
+  const mvSuggest = async () => {
+    const tpid = $("mv-program").value;
+    const code = $("mv-code").value.trim();
+    if (!tpid) return;
+    try {
+      const chk = await api(`/api/programs/${tpid}/destinations/check-code?code=${encodeURIComponent(code || "00000000")}`);
+      if (!code || !chk.unique) $("mv-code").value = chk.suggestion || "";
+      $("mv-err").textContent = "";
+    } catch (e) { $("mv-err").textContent = String(e.message || e); }
+  };
+  const openMove = async (did) => {
+    const found = findDest(did); if (!found) return;
+    const others = (S.programs || []).filter((x) => x.id !== p.id);
+    if (!others.length) { err("Create a second program first - there is nowhere to move this board to."); return; }
+    $("mv-program").innerHTML = others.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+    $("mv-src").textContent = `Move ${found.d.code} ${found.d.name || ""} (service ${found.s.number}) with its stops, board pages and layouts. It will leave this program.`;
+    $("mv-err").textContent = "";
+    mvDlg.dataset.did = did;
+    await mvRefreshServices($("mv-program").value, "");
+    $("mv-code").value = found.d.code;
+    await mvSuggest();
+    (mvDlg.showModal ? mvDlg.showModal() : null);
+  };
+  $("mv-program").onchange = async () => { await mvRefreshServices($("mv-program").value, ""); await mvSuggest(); };
+  $("mv-suggest").onclick = async (e) => { e.preventDefault(); await mvSuggest(); };
+  $("mv-close").onclick = () => { if (mvDlg) mvDlg.close(); };
+  $("mv-save").onclick = async (e) => {
+    e.preventDefault();
+    const did = mvDlg.dataset.did;
+    try {
+      const tpid = $("mv-program").value;
+      if (!tpid) throw new Error("Pick a target program.");
+      const r = await api(`/api/destinations/${did}/move`, { method: "POST", body: {
+        target_program_id: tpid, target_service_id: $("mv-service").value || null,
+        code: $("mv-code").value.trim() } });
+      mvDlg.close(); err("");
+      if (r && r.skipped_layouts) alert(`Moved as code ${r.code}. ${r.skipped_layouts} layout(s) skipped - the target program has no matching display name.`);
+      await loadPrograms(); openProgram(p.id);
+    } catch (ex) { $("mv-err").textContent = String(ex.message || ex); }
+  };
+  $("pd-body").querySelectorAll("[data-move]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); openMove(b.dataset.move); });
   $("pd-body").querySelectorAll("[data-stops]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editStops(b.dataset.stops); });
   $("pd-body").querySelectorAll("[data-pages]").forEach((b) => b.onclick = () => { LayoutEditor.stop(); editPages(b.dataset.pages); });
   $("pd-body").querySelectorAll("[data-layout]").forEach((b) => b.onclick = () => editLayout(b.dataset.layout));

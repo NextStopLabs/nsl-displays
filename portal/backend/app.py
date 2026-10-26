@@ -771,10 +771,10 @@ def delete_destination_page(pgid: str, u: dict = Depends(current_user)):
 def duplicate_destination(did: str, body: dict, u: dict = Depends(current_user)):
     """Copy a destination with its stops, board pages and layouts.
 
-    Body: {service_id?, code?} - target service defaults to the source
-    service (must be in the same program); code defaults to a free
-    suggestion. The copy keeps name/num/via/dest/extra, stops, pages
-    and per-display layouts.
+    Body: {service_id?, code?, target_program_id?} - target service defaults
+    to the source service (must be in the target program); code defaults to
+    a free suggestion. The copy keeps name/num/via/dest/extra, stops, pages
+    and per-display layouts (matched by display name when crossing programs).
     """
     con = db()
     d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
@@ -782,37 +782,202 @@ def duplicate_destination(did: str, body: dict, u: dict = Depends(current_user))
         raise HTTPException(404, "no destination")
     require_role(u["id"], d["organisation_id"], "owner", "editor")
     d = dict(d)
-    target_sid = (body.get("service_id") if isinstance(body, dict) else None) or d["service_id"]
+    body = body if isinstance(body, dict) else {}
+    target_pid = (body.get("target_program_id") or "").strip() or d["program_id"]
+    if target_pid != d["program_id"]:
+        tp = con.execute("SELECT * FROM programs WHERE id=?", (target_pid,)).fetchone()
+        if not tp:
+            raise HTTPException(404, "no target program")
+        if tp["organisation_id"] != d["organisation_id"]:
+            raise HTTPException(400, "programs must be in the same organisation")
+    target_sid = (body.get("service_id") or "").strip() if isinstance(body.get("service_id"), str) else (body.get("service_id") or d["service_id"] if target_pid == d["program_id"] else None)
+    if not target_sid:
+        # Cross-program copy without an explicit service: reuse the service
+        # with the same number, else clone the source service into the target.
+        src_svc = con.execute("SELECT * FROM p_services WHERE id=?", (d["service_id"],)).fetchone()
+        found = None
+        if src_svc:
+            found = con.execute("SELECT * FROM p_services WHERE program_id=? AND number=?",
+                                (target_pid, src_svc["number"])).fetchone()
+        if found:
+            target_sid = found["id"]
+        elif src_svc:
+            target_sid = str(uuid.uuid4())
+            pos = con.execute("SELECT COUNT(*) FROM p_services WHERE program_id=?", (target_pid,)).fetchone()[0]
+            con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (target_sid, d["organisation_id"], target_pid, src_svc["number"],
+                         src_svc["name"] or "", pos, src_svc["next_stop_audio"],
+                         src_svc["approaching_audio"], src_svc["last_stop_audio"],
+                         src_svc["terminus_clip_mode"] or "both"))
+        else:
+            raise HTTPException(400, "target service is required")
     s = con.execute("SELECT * FROM p_services WHERE id=?", (target_sid,)).fetchone()
-    if not s or s["program_id"] != d["program_id"]:
-        raise HTTPException(400, "service must be in the same program")
-    code = ((body.get("code") if isinstance(body, dict) else None) or "").strip() or suggest_code(d["program_id"])
+    if not s or s["program_id"] != target_pid:
+        raise HTTPException(400, "service must be in the target program")
+    code = (body.get("code") or "").strip() or suggest_code(target_pid)
     if not _check_code_shape(code):
         raise HTTPException(400, "code must be 1-8 digits 0-9")
-    if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (d["program_id"], code)).fetchone():
+    if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (target_pid, code)).fetchone():
         raise HTTPException(400, "duplicate code in program")
+    nid, skipped = _copy_destination(con, d, target_pid, target_sid, code)
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], target_pid))
+    if target_pid != d["program_id"]:
+        con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    con.commit()
+    out: dict = {"destination_id": nid, "code": code}
+    if target_pid != d["program_id"]:
+        out["program_id"] = target_pid
+        if skipped:
+            out["skipped_layouts"] = skipped
+    return out
+
+
+def _copy_destination(con, src: dict, target_pid: str, target_sid: str, code: str) -> tuple[str, int]:
+    """Insert a copy of src destination into target program/service. Returns (new_id, skipped_layouts)."""
     nid = str(uuid.uuid4())
     pos = con.execute("SELECT COUNT(*) FROM p_destinations WHERE service_id=?", (target_sid,)).fetchone()[0]
     con.execute("INSERT INTO p_destinations VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (nid, d["organisation_id"], d["program_id"], target_sid, code, d["name"], pos,
-                 d["num"], d["via"], d["dest"], d["extra_fields"] or "{}"))
-    for pg in _destination_pages(con, did):
-        _insert_destination_page(con, d["organisation_id"], d["program_id"], nid,
+                (nid, src["organisation_id"], target_pid, target_sid, code, src["name"], pos,
+                 src["num"], src["via"], src["dest"], src["extra_fields"] or "{}"))
+    for pg in _destination_pages(con, src["id"]):
+        _insert_destination_page(con, src["organisation_id"], target_pid, nid,
                                  pg["position"], pg["via"] or "", pg["dest"] or "")
-    for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (did,)):
+    for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (src["id"],)):
         st = dict(st)
         con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (str(uuid.uuid4()), st["organisation_id"], st["program_id"], nid,
+                    (str(uuid.uuid4()), st["organisation_id"], target_pid, nid,
                      st["position"], st["name"], st["audio"], st["board_text"],
                      st["board_override"], st["is_terminus"]))
-    for lo in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (did,)):
-        lo = dict(lo)
-        con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
-                    (str(uuid.uuid4()), lo["organisation_id"], lo["program_id"], nid,
-                     lo["display_id"], lo["layout"]))
-    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], d["program_id"]))
+    skipped = 0
+    if target_pid == src["program_id"]:
+        for lo in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (src["id"],)):
+            lo = dict(lo)
+            con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), lo["organisation_id"], lo["program_id"], nid,
+                         lo["display_id"], lo["layout"]))
+    else:
+        # Cross-program: displays differ by id, so match by display name.
+        # Same-named displays get the layout rescaled to their size; layouts
+        # for displays the target program lacks are skipped (reported back).
+        src_disps = {r["id"]: dict(r) for r in con.execute(
+            "SELECT * FROM program_displays WHERE program_id=?", (src["program_id"],))}
+        tgt_disps = {r["name"]: dict(r) for r in con.execute(
+            "SELECT * FROM program_displays WHERE program_id=?", (target_pid,))}
+        try:
+            from nslprog.layouts import rescale_layout
+        except Exception:
+            rescale_layout = None  # type: ignore
+        for lo in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (src["id"],)):
+            lo = dict(lo)
+            sname = (src_disps.get(lo["display_id"]) or {}).get("name")
+            tgt = tgt_disps.get(sname) if sname else None
+            if not tgt:
+                skipped += 1
+                continue
+            layout_raw = lo["layout"]
+            try:
+                lj = json.loads(layout_raw) if isinstance(layout_raw, str) else dict(layout_raw)
+            except Exception:
+                skipped += 1
+                continue
+            if rescale_layout is not None:
+                try:
+                    rescale_layout(lj, tgt["width_px"], tgt["height_px"])
+                except Exception:
+                    skipped += 1
+                    continue
+            con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), lo["organisation_id"], target_pid, nid,
+                         tgt["id"], json.dumps(lj, separators=(",", ":"))))
+    return nid, skipped
+
+
+@app.post("/api/destinations/{did}/move")
+def move_destination(did: str, body: dict, u: dict = Depends(current_user)):
+    """Move a board (destination) to another program, keeping stops/pages/layouts.
+
+    Body: {target_program_id (required), target_service_id?, code?} - when
+    target_service_id is omitted the service with the same number is reused,
+    else cloned from the source service. Code defaults to a free suggestion
+    in the target program (or keeps the current code when it is free there).
+    Layouts follow displays matched by name; others are skipped. The source
+    destination and its GPIO rules are removed.
+    """
+    con = db()
+    d = con.execute("SELECT * FROM p_destinations WHERE id=?", (did,)).fetchone()
+    if not d:
+        raise HTTPException(404, "no destination")
+    require_role(u["id"], d["organisation_id"], "owner", "editor")
+    d = dict(d)
+    body = body if isinstance(body, dict) else {}
+    target_pid = ((body.get("target_program_id") or "").strip()
+                  if isinstance(body.get("target_program_id"), str) else "") or ""
+    if not target_pid:
+        raise HTTPException(400, "target_program_id is required")
+    if target_pid == d["program_id"] and (body.get("target_service_id") or d["service_id"]) == d["service_id"]:
+        raise HTTPException(400, "destination is already in that service - use edit to change code/service")
+    tp = con.execute("SELECT * FROM programs WHERE id=?", (target_pid,)).fetchone()
+    if not tp:
+        raise HTTPException(404, "no target program")
+    if tp["organisation_id"] != d["organisation_id"]:
+        raise HTTPException(400, "programs must be in the same organisation")
+    target_sid = (body.get("target_service_id") or "").strip() if isinstance(body.get("target_service_id"), str) else body.get("target_service_id")
+    if not target_sid:
+        src_svc = con.execute("SELECT * FROM p_services WHERE id=?", (d["service_id"],)).fetchone()
+        found = None
+        if src_svc:
+            found = con.execute("SELECT * FROM p_services WHERE program_id=? AND number=?",
+                                (target_pid, src_svc["number"])).fetchone()
+        if found:
+            target_sid = found["id"]
+        elif src_svc:
+            target_sid = str(uuid.uuid4())
+            pos = con.execute("SELECT COUNT(*) FROM p_services WHERE program_id=?", (target_pid,)).fetchone()[0]
+            con.execute("INSERT INTO p_services VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (target_sid, d["organisation_id"], target_pid, src_svc["number"],
+                         src_svc["name"] or "", pos, src_svc["next_stop_audio"],
+                         src_svc["approaching_audio"], src_svc["last_stop_audio"],
+                         src_svc["terminus_clip_mode"] or "both"))
+        else:
+            raise HTTPException(400, "target_service_id is required")
+    s = con.execute("SELECT * FROM p_services WHERE id=?", (target_sid,)).fetchone()
+    if not s or s["program_id"] != target_pid:
+        raise HTTPException(400, "service must be in the target program")
+    raw_code = (body.get("code") or "").strip() if isinstance(body.get("code"), str) else ""
+    if raw_code:
+        code = raw_code
+    elif not con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (target_pid, d["code"])).fetchone() \
+            and _check_code_shape(d["code"]):
+        code = d["code"]
+    else:
+        code = suggest_code(target_pid)
+    if not _check_code_shape(code):
+        raise HTTPException(400, "code must be 1-8 digits 0-9")
+    if con.execute("SELECT 1 FROM p_destinations WHERE program_id=? AND code=?", (target_pid, code)).fetchone():
+        raise HTTPException(400, "duplicate code in program")
+    src_pid = d["program_id"]
+    nid, skipped = _copy_destination(con, d, target_pid, target_sid, code)
+    # Remove the source: stops, pages, layouts, destination itself, plus any
+    # GPIO rules that pointed at it (they cannot follow programs).
+    con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
+    con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
+    try:
+        con.execute("DELETE FROM p_destination_pages WHERE destination_id=?", (did,))
+    except Exception:
+        pass
+    try:
+        con.execute("DELETE FROM p_gpio_rules WHERE destination_id=?", (did,))
+    except Exception:
+        pass
+    con.execute("DELETE FROM p_destinations WHERE id=?", (did,))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], target_pid))
+    con.execute("UPDATE programs SET updated_at=?, updated_by=? WHERE id=?", (_utcnow(), u["id"], src_pid))
     con.commit()
-    return {"destination_id": nid, "code": code}
+    out: dict = {"destination_id": nid, "code": code, "program_id": target_pid,
+                 "service_id": target_sid}
+    if skipped:
+        out["skipped_layouts"] = skipped
+    return out
 
 
 @app.delete("/api/destinations/{did}")
@@ -826,6 +991,10 @@ def delete_destination(did: str, u: dict = Depends(current_user)):
     con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
     try:
         con.execute("DELETE FROM p_destination_pages WHERE destination_id=?", (did,))
+    except Exception:
+        pass
+    try:
+        con.execute("DELETE FROM p_gpio_rules WHERE destination_id=?", (did,))
     except Exception:
         pass
     con.execute("DELETE FROM p_destinations WHERE id=?", (did,))
@@ -847,6 +1016,10 @@ def delete_service(sid: str, u: dict = Depends(current_user)):
         con.execute("DELETE FROM p_layouts WHERE destination_id=?", (did,))
         try:
             con.execute("DELETE FROM p_destination_pages WHERE destination_id=?", (did,))
+        except Exception:
+            pass
+        try:
+            con.execute("DELETE FROM p_gpio_rules WHERE destination_id=?", (did,))
         except Exception:
             pass
     con.execute("DELETE FROM p_destinations WHERE service_id=?", (sid,))
