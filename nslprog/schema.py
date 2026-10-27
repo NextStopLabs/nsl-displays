@@ -189,7 +189,9 @@ CREATE TABLE IF NOT EXISTS state (
   insert_destination_id TEXT DEFAULT NULL,
   depart_mins      INTEGER DEFAULT NULL,
   depart_time      TEXT DEFAULT NULL,
-  depart_expires_at REAL DEFAULT NULL
+  depart_expires_at REAL DEFAULT NULL,
+  rail_from_stop_id TEXT DEFAULT NULL,
+  rail_to_stop_id TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS outbox (

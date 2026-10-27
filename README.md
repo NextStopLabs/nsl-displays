@@ -341,6 +341,7 @@ PREV STOP:           [-]
 ANNOUNCE NEXT STOP:  [*]
 CLEAR OVERRIDE:      [/]
 INSERT PAGE:         [I] on the controller screen, then type a destination code ─► plays after the normal screens, loops until the destination changes (ENT with no digits clears it)
+RAIL REPLACEMENT:    select the rail destination code (e.g. 8001), then [F] then [R] on the controller screen ─► RAIL FROM: type start station (digits multi-tap T9 letters, or a full keyboard) ─► ENT ─► RAIL TO: type end station ─► ENT. Boards show START → END on one screen and stop stepping stays between them. Cleared by a new destination, or [F] [R] ENT with no letters.
 UPDATE MODE:         [.]  (join hotspot 5 min - turn hotspot on first)
 VOLUME:              keypad map or local UI / portal
 ```

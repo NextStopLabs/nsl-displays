@@ -10,6 +10,88 @@ DIGITS = {
     "KEY_KP0": "0", "KEY_KP1": "1", "KEY_KP2": "2", "KEY_KP3": "3", "KEY_KP4": "4",
     "KEY_KP5": "5", "KEY_KP6": "6", "KEY_KP7": "7", "KEY_KP8": "8", "KEY_KP9": "9",
 }
+
+# Faceplate T9 legends (NC1 keypad): 1=ABC 2=DEF 3=GHI 4=JKL 5=MNO
+# 6=PQR 7=STU 8=VWX 9=YZ 0=space. Multi-tap cycles the group.
+T9_GROUPS = {
+    "1": "ABC", "2": "DEF", "3": "GHI", "4": "JKL", "5": "MNO",
+    "6": "PQR", "7": "STU", "8": "VWX", "9": "YZ", "0": " ",
+}
+
+
+def t9_letters(digit: str) -> str:
+    """Letter group for one digit key (faceplate legends)."""
+    return T9_GROUPS.get(str(digit or ""), "")
+
+
+def encode_t9(text: str) -> str:
+    """Map letters to their digit keys (predictive search, e.g. SOT -> 757)."""
+    out = []
+    for ch in str(text or "").upper():
+        if ch == " ":
+            out.append("0")
+            continue
+        for digit, group in T9_GROUPS.items():
+            if ch in group:
+                out.append(digit)
+                break
+    return "".join(out)
+
+
+class T9Tap:
+    """Multi-tap letter entry on the digit keys for rail station names.
+
+    Repeated presses of the SAME digit cycle its letter group (7 -> S, T,
+    U, 7); pressing a different digit commits the pending letter and starts
+    a new one. A pause longer than ``cycle_ms`` also commits.
+    """
+
+    def __init__(self, cycle_ms: int = 1000):
+        self.text = ""
+        self._pending = ""
+        self._digit = ""
+        self._idx = 0
+        self.cycle_ms = cycle_ms
+        self._last = time.monotonic()
+
+    def _commit(self) -> None:
+        if self._pending:
+            self.text += self._pending
+            self._pending, self._digit, self._idx = "", "", 0
+
+    def press(self, digit: str, now: float | None = None) -> str:
+        """Feed one digit press. Returns the display buffer (committed +
+        pending letter)."""
+        now = time.monotonic() if now is None else now
+        group = t9_letters(digit)
+        if not group:
+            return self.text + self._pending
+        cycle = group + digit  # S,T,U,7… (classic multi-tap ends on the digit)
+        if digit == self._digit and (now - self._last) * 1000 <= self.cycle_ms:
+            self._idx = (self._idx + 1) % len(cycle)
+            self._pending = cycle[self._idx]
+        else:
+            self._commit()
+            self._digit, self._idx = digit, 0
+            self._pending = cycle[0]
+        self._last = now
+        return self.text + self._pending
+
+    def backspace(self) -> str:
+        if self._pending:
+            self._pending, self._digit, self._idx = "", "", 0
+        else:
+            self.text = self.text[:-1]
+        return self.text + self._pending
+
+    def finish(self) -> str:
+        self._commit()
+        return self.text
+
+    def clear(self) -> str:
+        self.text = ""
+        self._pending, self._digit, self._idx = "", "", 0
+        return ""
 DEFAULT_MAP = {
     # key_name -> role config
     **{k: {"role": "digit", "digit": v} for k, v in DIGITS.items()},

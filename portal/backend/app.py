@@ -2321,7 +2321,7 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
     out: dict = {"controller_id": cid, "online": online, "last_seen_at": c["last_seen_at"],
                  "stale": not online,
                  "program": None, "service": None, "destination": None,
-                 "stop": None, "next_stop": None, "insert": None,
+                 "stop": None, "next_stop": None, "insert": None, "rail": None,
                  "departure": None,
                  "override": live.get("override_text"),
                  "volume": live.get("volume", 80), "muted": bool(live.get("muted", 0))}
@@ -2401,6 +2401,17 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
                     if ins:
                         out["insert"] = {"id": ins["id"], "code": ins["code"], "name": ins["name"],
                                          "via": ins["via"], "dest": ins["dest"]}
+                # rail window (F then R): resolve the FROM/TO stops to names
+                rf, rt = live.get("rail_from_stop_id"), live.get("rail_to_stop_id")
+                if rf and rt and dest:
+                    frow = bc.execute("SELECT id, board_text, name FROM stops WHERE id=? AND destination_id=?",
+                                      (rf, dest["id"])).fetchone()
+                    trow = bc.execute("SELECT id, board_text, name FROM stops WHERE id=? AND destination_id=?",
+                                      (rt, dest["id"])).fetchone()
+                    if frow and trow:
+                        out["rail"] = {"from_stop_id": frow["id"], "to_stop_id": trow["id"],
+                                       "from_name": frow["board_text"] or frow["name"],
+                                       "to_name": trow["board_text"] or trow["name"]}
     finally:
         bc.close()
     return out
@@ -2479,6 +2490,11 @@ def controller_browse(cid: str, u: dict = Depends(current_user)):
                 "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
                 (svc["id"],))]
             dests.sort(key=lambda d: _num_key(d.get("code")))
+            for d in dests:
+                d["stops"] = [dict(s) for s in bc.execute(
+                    "SELECT id, position, name, board_text, board_override, is_terminus"
+                    " FROM stops WHERE destination_id=? ORDER BY position",
+                    (d["id"],))]
             services.append({
                 "id": svc["id"],
                 "number": svc.get("number") or "",

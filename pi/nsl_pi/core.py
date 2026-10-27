@@ -21,6 +21,7 @@ ACTIONS = {
     "volume_up", "volume_down", "volume_mute",
     "net_update_mode", "net_ap", "system_apply_pending",
     "insert_code", "insert_destination", "insert_clear",
+    "rail_set", "rail_clear",
 }
 
 
@@ -66,6 +67,23 @@ def _ensure_rotation_column(con):
         pass
 
 
+def _ensure_rail_columns(con: sqlite3.Connection):
+    """Migration for controller.db files created before rail replacement mode.
+
+    ``rail_from_stop_id`` / ``rail_to_stop_id`` bound the active journey
+    window (start at X, end at Y) within the current destination's stops.
+    """
+    try:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(state)").fetchall()]
+        if "rail_from_stop_id" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN rail_from_stop_id TEXT DEFAULT NULL")
+        if "rail_to_stop_id" not in cols:
+            con.execute("ALTER TABLE state ADD COLUMN rail_to_stop_id TEXT DEFAULT NULL")
+        con.commit()
+    except Exception:
+        pass
+
+
 def _utcnow() -> str:
     import datetime as dt
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -75,6 +93,7 @@ def ensure_state_row(con: sqlite3.Connection):
     _ensure_insert_column(con)
     _ensure_depart_columns(con)
     _ensure_rotation_column(con)
+    _ensure_rail_columns(con)
     con.execute("INSERT OR IGNORE INTO state (id, program_id, program_version, service_id, destination_id, stop_id, override_text, override_set_at, volume, muted, updated_at, insert_destination_id) VALUES (1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,80,0,?,NULL)",
                 (_utcnow(),))
 
@@ -105,6 +124,7 @@ class Core:
         _ensure_insert_column(self._con)
         _ensure_depart_columns(self._con)
         _ensure_rotation_column(self._con)
+        _ensure_rail_columns(self._con)
         self._con.executescript("""
         CREATE TABLE IF NOT EXISTS gpio_overlays (
           target TEXT PRIMARY KEY, text TEXT NOT NULL DEFAULT '',
@@ -437,6 +457,81 @@ class Core:
         self._emit("state")
         return self.state()
 
+    # ---- rail replacement window (F then R): start at X, end at Y ----
+    def _rail_window(self, pc, st: dict) -> tuple | None:
+        """Ordered (from_stop, to_stop) rows bounding the journey, or None.
+
+        Self-heals: a window pointing at stops that no longer belong to the
+        current destination is treated as unset (never blanks the boards).
+        """
+        fid = (st.get("rail_from_stop_id") or "").strip() if isinstance(st, dict) else ""
+        tid = (st.get("rail_to_stop_id") or "").strip() if isinstance(st, dict) else ""
+        if not fid or not tid or not st.get("destination_id"):
+            return None
+        try:
+            frow = pc.execute("SELECT * FROM stops WHERE id=? AND destination_id=?",
+                              (fid, st["destination_id"])).fetchone()
+            trow = pc.execute("SELECT * FROM stops WHERE id=? AND destination_id=?",
+                              (tid, st["destination_id"])).fetchone()
+        except Exception:
+            return None
+        if not frow or not trow:
+            return None
+        frow, trow = dict(frow), dict(trow)
+        if int(frow["position"]) > int(trow["position"]):
+            frow, trow = trow, frow
+        return frow, trow
+
+    def set_rail(self, from_stop_id: str, to_stop_id: str,
+                 source: str = "local", user_id: str | None = None) -> dict:
+        """Bound the journey to stops [from, to] of the CURRENT destination.
+
+        Boards collapse to a single page (FROM -> TO), stop stepping is
+        clamped inside the window, and the current stop jumps to the start.
+        Cleared by any destination/program change or rail_clear.
+        """
+        st = self.state()
+        if not st["program_id"] or not st["destination_id"]:
+            raise ValueError("INVALID")
+        pc = self._open_prog(st["program_id"], st["program_version"])
+        if pc is None:
+            raise ValueError("INVALID")
+        try:
+            frow = pc.execute("SELECT * FROM stops WHERE id=? AND destination_id=?",
+                              (from_stop_id, st["destination_id"])).fetchone()
+            trow = pc.execute("SELECT * FROM stops WHERE id=? AND destination_id=?",
+                              (to_stop_id, st["destination_id"])).fetchone()
+            if not frow or not trow:
+                raise ValueError("INVALID")
+            frow, trow = dict(frow), dict(trow)
+            if int(frow["position"]) > int(trow["position"]):
+                frow, trow = trow, frow
+            # jumping to the window start applies that stop's saved override
+            saved = frow["board_override"] or None
+            self._con.execute(
+                "UPDATE state SET stop_id=?, rail_from_stop_id=?, rail_to_stop_id=?,"
+                " override_text=?, override_set_at=CASE WHEN ? IS NOT NULL THEN ? ELSE NULL END,"
+                " updated_at=? WHERE id=1",
+                (frow["id"], frow["id"], trow["id"], saved, saved,
+                 _utcnow() if saved else None, _utcnow()))
+            self._reset_rotation()
+            self._log(source, f"rail_set {frow['id']}->{trow['id']}", user_id)
+            self._con.commit()
+        finally:
+            pc.close()
+        self._clear_oneshot_gpio_overlays()
+        self._emit("state")
+        return self.state()
+
+    def clear_rail(self, source: str = "local", user_id: str | None = None) -> dict:
+        self._con.execute("UPDATE state SET rail_from_stop_id=NULL, rail_to_stop_id=NULL, updated_at=? WHERE id=1",
+                          (_utcnow(),))
+        self._reset_rotation()
+        self._log(source, "rail_clear", user_id)
+        self._con.commit()
+        self._emit("state")
+        return self.state()
+
     # ---- departure time (F key) ----
     @staticmethod
     def _parse_depart_time(raw: str | int | None) -> str:
@@ -585,7 +680,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (program_id, version, dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._reset_rotation()
             self._log(source, f"program_select {program_id}@{version}", user_id)
@@ -614,7 +709,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (dest["id"],)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], dest["id"], stop["id"] if stop else None, _utcnow()))
             self._reset_rotation()
             self._log(source, f"destination_code {code}", user_id)
@@ -635,7 +730,7 @@ class Core:
             stop = pc.execute("SELECT * FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                               (destination_id,)).fetchone()
             self._con.execute(
-                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                "UPDATE state SET service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                 (dest["service_id"], destination_id, stop["id"] if stop else None, _utcnow()))
             self._reset_rotation()
             self._log(source, f"destination_select {destination_id}", user_id)
@@ -671,6 +766,17 @@ class Core:
                     "SELECT id, name, code, position FROM destinations WHERE service_id=? ORDER BY position",
                     (svc["id"],))]
                 dests.sort(key=lambda d: _num_key(d.get("code")))
+                for d in dests:
+                    d["stops"] = [dict(s) for s in pc.execute(
+                        "SELECT id, position, name, board_text, board_override, is_terminus"
+                        " FROM stops WHERE destination_id=? ORDER BY position",
+                        (d["id"],))]
+                services.append({
+                    "id": svc["id"],
+                    "number": svc.get("number") or "",
+                    "name": svc.get("description") or svc.get("name") or "",
+                    "destinations": dests,
+                })
                 services.append({
                     "id": svc["id"],
                     "number": svc.get("number") or "",
@@ -696,6 +802,11 @@ class Core:
             row = pc.execute("SELECT * FROM stops WHERE id=?", (stop_id,)).fetchone()
             if not row:
                 raise ValueError("unknown stop")
+            win = self._rail_window(pc, st)
+            if win is not None:
+                lo, hi = int(win[0]["position"]), int(win[1]["position"])
+                if not lo <= int(row["position"]) <= hi:
+                    raise ValueError("INVALID")
             saved = row["board_override"] or None
             self._con.execute(
                 "UPDATE state SET stop_id=?, override_text=?, override_set_at=CASE WHEN ? IS NOT NULL THEN ? ELSE NULL END, updated_at=? WHERE id=1",
@@ -724,6 +835,15 @@ class Core:
             except ValueError:
                 idx = 0
             idx = max(0, min(len(ids) - 1, idx + delta))
+            # rail window: stepping never leaves [from, to]
+            win = self._rail_window(pc, st)
+            if win is not None:
+                lo_id, hi_id = win[0]["id"], win[1]["id"]
+                try:
+                    lo, hi = ids.index(lo_id), ids.index(hi_id)
+                except ValueError:
+                    lo, hi = 0, len(ids) - 1
+                idx = max(lo, min(hi, idx))
             target = stops[idx]
             saved = target["board_override"] or None
             self._con.execute(
@@ -787,7 +907,7 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (st["destination_id"],)).fetchone()
                     new_stop = first["id"] if first else None
-                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                                       (version, new_stop, _utcnow()))
                 else:
                     # same stop: keep override; (upgrade never clears it).
@@ -796,8 +916,27 @@ class Core:
                     keep_ins = None
                     if ins and pc.execute("SELECT 1 FROM destinations WHERE id=?", (ins,)).fetchone():
                         keep_ins = ins
-                    self._con.execute("UPDATE state SET program_version=?, insert_destination_id=?, updated_at=? WHERE id=1",
-                                      (version, keep_ins, _utcnow()))
+                    # Keep the rail window only if both stops still exist;
+                    # clamp the stop inside it otherwise fall back to its start.
+                    keep_from, keep_to, new_stop_id = None, None, st["stop_id"]
+                    rf, rt = st.get("rail_from_stop_id"), st.get("rail_to_stop_id")
+                    if rf and rt:
+                        f_ok = pc.execute("SELECT position FROM stops WHERE id=? AND destination_id=?",
+                                          (rf, st["destination_id"])).fetchone()
+                        t_ok = pc.execute("SELECT position FROM stops WHERE id=? AND destination_id=?",
+                                          (rt, st["destination_id"])).fetchone()
+                        if f_ok and t_ok:
+                            keep_from, keep_to = rf, rt
+                            lo, hi = sorted((int(f_ok["position"]), int(t_ok["position"])))
+                            cur_pos = pc.execute("SELECT position FROM stops WHERE id=?",
+                                                 (st["stop_id"],)).fetchone()
+                            if not cur_pos or not lo <= int(cur_pos["position"]) <= hi:
+                                first_in = pc.execute(
+                                    "SELECT id FROM stops WHERE destination_id=? AND position>=? ORDER BY position LIMIT 1",
+                                    (st["destination_id"], lo)).fetchone()
+                                new_stop_id = first_in["id"] if first_in else st["stop_id"]
+                    self._con.execute("UPDATE state SET program_version=?, stop_id=?, insert_destination_id=?, rail_from_stop_id=?, rail_to_stop_id=?, updated_at=? WHERE id=1",
+                                      (version, new_stop_id, keep_ins, keep_from, keep_to, _utcnow()))
             else:
                 # different program or destination gone -> first destination/stop, clear override
                 dest = pc.execute("SELECT * FROM destinations ORDER BY position LIMIT 1").fetchone()
@@ -806,12 +945,12 @@ class Core:
                     first = pc.execute("SELECT id FROM stops WHERE destination_id=? ORDER BY position LIMIT 1",
                                        (dest["id"],)).fetchone()
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=?, destination_id=?, stop_id=?, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, dest["service_id"], dest["id"],
                          first["id"] if first else None, _utcnow()))
                 else:
                     self._con.execute(
-                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
+                        "UPDATE state SET program_id=?, program_version=?, service_id=NULL, destination_id=NULL, stop_id=NULL, override_text=NULL, override_set_at=NULL, insert_destination_id=NULL, rail_from_stop_id=NULL, rail_to_stop_id=NULL, depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL, updated_at=? WHERE id=1",
                         (program_id, version, _utcnow()))
             self._con.execute("UPDATE installed_programs SET status='superseded' WHERE program_id=? AND status='active'",
                               (program_id,))
@@ -848,6 +987,12 @@ class Core:
             return self.set_insert_destination(cmd.get("destination_id", ""), source=source, user_id=user_id)
         if action == "insert_clear":
             return self.clear_insert(source=source, user_id=user_id)
+        if action == "rail_set":
+            return self.set_rail(cmd.get("from_stop_id") or cmd.get("from_stop") or "",
+                                cmd.get("to_stop_id") or cmd.get("to_stop") or "",
+                                source=source, user_id=user_id)
+        if action == "rail_clear":
+            return self.clear_rail(source=source, user_id=user_id)
         if action == "select_program":
             return self.select_program(cmd.get("program_id", ""), source=source, user_id=user_id)
         if action in ("stop_next", "stop_prev", "stop_first"):
@@ -1025,13 +1170,13 @@ class Core:
                 # no program selected: still show an active override (manual message
                 # must reach the boards with or without program context)
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None, "rail": None,
                         "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
             pc = self._open_prog(st["program_id"], st["program_version"])
             if pc is None:
                 # installed row without its bundle (deleted mid-sync?) - empty, not a crash
                 return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                        "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None, "rail": None,
                         "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
             try:
                 dest = pc.execute("SELECT * FROM destinations WHERE id=?", (st["destination_id"],)).fetchone()
@@ -1039,7 +1184,7 @@ class Core:
                 stop = pc.execute("SELECT * FROM stops WHERE id=?", (st["stop_id"],)).fetchone()
                 if not dest:
                     return {"state": st, "fields": {}, "layouts": {}, "override": st["override_text"],
-                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None,
+                            "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards, "insert": None, "rail": None,
                             "departure": departure, "rotation_epoch": st.get("rotation_started_at")}
                 from .renderer import resolve_fields
                 fields = resolve_fields(dict(dest), svc["number"] if svc else "")
@@ -1052,6 +1197,18 @@ class Core:
                 if stop:
                     fields["__stop_name"] = stop["name"]
                     fields["__board_text"] = stop["board_text"] or stop["name"]
+                # rail window (F then R): single page FROM -> TO, no rotation.
+                rail = None
+                win = self._rail_window(pc, st)
+                if win is not None:
+                    fstop, tstop = win
+                    fname = fstop["board_text"] or fstop["name"]
+                    tname = tstop["board_text"] or tstop["name"]
+                    fields["via"] = fname
+                    fields["dest"] = tname
+                    pages = []
+                    rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
+                            "from_name": fname, "to_name": tname}
                 layouts = {}
                 names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
                 for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
@@ -1065,7 +1222,7 @@ class Core:
                         "service": dict(svc) if svc else None, "stop": dict(stop) if stop else None,
                         "layouts": layouts, "override": st["override_text"],
                         "gpio_overlay": gpio_overlay, "gpio_boards": gpio_boards,
-                        "insert": insert, "departure": departure,
+                        "insert": insert, "departure": departure, "rail": rail,
                         "rotation_epoch": st.get("rotation_started_at")}
             finally:
                 pc.close()

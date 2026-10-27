@@ -502,7 +502,7 @@ const PREFIX = (location.pathname.startsWith("/portal") || location.pathname.sta
 const ORG = localStorage.getItem("nsl_org") || "";
 const TOKEN = localStorage.getItem("nsl_token") || "";
 const urlCid = new URLSearchParams(location.search).get("cid");
-const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", pending: null, selAdmin: 0, adminMsg: "", programs: [], selProg: 0, seq: [], upd: null };
+const state = { controllers: [], cid: urlCid || null, selBus: 0, services: [], current: {}, live: {}, mode: "view", selSvc: 0, selDest: 0, code: [], codeError: "", listError: "", pending: null, selAdmin: 0, adminMsg: "", programs: [], selProg: 0, seq: [], upd: null, railFrom: null, railBuf: "", railMatches: [], railSel: 0, railTap: null };
 const MAX_CODE = 5;
 const LIST_ROWS = 4;
 const screen = document.getElementById("screen");
@@ -597,7 +597,7 @@ async function refresh() {
   if (!state.cid) { render(); return; }
   try {
     state.live = await api("/api/controllers/" + state.cid + "/live") || {};
-    state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null, departure: state.live.departure || null };
+    state.current = { service: state.live.service || {}, destination: state.live.destination || {}, insert: state.live.insert || null, rail: state.live.rail || null, departure: state.live.departure || null };
     offline.textContent = state.live.online ? "" : (state.live.stale ? "bus offline / stale state" : "");
     if (!state.services.length) {
       try { const b = await api("/api/controllers/" + state.cid + "/browse"); state.services = b.services || []; sortLists(); } catch(e){}
@@ -688,6 +688,8 @@ function activeKeys() {
   switch (state.mode) {
     case "code":
     case "insert":
+    case "rail_from":
+    case "rail_to":
     case "depart": return new Set([...nums, "x", "ent"]);
     case "services": return new Set(["up", "down", "right", "ent", "x"]);
     case "destinations": return new Set(["up", "down", "left", "ent", "x"]);
@@ -771,6 +773,27 @@ function renderScreen() {
     hint.textContent = "Type time HHMM e.g. 1510 · ENT = set · ENT empty = clear · X = cancel";
     return;
   }
+  if (state.mode === "rail_from" || state.mode === "rail_to") {
+    const isFrom = state.mode === "rail_from";
+    const picked = isFrom ? null : (state.railFrom && (state.railFrom.board_text || state.railFrom.name));
+    const label = isFrom ? "RAIL FROM" : "RAIL TO";
+    const typed = state.railBuf || "";
+    const items = state.railMatches.map(s => `${s.position} ${(s.board_text || s.name)}`);
+    const [a, b] = windowRange(items.length, state.railSel, LIST_ROWS);
+    let h = "";
+    for (let i = a; i < b; i++) {
+      h += `<div class="item ${i===state.railSel?"sel":""}"><span>${i===state.railSel?">":" "}</span><span>${esc(items[i])}</span></div>`;
+    }
+    const curRail = state.current.rail;
+    screen.innerHTML = `<div class="hv-flex">
+      <div class="line"><span class="small dim">${picked ? esc("FROM " + picked) : (curRail ? esc(`RAIL ${(curRail.from_name||"")}→${(curRail.to_name||"")}`) : "RAIL")}</span><span class="small">${label}</span></div>
+      <div class="line"><span class="big">${esc(typed || "---")}</span></div>
+      <div class="list">${h || `<div class="item"><span>&nbsp;</span><span>NO MATCH</span></div>`}</div>
+      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
+    </div>`;
+    hint.textContent = "Digits = T9 letters · ▲▼ choose · ENT = pick" + (isFrom ? " · ENT empty = clear rail" : " · ENT empty = back");
+    return;
+  }
   if (state.mode === "services") {
     screen.innerHTML = `<div class="hv-flex" style="justify-content:flex-start">
       <div class="small dim">SELECT SERVICE</div>
@@ -825,6 +848,7 @@ function renderScreen() {
   }
   const fs = num.length <= 2 ? 45 : num.length === 3 ? 34 : 26;
   const insTag = cur.insert ? ` +${esc(cur.insert.code || "INS")}` : "";
+  const railTag = cur.rail ? ` RAIL ${(cur.rail.from_name||"")}→${(cur.rail.to_name||"")}` : "";
   const dep = cur.departure || {};
   const depDest = (dep && dep.text)
     ? `<div>${esc(msg)}</div><div>${esc(dep.text)}</div>`
@@ -832,10 +856,12 @@ function renderScreen() {
   screen.innerHTML = `
     <div class="hv-route" style="font-size:${fs}px">${esc(num)}</div>
     <div class="hv-dest">${depDest}</div>
-    <div class="hv-right">${esc(code)}${insTag}</div>`;
+    <div class="hv-right">${esc(code)}${insTag}${railTag}</div>`;
   const baseHint = cur.insert
     ? `I = change insert (${cur.insert.code}) · ENT empty clears · D = type code`
-    : "D = type code · I = insert page · ▲▼ = services · ENT = select";
+    : (cur.rail
+      ? `RAIL ${(cur.rail.from_name||"")}→${(cur.rail.to_name||"")} · F+R = change · D = type code`
+      : "D = type code · I = insert page · F+R = rail · ▲▼ = services");
   hint.textContent = (dep && dep.text) ? `${dep.text} · F = change · ${baseHint}` : `${baseHint} · F = depart time`;
 }
 
@@ -854,6 +880,64 @@ function enterDepart() {
   if (!state.cid) return;
   state.pending = null;
   state.mode = "depart"; state.code = []; state.codeError = ""; render();
+}
+/* rail replacement window (F then R): pick start stop X, then end stop Y
+   from the current destination's portal-defined stops. Digits multi-tap
+   through the faceplate T9 legends (1=ABC … 9=YZ, 0=space); a full keyboard
+   types letters directly. */
+const T9 = { "1":"ABC", "2":"DEF", "3":"GHI", "4":"JKL", "5":"MNO", "6":"PQR", "7":"STU", "8":"VWX", "9":"YZ", "0":" " };
+function railStops() {
+  const destId = (state.live.destination || {}).id || (state.current.destination || {}).id;
+  for (const s of state.services || [])
+    for (const d of s.destinations || [])
+      if (d.id === destId) return d.stops || [];
+  return [];
+}
+function railFilter() {
+  const q = state.railBuf.trim().toUpperCase();
+  const stops = railStops();
+  state.railMatches = q ? stops.filter(s => String(s.board_text || s.name || "").toUpperCase().includes(q)) : stops.slice();
+  state.railSel = 0;
+}
+function enterRailFrom() {
+  if (!state.cid || !((state.live.destination || {}).id)) return;
+  state.mode = "rail_from"; state.railFrom = null;
+  state.railBuf = ""; state.railTap = null; state.codeError = "";
+  railFilter(); render();
+}
+function enterRailTo() {
+  state.mode = "rail_to"; state.railBuf = ""; state.railTap = null; state.codeError = "";
+  railFilter(); render();
+}
+function railCommitTap() {
+  // multi-tap keeps the letter pending; committing just clears the tap state
+  state.railTap = null;
+}
+function appendRailDigit(n) {
+  const g = T9[n];
+  if (!g) return;
+  const now = Date.now();
+  const t = state.railTap;
+  const cyc = g + n;  // S,T,U,7… classic multi-tap ends on the digit
+  if (t && t.digit === n && now - t.at < 1000) {
+    t.idx = (t.idx + 1) % cyc.length;
+    state.railBuf = state.railBuf.slice(0, -1) + cyc[t.idx];
+    t.at = now;
+  } else {
+    state.railBuf += g[0];
+    state.railTap = { digit: n, idx: 0, at: now };
+  }
+  state.codeError = ""; railFilter(); render();
+}
+function appendRailLetter(ch) {
+  railCommitTap();
+  state.railBuf += String(ch || "").toUpperCase();
+  state.codeError = ""; railFilter(); render();
+}
+function railBackspace() {
+  if (state.railTap) { state.railBuf = state.railBuf.slice(0, -1); state.railTap = null; }
+  else state.railBuf = state.railBuf.slice(0, -1);
+  state.codeError = ""; railFilter(); render();
 }
 /* hidden admin menu: press R, X, ENT in sequence from the main screen */
 function adminSeq(btn) {
@@ -886,6 +970,7 @@ function buildCloudPrograms() {
   })));
 }
 function appendDigit(n) {
+  if (state.mode === "rail_from" || state.mode === "rail_to") { appendRailDigit(n); return; }
   if (state.mode === "depart") {
     if (state.code.length >= 4) state.code.shift();
     state.code.push(n); state.codeError = ""; render();
@@ -896,10 +981,12 @@ function appendDigit(n) {
   state.code.push(n); state.codeError = ""; render();
 }
 function backspace() {
+  if (state.mode === "rail_from" || state.mode === "rail_to") { railBackspace(); return; }
   if (state.mode !== "code" && state.mode !== "insert" && state.mode !== "depart") return;
   state.code.pop(); state.codeError = ""; render();
 }
 function cancelCode() {
+  if (state.mode === "rail_from" || state.mode === "rail_to") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
   if (state.mode === "programs") { state.mode = "admin"; state.adminMsg = ""; render(); return; }
@@ -1019,6 +1106,42 @@ async function confirm() {
     }
     return;
   }
+  if (state.mode === "rail_from") {
+    railCommitTap();
+    if (!state.railBuf && !state.railMatches.length) { state.mode = "view"; render(); return; }
+    if (!state.railBuf && state.current.rail) {
+      // ENT with no letters clears an active rail window
+      try {
+        await cmdPath("rail_clear", {});
+        state.mode = "view"; state.codeError = "";
+        await refresh();
+      } catch(e) {
+        state.codeError = "ERROR"; buzz([35, 40, 35]);
+        render();
+      }
+      return;
+    }
+    const pick = state.railMatches[state.railSel];
+    if (!pick) { state.codeError = "NO MATCH"; buzz([35, 40, 35]); render(); return; }
+    state.railFrom = pick;
+    enterRailTo();
+    return;
+  }
+  if (state.mode === "rail_to") {
+    railCommitTap();
+    if (!state.railBuf) { enterRailFrom(); return; }  // ENT empty = back to FROM
+    const pick = state.railMatches[state.railSel];
+    if (!pick) { state.codeError = "NO MATCH"; buzz([35, 40, 35]); render(); return; }
+    try {
+      await cmdPath("rail_set", {from_stop_id: state.railFrom.id, to_stop_id: pick.id});
+      state.mode = "view"; state.railBuf = ""; state.codeError = "";
+      await refresh();
+    } catch(e) {
+      state.codeError = "OFFLINE"; buzz([35, 40, 35]);
+      render();
+    }
+    return;
+  }
   if (state.mode === "code") {
     const c = state.code.join("");
     if (c.length === 0) return;
@@ -1072,6 +1195,15 @@ function move(dir) {
     render();
     return;
   }
+  if (state.mode === "rail_from" || state.mode === "rail_to") {
+    railCommitTap();
+    if (dir === "left") { railBackspace(); return; }
+    const n = state.railMatches.length;
+    if (dir === "up") state.railSel = Math.max(0, state.railSel - 1);
+    if (dir === "down") state.railSel = Math.min(Math.max(0, n - 1), state.railSel + 1);
+    render();
+    return;
+  }
   if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") {
     if (dir === "left") backspace();          // ◄ deletes a digit while typing a code
     return;
@@ -1119,6 +1251,7 @@ document.body.addEventListener("click", (e) => {
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "f") enterDepart();
+  else if (btn === "r" && state.mode === "depart") enterRailFrom();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (["up","down","left","right"].includes(btn)) move(btn);
@@ -1155,6 +1288,11 @@ document.addEventListener("keydown", (e) => {
     flash(document.querySelector(`button[data-num="${e.key}"]`));
     state.seq = []; appendDigit(e.key); return;
   }
+  // rail letter entry: a full keyboard types station names directly
+  if ((state.mode === "rail_from" || state.mode === "rail_to") && /^[a-zA-Z ]$/.test(e.key)) {
+    e.preventDefault();
+    state.seq = []; appendRailLetter(e.key); return;
+  }
   const btn = KEY_MAP[e.key];
   if (!btn) return;
   e.preventDefault();
@@ -1164,6 +1302,7 @@ document.addEventListener("keydown", (e) => {
   if (btn === "d") enterCode();
   else if (btn === "i") enterInsert();
   else if (btn === "f") enterDepart();
+  else if (btn === "r" && state.mode === "depart") enterRailFrom();
   else if (btn === "ent") confirm();
   else if (btn === "x") cancelCode();
   else if (btn === "bs") backspace();
