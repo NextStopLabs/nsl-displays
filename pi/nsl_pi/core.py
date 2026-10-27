@@ -1233,7 +1233,11 @@ class Core:
                     calling = names[1:-1] if len(names) > 2 else []
                     fields["via"] = " - ".join(calling)
                     fields["dest"] = tname
-                    pages = []
+                    # single board page at position 1: uses the layout's
+                    # designed page-1 elements (per-page layouts are keyed
+                    # by position, and an empty page list would fall back
+                    # to the base elements, which may be logo-only)
+                    pages = [{"position": 1, "via": fields["via"], "dest": tname}]
                     rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
                             "from_name": fname, "to_name": tname,
                             "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or "",

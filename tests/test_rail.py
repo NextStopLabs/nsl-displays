@@ -56,8 +56,7 @@ def test_set_rail_window_and_snapshot(tmp_path):
     assert snap["rail"]["to_name"] == "Burton New Street"
     # via carries every station in between as one scrolling line
     assert snap["rail"]["calling"] == ["Branston Road"]
-    assert snap["pages"] == []
-    assert snap["fields"]["via"] == "Branston Road"
+    assert snap["pages"] == [{"position": 1, "via": "Branston Road", "dest": "Burton New Street"}]
     assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["dest"] == "Burton New Street"
 
@@ -125,7 +124,7 @@ def test_rail_set_clears_departure_lock(tmp_path):
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
     assert not snap["departure"]["active"]
-    assert snap["pages"] == []
+    assert snap["pages"] == [{"position": 1, "via": "Branston Road", "dest": "Burton New Street"}]
     assert snap["fields"]["via"] == "Branston Road"
 
 
@@ -144,7 +143,7 @@ def test_rail_pages_override_destination_board_pages(tmp_path):
     pc.close()
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
-    assert snap["pages"] == []
+    assert snap["pages"] == [{"position": 1, "via": "Branston Road", "dest": "Burton New Street"}]
     assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["dest"] == "Burton New Street"
 
@@ -192,9 +191,46 @@ def test_rail_via_joins_all_middles_into_scrolling_line(tmp_path):
     assert snap["rail"]["calling"] == ["Milton Keynes Central", "Stoke-on-Trent", "Macclesfield"]
     assert snap["fields"]["via"] == "Milton Keynes Central - Stoke-on-Trent - Macclesfield"
     assert snap["fields"]["dest"] == "Stockport"
-    assert snap["pages"] == []
+    assert snap["pages"] == [{"position": 1, "via": "Milton Keynes Central - Stoke-on-Trent - Macclesfield",
+                              "dest": "Stockport"}]
     # long enough to scroll rather than sit static on one station
-    assert page_scroll_need(autofit_layout(240, 40), snap["fields"], "", None) > 0
+    assert page_scroll_need(autofit_layout(240, 40), snap["fields"], "", 1) > 0
+
+
+def test_rail_uses_page_one_layout_not_logo_fallback(tmp_path):
+    """Layouts that keep text in page_elements['1'] with a logo-only base
+    elements list must still render via/dest under rail (rail is a single
+    page at position 1, not an empty page list)."""
+    import copy
+    from pi.nsl_pi.renderer import board_position_for_slot, render_frame, slot_for_layout
+    c, stops = _core(tmp_path)
+    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+    snap = c.display_snapshot()
+    layout = {
+        "schema": 1, "width": 240, "height": 40, "background": "#000000",
+        "page_seconds": 3, "override": {"mode": "replace", "replaces": "dest", "hide": []},
+        "elements": [{"type": "text", "text": "LOGO", "x": 0, "y": 0, "w": 240, "h": 40,
+                      "font": "pixel-large", "colour": "#FFB000", "align": "centre",
+                      "valign": "middle", "scroll": "none", "show_if": "always"}],
+        "page_elements": {"1": [
+            {"type": "field", "field": "dest", "x": 0, "y": 0, "w": 240, "h": 24,
+             "font": "pixel-medium", "colour": "#FFB000", "align": "centre",
+             "valign": "middle", "scroll": "none", "show_if": "always"},
+            {"type": "field", "field": "via", "x": 0, "y": 24, "w": 240, "h": 16,
+             "font": "pixel-small", "colour": "#FFB000", "align": "centre",
+             "valign": "middle", "scroll": "none", "show_if": "has_text"}]},
+    }
+    pages = snap["pages"]
+    assert len(pages) == 1
+    bpos = board_position_for_slot(pages, slot_for_layout(layout, 0))
+    assert bpos == 1
+    img = render_frame(layout, dict(snap["fields"]), "", now=0.0, pages=pages,
+                       board_position=bpos, page_elapsed=0.0)
+    # text drawn (not just the LOGO fallback): pixels lit outside the
+    # top band where a text-only fallback would leave the bottom empty
+    px = img.load()
+    lit_bottom = any(px[x, y][0] > 0 for x in range(240) for y in range(24, 40))
+    assert lit_bottom
 
 
 def test_t9_faceplate_mapping():
@@ -267,7 +303,7 @@ def test_rail_snapshot_carries_crs(tmp_path):
     snap = c.display_snapshot()
     assert snap["rail"]["from_crs"] == "SOT" and snap["rail"]["to_crs"] == "MAN"
     # Euston -> Stoke shape: via steps origin + middles, dest is the terminus
-    assert snap["pages"] == []
+    assert snap["pages"] == [{"position": 1, "via": "Stockport", "dest": "Manchester Piccadilly"}]
     assert snap["fields"]["via"] == "Stockport"
     assert snap["fields"]["dest"] == "Manchester Piccadilly"
 
