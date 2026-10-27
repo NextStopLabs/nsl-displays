@@ -262,6 +262,14 @@ def _controller_online(c) -> bool:
     return (datetime.now(timezone.utc) - last).total_seconds() < ONLINE_AFTER_S
 
 
+def _bundle_has_crs(bc) -> bool:
+    """Bundles published before the stop CRS column read without it."""
+    try:
+        return any(r[1] == "crs" for r in bc.execute("PRAGMA table_info(stops)").fetchall())
+    except Exception:
+        return False
+
+
 @app.get("/api/controllers")
 def list_controllers(organisation_id: str, u: dict = Depends(current_user)):
     require_role(u["id"], organisation_id, "owner", "editor", "viewer")
@@ -844,10 +852,10 @@ def _copy_destination(con, src: dict, target_pid: str, target_sid: str, code: st
                                  pg["position"], pg["via"] or "", pg["dest"] or "")
     for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (src["id"],)):
         st = dict(st)
-        con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+        con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (str(uuid.uuid4()), st["organisation_id"], target_pid, nid,
                      st["position"], st["name"], st["audio"], st["board_text"],
-                     st["board_override"], st["is_terminus"]))
+                     st["board_override"], st["is_terminus"], st.get("crs") or ""))
     skipped = 0
     if target_pid == src["program_id"]:
         for lo in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (src["id"],)):
@@ -1071,6 +1079,13 @@ def put_stops(did: str, body: dict, u: dict = Depends(current_user)):
     for _s in stops:
         if not (_s.get("name") or "").strip():
             raise HTTPException(400, "every stop needs a name")
+        _crs = (_s.get("crs") or "").strip().upper()
+        if _crs and (len(_crs) != 3 or not _crs.isalpha()):
+            raise HTTPException(400, f"stop {_s.get('name')!r} CRS must be 3 letters")
+    seen = [(_s.get("crs") or "").strip().upper() for _s in stops]
+    seen = [c for c in seen if c]
+    if len(set(seen)) != len(seen):
+        raise HTTPException(400, "CRS codes must be unique within the destination")
     # validate positions: must be 1..N after reorder
     terms = [s for s in stops if s.get("is_terminus")]
     if len(terms) > 1:
@@ -1079,10 +1094,10 @@ def put_stops(did: str, body: dict, u: dict = Depends(current_user)):
         raise HTTPException(400, "terminus must be last stop")
     con.execute("DELETE FROM p_stops WHERE destination_id=?", (did,))
     for i, s in enumerate(stops, 1):
-        con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+        con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (s.get("id") or str(uuid.uuid4()), d["organisation_id"], d["program_id"], did, i,
                      s["name"], s.get("audio"), s.get("board_text"), s.get("board_override"),
-                     1 if s.get("is_terminus") else 0))
+                     1 if s.get("is_terminus") else 0, (s.get("crs") or "").strip().upper()))
     con.commit()
     return {"ok": True, "count": len(stops)}
 
@@ -1284,7 +1299,8 @@ def _build_nslprog(pid: str, version: int, created_by: str) -> tuple[str, dict]:
                                        id=pg["id"])
             for st in con.execute("SELECT * FROM p_stops WHERE destination_id=? ORDER BY position", (d["id"],)):
                 b.add_stop(d["id"], st["position"], st["name"], st["audio"], st["board_text"],
-                           st["board_override"], bool(st["is_terminus"]), id=st["id"])
+                           st["board_override"], bool(st["is_terminus"]), crs=st["crs"] if "crs" in st.keys() else "",
+                           id=st["id"])
             for l in con.execute("SELECT * FROM p_layouts WHERE destination_id=?", (d["id"],)):
                 b.add_layout(d["id"], l["display_id"], json.loads(l["layout"]), id=l["id"])
     for t in con.execute("SELECT * FROM p_templates WHERE program_id=?", (pid,)):
@@ -2379,7 +2395,7 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
                 out["destination"] = {"id": dest["id"], "code": dest["code"], "name": dest["name"],
                                       "via": dest["via"], "dest": dest["dest"]}
                 stops = [dict(r) for r in bc.execute(
-                    "SELECT id, position, name, board_text, board_override, is_terminus FROM stops "
+                    f"SELECT id, position, name, board_text, board_override, is_terminus{', crs' if _bundle_has_crs(bc) else ''} FROM stops "
                     "WHERE destination_id=? ORDER BY position", (dest["id"],))]
                 if stops:
                     ids = [s["id"] for s in stops]
@@ -2404,14 +2420,17 @@ def controller_live(cid: str, u: dict = Depends(current_user)):
                 # rail window (F then R): resolve the FROM/TO stops to names
                 rf, rt = live.get("rail_from_stop_id"), live.get("rail_to_stop_id")
                 if rf and rt and dest:
-                    frow = bc.execute("SELECT id, board_text, name FROM stops WHERE id=? AND destination_id=?",
+                    _rc = ", crs" if _bundle_has_crs(bc) else ""
+                    frow = bc.execute(f"SELECT id, board_text, name{_rc} FROM stops WHERE id=? AND destination_id=?",
                                       (rf, dest["id"])).fetchone()
-                    trow = bc.execute("SELECT id, board_text, name FROM stops WHERE id=? AND destination_id=?",
+                    trow = bc.execute(f"SELECT id, board_text, name{_rc} FROM stops WHERE id=? AND destination_id=?",
                                       (rt, dest["id"])).fetchone()
                     if frow and trow:
                         out["rail"] = {"from_stop_id": frow["id"], "to_stop_id": trow["id"],
                                        "from_name": frow["board_text"] or frow["name"],
-                                       "to_name": trow["board_text"] or trow["name"]}
+                                       "to_name": trow["board_text"] or trow["name"],
+                                       "from_crs": (frow["crs"] if _rc else "") or "",
+                                       "to_crs": (trow["crs"] if _rc else "") or ""}
     finally:
         bc.close()
     return out
@@ -2440,11 +2459,13 @@ def controller_stops(cid: str, u: dict = Depends(current_user)):
     bc = _s.connect(f"file:{bundle}?mode=ro", uri=True)
     try:
         bc.row_factory = _s.Row
+        _crs = _bundle_has_crs(bc)
         stops = [{"id": r["id"], "position": r["position"], "name": r["name"],
                   "board_text": r["board_text"] or r["name"],
+                  "crs": (r["crs"] if _crs else "") or "",
                   "is_terminus": bool(r["is_terminus"])}
-                 for r in bc.execute("SELECT id, position, name, board_text, is_terminus FROM stops "
-                                      "WHERE destination_id=? ORDER BY position", (did,))]
+                 for r in bc.execute(f"SELECT id, position, name, board_text, is_terminus{', crs' if _crs else ''} FROM stops "
+                                     "WHERE destination_id=? ORDER BY position", (did,))]
         return {"destination_id": did, "stops": stops}
     finally:
         bc.close()
@@ -2492,7 +2513,7 @@ def controller_browse(cid: str, u: dict = Depends(current_user)):
             dests.sort(key=lambda d: _num_key(d.get("code")))
             for d in dests:
                 d["stops"] = [dict(s) for s in bc.execute(
-                    "SELECT id, position, name, board_text, board_override, is_terminus"
+                    f"SELECT id, position, name, board_text, board_override, is_terminus{', crs' if _bundle_has_crs(bc) else ''}"
                     " FROM stops WHERE destination_id=? ORDER BY position",
                     (d["id"],))]
             services.append({
@@ -2957,7 +2978,7 @@ def duplicate_program(pid: str, u: dict = Depends(current_user)):
             con.execute("INSERT INTO p_destination_pages VALUES (?,?,?,?,?,?,?)", list(d.values()))
     except Exception:
         pass
-    for table, n in (("p_stops", 10), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5), ("p_gpio_rules", 17)):
+    for table, n in (("p_stops", 11), ("p_layouts", 6), ("p_templates", 6), ("p_presets", 5), ("p_gpio_rules", 17)):
         for r in con.execute(f"SELECT * FROM {table} WHERE program_id=?", (pid,)):
             d = dict(r); o = d["id"]; d["id"] = str(uuid.uuid4()); d["program_id"] = nid
             for k in ("service_id", "destination_id", "display_id"):
@@ -3769,9 +3790,9 @@ def _do_bustimes_import_one(con, org: str, pid: str, user_id: str, bustimes_id: 
             if not sname:
                 continue
             all_stops.append(sname)
-            con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                         (str(uuid.uuid4()), org, pid, did, i, sname, None,
-                         None, None, 1 if i == len(stops) else 0))
+                         None, None, 1 if i == len(stops) else 0, ""))
             n_stops += 1
         if not stops:
             warnings.append(f"destination {name} ({code}): no stops - pick a timetable direction")
@@ -3990,9 +4011,10 @@ def import_pack_route(u: dict = Depends(current_user), file: UploadFile = File(.
                             (d["id"], organisation_id, nid, d["destination_id"], d["position"],
                              d.get("via", ""), d.get("dest", "")))
             elif t == "stops":
-                con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO p_stops VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["destination_id"], d["position"], d["name"],
-                             d["audio"], d["board_text"], d["board_override"], d["is_terminus"]))
+                             d["audio"], d["board_text"], d["board_override"], d["is_terminus"],
+                             d.get("crs") or ""))
             elif t == "layouts":
                 con.execute("INSERT INTO p_layouts VALUES (?,?,?,?,?,?)",
                             (d["id"], organisation_id, nid, d["destination_id"], d["display_id"], d["layout"]))

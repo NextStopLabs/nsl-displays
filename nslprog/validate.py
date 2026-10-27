@@ -194,6 +194,22 @@ def validate_connection(con: sqlite3.Connection, check_hash: bool = True) -> Val
             if not srow["audio"]:
                 res.warnings.append(Issue("stop_no_audio", f"stop {srow['name']!r} has no audio (silent)",
                                           "stops", srow["id"]))
+        # CRS codes: empty or exactly 3 letters, unique per destination when set
+        seen_crs: dict[str, str] = {}
+        for srow in lst:
+            keys = srow.keys() if hasattr(srow, "keys") else []
+            crs = (srow["crs"] if "crs" in keys else "") or ""
+            crs = str(crs).strip().upper()
+            if not crs:
+                continue
+            if len(crs) != 3 or not crs.isalpha():
+                res.errors.append(Issue("bad_crs", f"stop {srow['name']!r} CRS {crs!r} must be 3 letters",
+                                        "stops", srow["id"]))
+            elif crs in seen_crs:
+                res.errors.append(Issue("dup_crs", f"CRS {crs!r} used twice in {d['name']!r}",
+                                        "stops", srow["id"]))
+            else:
+                seen_crs[crs] = srow["id"]
         if not termini:
             res.warnings.append(Issue("no_terminus", f"destination {d['name']!r} has no terminus flagged",
                                       "destinations", d["id"]))

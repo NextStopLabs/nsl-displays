@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS p_stops (
   id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
   destination_id TEXT NOT NULL, position INTEGER NOT NULL, name TEXT NOT NULL,
   audio TEXT, board_text TEXT, board_override TEXT, is_terminus INTEGER DEFAULT 0,
+  crs TEXT NOT NULL DEFAULT '',
   UNIQUE (destination_id, position));
 CREATE TABLE IF NOT EXISTS p_destination_pages (
   id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, program_id TEXT NOT NULL,
@@ -158,7 +159,8 @@ def connect(url: str | None = None) -> sqlite3.Connection:
                        "ALTER TABLE releases ADD COLUMN bundle_sha256 TEXT NOT NULL DEFAULT ''",
                        "ALTER TABLE releases ADD COLUMN organisation_id TEXT",
                        "ALTER TABLE p_gpio_rules ADD COLUMN board_source TEXT NOT NULL DEFAULT 'text'",
-                       "ALTER TABLE p_gpio_rules ADD COLUMN destination_id TEXT"):
+                       "ALTER TABLE p_gpio_rules ADD COLUMN destination_id TEXT",
+                       "ALTER TABLE p_stops ADD COLUMN crs TEXT NOT NULL DEFAULT ''"):
             try:
                 con.execute(_ddl)
                 con.commit()

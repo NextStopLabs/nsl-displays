@@ -110,6 +110,14 @@ def _prog_con(db_path: str, program_id: str, version: int) -> sqlite3.Connection
     return None  # placeholder replaced below
 
 
+def _has_crs(pc) -> bool:
+    """Old bundles predate the stop CRS column - read them without it."""
+    try:
+        return any(r[1] == "crs" for r in pc.execute("PRAGMA table_info(stops)").fetchall())
+    except Exception:
+        return False
+
+
 class Core:
     """Operates on controller.db + installed .nslprog files under base_dir."""
 
@@ -768,7 +776,7 @@ class Core:
                 dests.sort(key=lambda d: _num_key(d.get("code")))
                 for d in dests:
                     d["stops"] = [dict(s) for s in pc.execute(
-                        "SELECT id, position, name, board_text, board_override, is_terminus"
+                        f"SELECT id, position, name, board_text, board_override, is_terminus{', crs' if _has_crs(pc) else ''}"
                         " FROM stops WHERE destination_id=? ORDER BY position",
                         (d["id"],))]
                 services.append({
@@ -1208,7 +1216,8 @@ class Core:
                     fields["dest"] = tname
                     pages = []
                     rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
-                            "from_name": fname, "to_name": tname}
+                            "from_name": fname, "to_name": tname,
+                            "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or ""}
                 layouts = {}
                 names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
                 for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):

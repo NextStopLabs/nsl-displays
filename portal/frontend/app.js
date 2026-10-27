@@ -1183,10 +1183,11 @@ function findDest(did) {
 function editStops(did) {
   const found = findDest(did); if (!found) return;
   const d = found.d;
-  let h = `<h3>Stops - ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>Audio clip</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
+  let h = `<h3>Stops - ${esc(d.name)} (${esc(d.code)})</h3><table><thead><tr><th>#</th><th>Stop name</th><th>CRS</th><th>Audio clip</th><th>Board text</th><th>Override</th><th>Terminus</th><th></th></tr></thead><tbody id=stoprows>`;
   (d.stops || []).forEach((st, i) => {
     h += `<tr><td>${i + 1}</td>
       <td><input data-f=name value="${esc(st.name)}"></td>
+      <td><input data-f=crs value="${esc(st.crs || "")}" maxlength=3 style="width:3.5em;text-transform:uppercase"></td>
       <td><select data-f=audio>${audioOptions(st.audio || "")}</select></td>
       <td><input data-f=board_text value="${esc(st.board_text || "")}"></td>
       <td><input data-f=board_override value="${esc(st.board_override || "")}"></td>
@@ -1199,15 +1200,15 @@ function editStops(did) {
   $("pd-edit").scrollIntoView();
   const collect = () => [...document.querySelectorAll("#stoprows tr")].map((tr) => {
     const g = (f) => tr.querySelector(`[data-f=${f}]`);
-    return { name: g("name").value, audio: g("audio").value || null, board_text: g("board_text").value || null,
+    return { name: g("name").value, crs: (g("crs").value || "").toUpperCase(), audio: g("audio").value || null, board_text: g("board_text").value || null,
       board_override: g("board_override").value || null, is_terminus: g("is_terminus").checked };
   });
   $("pd-edit").querySelectorAll("[data-delstop]").forEach((b) => b.onclick = () => { b.closest("tr").remove(); });
   $("stop-add").onclick = () => {
     const tr = document.createElement("tr");
     const sel = document.createElement("select"); sel.setAttribute("data-f", "audio"); sel.innerHTML = audioOptions("");
-    tr.innerHTML = `<td>new</td><td><input data-f=name></td><td></td><td><input data-f=board_text></td><td><input data-f=board_override></td><td><input data-f=is_terminus type=checkbox></td><td></td>`;
-    tr.children[2].appendChild(sel);
+    tr.innerHTML = `<td>new</td><td><input data-f=name></td><td><input data-f=crs maxlength=3 style="width:3.5em;text-transform:uppercase"></td><td></td><td><input data-f=board_text></td><td><input data-f=board_override></td><td><input data-f=is_terminus type=checkbox></td><td></td>`;
+    tr.children[3].appendChild(sel);
     $("stoprows").appendChild(tr);
   };
   $("stop-save").onclick = async () => {

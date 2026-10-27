@@ -79,6 +79,7 @@ CREATE TABLE stops (
   board_text     TEXT,
   board_override TEXT,
   is_terminus    INTEGER NOT NULL DEFAULT 0 CHECK (is_terminus IN (0,1)),
+  crs            TEXT NOT NULL DEFAULT '',
   UNIQUE (destination_id, position)
 );
 

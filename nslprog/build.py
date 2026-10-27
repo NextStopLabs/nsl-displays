@@ -102,11 +102,12 @@ class ProgramBuilder:
     def add_stop(self, destination_id: str, position: int, name: str,
                  audio: str | None = None, board_text: str | None = None,
                  board_override: str | None = None, is_terminus: bool = False,
-                 id: str | None = None) -> str:
+                 crs: str | None = None, id: str | None = None) -> str:
         sid = id or new_uuid()
         self.stops.append({"id": sid, "destination_id": destination_id, "position": position,
                            "name": name, "audio": audio, "board_text": board_text,
-                           "board_override": board_override, "is_terminus": 1 if is_terminus else 0})
+                           "board_override": board_override, "is_terminus": 1 if is_terminus else 0,
+                           "crs": (crs or "").strip().upper()})
         return sid
 
     def add_layout(self, destination_id: str, display_id: str, layout: dict, id: str | None = None) -> str:
@@ -209,9 +210,9 @@ class ProgramBuilder:
                 con.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
                             (pg["id"], pg["destination_id"], pg["position"], pg["via"], pg["dest"]))
             for st in self.stops:
-                con.execute("INSERT INTO stops VALUES (?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO stops VALUES (?,?,?,?,?,?,?,?,?)",
                             (st["id"], st["destination_id"], st["position"], st["name"], st["audio"],
-                             st["board_text"], st["board_override"], st["is_terminus"]))
+                             st["board_text"], st["board_override"], st["is_terminus"], st.get("crs") or ""))
             for lay in self.layouts:
                 con.execute("INSERT INTO layouts VALUES (?,?,?,?)",
                             (lay["id"], lay["destination_id"], lay["display_id"], lay["layout"]))

@@ -130,3 +130,102 @@ def test_t9_multitap_cycles_and_commits():
     assert t2.press("5", now=5.0) == "SM"  # pause commits, new key starts O-group
     assert t2.finish() == "SM"
     assert t2.backspace() == "S"
+
+
+def _crs_core(tmp_path):
+    """Harness with a rail destination whose stops carry CRS codes."""
+    import datetime
+    import shutil
+    import sqlite3
+    from nslprog import ProgramBuilder
+    base = str(tmp_path / "nslcrs")
+    os.makedirs(base, exist_ok=True)
+    db = os.path.join(base, "controller.db")
+    init_controller_db(db)
+    prog = os.path.join(base, "programs")
+    b = ProgramBuilder(program_name="Rail")
+    b.add_display("front", 240, 40, 0)
+    svc = b.add_service("RR", "Rail replacement", 0)
+    d = b.add_destination(svc, "8001", "Rail replacement", dest="RAIL REPLACEMENT", position=0)
+    b.add_stop(d, 1, "Stoke-on-Trent", crs="SOT")
+    b.add_stop(d, 2, "Stockport", crs="SPT")
+    b.add_stop(d, 3, "Manchester Piccadilly", crs="MAN", is_terminus=True)
+    p = str(tmp_path / "rail.nslprog")
+    b.build(p, 1)
+    pid = __import__("nslprog").read_meta(p)["program_id"]
+    dest = os.path.join(prog, pid, "1.nslprog")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy(p, dest)
+    con = sqlite3.connect(db)
+    con.execute("INSERT OR REPLACE INTO installed_programs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (pid, 1, "Rail", "x", "y", dest, 10, "active", "portal",
+                 datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None))
+    con.commit()
+    con.close()
+    c = Core(db, prog)
+    c.select_program(pid, source="test")
+    c.select_code("8001", source="test")
+    return c
+
+
+def test_browse_exposes_crs(tmp_path):
+    c = _crs_core(tmp_path)
+    stops = c.browse()["services"][0]["destinations"][0]["stops"]
+    assert [(s["crs"], s["position"]) for s in stops] == [("SOT", 1), ("SPT", 2), ("MAN", 3)]
+
+
+def test_rail_snapshot_carries_crs(tmp_path):
+    c = _crs_core(tmp_path)
+    stops = c.browse()["services"][0]["destinations"][0]["stops"]
+    sot = next(s for s in stops if s["crs"] == "SOT")
+    man = next(s for s in stops if s["crs"] == "MAN")
+    c.set_rail(sot["id"], man["id"], source="test")
+    snap = c.display_snapshot()
+    assert snap["rail"]["from_crs"] == "SOT" and snap["rail"]["to_crs"] == "MAN"
+
+
+def test_crs_validation_rules(tmp_path):
+    import pytest as _pytest
+    from nslprog import ProgramBuilder, validate_file
+
+    def _build(stop_rows, path):
+        b = ProgramBuilder(program_name="t")
+        b.add_display("front", 240, 40, 0)
+        s = b.add_service("1", position=0)
+        d = b.add_destination(s, "1", "D", dest="D", position=0)
+        for i, kw in enumerate(stop_rows, 1):
+            b.add_stop(d, i, kw.get("name", f"S{i}"), crs=kw.get("crs"),
+                       is_terminus=(i == len(stop_rows)))
+        return b.build(path, 1)
+
+    _build([{"crs": "SOT"}, {"crs": "MAN"}], str(tmp_path / "ok.nslprog"))
+    assert validate_file(str(tmp_path / "ok.nslprog"), check_hash=False).ok
+    with _pytest.raises(ValueError):  # bad shape blocked at publish
+        _build([{"crs": "SOT1"}, {"crs": "MAN"}], str(tmp_path / "bad.nslprog"))
+    _build([{"crs": "sot"}, {}], str(tmp_path / "low.nslprog"))  # lowercase normalised
+    assert validate_file(str(tmp_path / "low.nslprog"), check_hash=False).ok
+    with _pytest.raises(ValueError):  # duplicate CRS in one destination
+        _build([{"crs": "SOT"}, {"crs": "SOT"}], str(tmp_path / "dup.nslprog"))
+
+
+def test_old_bundle_without_crs_still_works(tmp_path):
+    import sqlite3
+    c = _crs_core(tmp_path)
+    # find the installed bundle and drop the crs column to simulate v1 files
+    con = sqlite3.connect(c.controller_db)
+    row = con.execute("SELECT path FROM installed_programs LIMIT 1").fetchone()
+    con.close()
+    bc = sqlite3.connect(row[0])
+    try:
+        bc.execute("ALTER TABLE stops DROP COLUMN crs")
+        bc.commit()
+    except Exception:
+        bc.close()
+        return  # old sqlite without DROP COLUMN: nothing to simulate
+    bc.close()
+    stops = c.browse()["services"][0]["destinations"][0]["stops"]
+    assert all("crs" not in s for s in stops)
+    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+    snap = c.display_snapshot()
+    assert snap["rail"]["from_name"] == "Stoke-on-Trent"
+    assert snap["rail"]["from_crs"] == ""

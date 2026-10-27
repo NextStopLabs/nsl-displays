@@ -127,6 +127,7 @@ CREATE TABLE stops (
   board_text     TEXT,                             -- NULL = use name
   board_override TEXT,                             -- NULL or '' = no override
   is_terminus    INTEGER NOT NULL DEFAULT 0 CHECK (is_terminus IN (0,1)),
+  crs            TEXT NOT NULL DEFAULT '',       -- National Rail CRS code (3 letters) for rail pickers
   UNIQUE (destination_id, position)
 );
 
@@ -319,6 +320,7 @@ Run on the server when a user presses Publish, and again on the Pi before a down
 - Stop positions are not 1, 2, 3 … with no gaps
 - Destination page positions are not 1, 2, 3 … with no gaps
 - A stop marked `is_terminus` is not the last stop of its destination, or a destination has more than one
+- A stop `crs` is set but is not exactly 3 letters, or the same `crs` is used twice in one destination
 - A layout's `width`/`height` differs from its display, or the JSON is invalid
 - An audio hash used by a service or stop is missing from the `audio` table
 - `PRAGMA integrity_check` or `PRAGMA foreign_key_check` reports a problem (Pi side)

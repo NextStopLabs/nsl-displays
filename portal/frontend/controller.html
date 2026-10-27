@@ -331,8 +331,30 @@
     }
 
     .list .item span:last-child {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .list .item > span:first-child {
+      flex: 0 0 auto;
+    }
+
+    /* rail picker: long station names must ellipsize, never push the
+       cursor/selection highlight off the right edge of the screen */
+    .rail .line > span {
+      min-width: 0;
+    }
+
+    .rail .line > span:last-child {
+      flex: 0 0 auto;
+    }
+
+    .rail-head {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .list .item.sel {
@@ -778,18 +800,18 @@ function renderScreen() {
     const picked = isFrom ? null : (state.railFrom && (state.railFrom.board_text || state.railFrom.name));
     const label = isFrom ? "RAIL FROM" : "RAIL TO";
     const typed = state.railBuf || "";
-    const items = state.railMatches.map(s => `${s.position} ${(s.board_text || s.name)}`);
-    const [a, b] = windowRange(items.length, state.railSel, LIST_ROWS);
+    const items = state.railMatches.map(railStopLabel);
+    const [a, b] = windowRange(items.length, state.railSel, 2);
     let h = "";
     for (let i = a; i < b; i++) {
       h += `<div class="item ${i===state.railSel?"sel":""}"><span>${i===state.railSel?">":" "}</span><span>${esc(items[i])}</span></div>`;
     }
     const curRail = state.current.rail;
-    screen.innerHTML = `<div class="hv-flex">
-      <div class="line"><span class="small dim">${picked ? esc("FROM " + picked) : (curRail ? esc(`RAIL ${(curRail.from_name||"")}→${(curRail.to_name||"")}`) : "RAIL")}</span><span class="small">${label}</span></div>
-      <div class="line"><span class="big">${esc(typed || "---")}</span></div>
+    const headLeft = picked ? ("FROM " + picked) : (curRail ? `RAIL ${(curRail.from_name||"")}→${(curRail.to_name||"")}` : "RAIL");
+    screen.innerHTML = `<div class="hv-flex rail">
+      <div class="line"><span class="small dim rail-head">${esc(headLeft)}</span><span class="small">${label}</span></div>
+      <div class="line"><span class="big">${esc(typed || "---")}</span>${state.codeError ? `<span class="small err">${esc(state.codeError)}</span>` : ""}</div>
       <div class="list">${h || `<div class="item"><span>&nbsp;</span><span>NO MATCH</span></div>`}</div>
-      <div class="line"><span class="small err">${state.codeError ? esc(state.codeError) : "&nbsp;"}</span></div>
     </div>`;
     hint.textContent = "Digits = T9 letters · ▲▼ choose · ENT = pick" + (isFrom ? " · ENT empty = clear rail" : " · ENT empty = back");
     return;
@@ -896,8 +918,18 @@ function railStops() {
 function railFilter() {
   const q = state.railBuf.trim().toUpperCase();
   const stops = railStops();
-  state.railMatches = q ? stops.filter(s => String(s.board_text || s.name || "").toUpperCase().includes(q)) : stops.slice();
+  if (!q) { state.railMatches = stops.slice(); }
+  else {
+    // CRS codes match first (typing SOT jumps straight to Stoke), then names
+    const crsHit = stops.filter(s => String(s.crs || "").toUpperCase().startsWith(q));
+    const nameHit = stops.filter(s => !String(s.crs || "").toUpperCase().startsWith(q)
+      && String(s.board_text || s.name || "").toUpperCase().includes(q));
+    state.railMatches = crsHit.concat(nameHit);
+  }
   state.railSel = 0;
+}
+function railStopLabel(s) {
+  return `${s.position} ${s.crs ? s.crs + " " : ""}${(s.board_text || s.name)}`;
 }
 function enterRailFrom() {
   if (!state.cid || !((state.live.destination || {}).id)) return;
