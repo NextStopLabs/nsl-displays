@@ -519,6 +519,7 @@ class Core:
             self._con.execute(
                 "UPDATE state SET stop_id=?, rail_from_stop_id=?, rail_to_stop_id=?,"
                 " override_text=?, override_set_at=CASE WHEN ? IS NOT NULL THEN ? ELSE NULL END,"
+                " depart_time=NULL, depart_mins=NULL, depart_expires_at=NULL,"
                 " updated_at=? WHERE id=1",
                 (frow["id"], frow["id"], trow["id"], saved, saved,
                  _utcnow() if saved else None, _utcnow()))

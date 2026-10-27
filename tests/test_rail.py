@@ -116,6 +116,18 @@ def test_rail_command_dispatch_and_clear(tmp_path):
     assert c.display_snapshot()["rail"] is None
 
 
+def test_rail_set_clears_departure_lock(tmp_path):
+    """A rail window is a new journey selection: like select_code it must
+    clear a departure countdown, which otherwise freezes boards on page 1."""
+    c, stops = _core(tmp_path)
+    c.set_departure_time("23:59", source="test")
+    assert c.display_snapshot()["departure"]["active"]
+    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+    snap = c.display_snapshot()
+    assert not snap["departure"]["active"]
+    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
+
+
 def test_rail_pages_override_destination_board_pages(tmp_path):
     """A destination with its own board pages must not swallow the window:
     the renderer rebuilds via/dest from the snapshot pages."""
