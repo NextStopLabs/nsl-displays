@@ -1207,9 +1207,10 @@ class Core:
                     fields["__stop_name"] = stop["name"]
                     fields["__board_text"] = stop["board_text"] or stop["name"]
                 # rail window (F then R): the window owns the whole rotation.
-                # Boards pin the end station as dest while via steps through
-                # ONLY the stations in between - never the origin. So a
-                # Euston -> Stoke window reads MK Central, ... -> Stoke.
+                # Boards pin the end station as dest while via carries ALL
+                # the stations in between as one scrolling line - never the
+                # origin. Euston -> Stockport reads via "Milton Keynes -
+                # Stoke-on-Trent - Macclesfield" scrolling, dest Stockport.
                 # (Without this the destination's own board pages would rebuild
                 # via/dest from the page rows and discard the window.)
                 rail = None
@@ -1226,13 +1227,13 @@ class Core:
                             (st["destination_id"], lo, hi)))
                     except Exception:
                         in_window = []
-                    # via steps: strictly the stations between the endpoints
+                    # via: strictly the stations between the endpoints, joined
+                    # into one scrolling line (layouts scroll via if_too_long)
                     names = [(r["board_text"] or r["name"]) for r in in_window]
                     calling = names[1:-1] if len(names) > 2 else []
-                    fields["via"] = calling[0] if calling else ""
+                    fields["via"] = " - ".join(calling)
                     fields["dest"] = tname
-                    pages = [{"position": i + 1, "via": name, "dest": tname}
-                             for i, name in enumerate(calling)]
+                    pages = []
                     rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
                             "from_name": fname, "to_name": tname,
                             "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or "",

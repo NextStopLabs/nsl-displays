@@ -54,10 +54,10 @@ def test_set_rail_window_and_snapshot(tmp_path):
     snap = c.display_snapshot()
     assert snap["rail"]["from_name"] == "Lichfield Bus Station"
     assert snap["rail"]["to_name"] == "Burton New Street"
-    # via rotates origin + calling points, dest stays on the terminus
+    # via carries every station in between as one scrolling line
     assert snap["rail"]["calling"] == ["Branston Road"]
-    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
-    assert {p["dest"] for p in snap["pages"]} == {"Burton New Street"}
+    assert snap["pages"] == []
+    assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["dest"] == "Burton New Street"
 
@@ -125,7 +125,8 @@ def test_rail_set_clears_departure_lock(tmp_path):
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
     assert not snap["departure"]["active"]
-    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
+    assert snap["pages"] == []
+    assert snap["fields"]["via"] == "Branston Road"
 
 
 def test_rail_pages_override_destination_board_pages(tmp_path):
@@ -143,23 +144,57 @@ def test_rail_pages_override_destination_board_pages(tmp_path):
     pc.close()
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
-    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
-    assert all(p["dest"] == "Burton New Street" for p in snap["pages"])
+    assert snap["pages"] == []
+    assert snap["fields"]["via"] == "Branston Road"
+    assert snap["fields"]["dest"] == "Burton New Street"
 
 
-def test_rail_pages_drive_board_text_per_page(tmp_path):
-    """End to end through the real renderer: each rotation page shows the
-    next calling point in via with the terminus as dest."""
-    from pi.nsl_pi.renderer import fields_for_page_index, resolve_fields
-    c, stops = _core(tmp_path)
-    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+def test_rail_via_joins_all_middles_into_scrolling_line(tmp_path):
+    """End to end through the real renderer: one via line naming every
+    station in between, flagged as needing scroll (not one static page
+    per station)."""
+    import datetime
+    import shutil
+    import sqlite3
+    from nslprog import ProgramBuilder
+    from pi.nsl_pi.renderer import autofit_layout, page_scroll_need
+    base = str(tmp_path / "nsl5")
+    os.makedirs(base, exist_ok=True)
+    db = os.path.join(base, "controller.db")
+    init_controller_db(db)
+    prog = os.path.join(base, "programs")
+    b = ProgramBuilder(program_name="Rail5")
+    b.add_display("front", 240, 40, 0)
+    svc = b.add_service("RR", "Rail replacement", 0)
+    d = b.add_destination(svc, "8001", "Rail replacement", dest="RAIL REPLACEMENT", position=0)
+    names = ["Euston", "Milton Keynes Central", "Stoke-on-Trent", "Macclesfield", "Stockport"]
+    for i, nm in enumerate(names, 1):
+        b.add_stop(d, i, nm, is_terminus=(i == 5))
+    p = str(tmp_path / "rail5.nslprog")
+    b.build(p, 1)
+    pid = __import__("nslprog").read_meta(p)["program_id"]
+    dest = os.path.join(prog, pid, "1.nslprog")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy(p, dest)
+    con = sqlite3.connect(db)
+    con.execute("INSERT OR REPLACE INTO installed_programs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (pid, 1, "Rail5", "x", "y", dest, 10, "active", "portal",
+                 datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), None))
+    con.commit()
+    con.close()
+    from pi.nsl_pi.core import Core
+    c = Core(db, prog)
+    c.select_program(pid, source="test")
+    c.select_code("8001", source="test")
+    stops = c.browse()["services"][0]["destinations"][0]["stops"]
+    c.set_rail(stops[0]["id"], stops[4]["id"], source="test")
     snap = c.display_snapshot()
-    pages = snap["pages"]
-    assert len(pages) == 1
-    dest = {"num": None, "via": "", "dest": "", "extra_fields": "{}"}
-    got = [(fields_for_page_index(dest, "100", pages, i)["via"],
-            fields_for_page_index(dest, "100", pages, i)["dest"]) for i in range(1)]
-    assert got == [("Branston Road", "Burton New Street")]
+    assert snap["rail"]["calling"] == ["Milton Keynes Central", "Stoke-on-Trent", "Macclesfield"]
+    assert snap["fields"]["via"] == "Milton Keynes Central - Stoke-on-Trent - Macclesfield"
+    assert snap["fields"]["dest"] == "Stockport"
+    assert snap["pages"] == []
+    # long enough to scroll rather than sit static on one station
+    assert page_scroll_need(autofit_layout(240, 40), snap["fields"], "", None) > 0
 
 
 def test_t9_faceplate_mapping():
@@ -232,8 +267,9 @@ def test_rail_snapshot_carries_crs(tmp_path):
     snap = c.display_snapshot()
     assert snap["rail"]["from_crs"] == "SOT" and snap["rail"]["to_crs"] == "MAN"
     # Euston -> Stoke shape: via steps origin + middles, dest is the terminus
-    assert [p["via"] for p in snap["pages"]] == ["Stockport"]
-    assert all(p["dest"] == "Manchester Piccadilly" for p in snap["pages"])
+    assert snap["pages"] == []
+    assert snap["fields"]["via"] == "Stockport"
+    assert snap["fields"]["dest"] == "Manchester Piccadilly"
 
 
 def test_crs_validation_rules(tmp_path):
