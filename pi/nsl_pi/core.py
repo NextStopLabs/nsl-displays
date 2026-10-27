@@ -1206,9 +1206,9 @@ class Core:
                     fields["__stop_name"] = stop["name"]
                     fields["__board_text"] = stop["board_text"] or stop["name"]
                 # rail window (F then R): the window owns the whole rotation.
-                # Boards show the end station as dest while via steps through
-                # the origin then every calling point in between, so a
-                # Euston -> Stoke window reads Euston, MK Central, ... -> Stoke.
+                # Boards pin the end station as dest while via steps through
+                # ONLY the stations in between - never the origin. So a
+                # Euston -> Stoke window reads MK Central, ... -> Stoke.
                 # (Without this the destination's own board pages would rebuild
                 # via/dest from the page rows and discard the window.)
                 rail = None
@@ -1225,11 +1225,10 @@ class Core:
                             (st["destination_id"], lo, hi)))
                     except Exception:
                         in_window = []
-                    # via steps: origin + every stop before the terminus
-                    calling = [(r["board_text"] or r["name"]) for r in in_window[:-1]]
-                    if not calling:
-                        calling = [fname]
-                    fields["via"] = calling[0]
+                    # via steps: strictly the stations between the endpoints
+                    names = [(r["board_text"] or r["name"]) for r in in_window]
+                    calling = names[1:-1] if len(names) > 2 else []
+                    fields["via"] = calling[0] if calling else ""
                     fields["dest"] = tname
                     pages = [{"position": i + 1, "via": name, "dest": tname}
                              for i, name in enumerate(calling)]

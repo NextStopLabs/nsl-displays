@@ -55,10 +55,10 @@ def test_set_rail_window_and_snapshot(tmp_path):
     assert snap["rail"]["from_name"] == "Lichfield Bus Station"
     assert snap["rail"]["to_name"] == "Burton New Street"
     # via rotates origin + calling points, dest stays on the terminus
-    assert snap["rail"]["calling"] == ["Lichfield Bus Station", "Branston Road"]
-    assert [p["via"] for p in snap["pages"]] == ["Lichfield Bus Station", "Branston Road"]
+    assert snap["rail"]["calling"] == ["Branston Road"]
+    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
     assert {p["dest"] for p in snap["pages"]} == {"Burton New Street"}
-    assert snap["fields"]["via"] == "Lichfield Bus Station"
+    assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["dest"] == "Burton New Street"
 
 
@@ -131,7 +131,7 @@ def test_rail_pages_override_destination_board_pages(tmp_path):
     pc.close()
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
-    assert [p["via"] for p in snap["pages"]] == ["Lichfield Bus Station", "Branston Road"]
+    assert [p["via"] for p in snap["pages"]] == ["Branston Road"]
     assert all(p["dest"] == "Burton New Street" for p in snap["pages"])
 
 
@@ -143,12 +143,11 @@ def test_rail_pages_drive_board_text_per_page(tmp_path):
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
     pages = snap["pages"]
-    assert len(pages) == 2
+    assert len(pages) == 1
     dest = {"num": None, "via": "", "dest": "", "extra_fields": "{}"}
     got = [(fields_for_page_index(dest, "100", pages, i)["via"],
-            fields_for_page_index(dest, "100", pages, i)["dest"]) for i in range(2)]
-    assert got == [("Lichfield Bus Station", "Burton New Street"),
-                   ("Branston Road", "Burton New Street")]
+            fields_for_page_index(dest, "100", pages, i)["dest"]) for i in range(1)]
+    assert got == [("Branston Road", "Burton New Street")]
 
 
 def test_t9_faceplate_mapping():
@@ -221,7 +220,7 @@ def test_rail_snapshot_carries_crs(tmp_path):
     snap = c.display_snapshot()
     assert snap["rail"]["from_crs"] == "SOT" and snap["rail"]["to_crs"] == "MAN"
     # Euston -> Stoke shape: via steps origin + middles, dest is the terminus
-    assert [p["via"] for p in snap["pages"]] == ["Stoke-on-Trent", "Stockport"]
+    assert [p["via"] for p in snap["pages"]] == ["Stockport"]
     assert all(p["dest"] == "Manchester Piccadilly" for p in snap["pages"])
 
 
