@@ -1206,13 +1206,14 @@ class Core:
                 if stop:
                     fields["__stop_name"] = stop["name"]
                     fields["__board_text"] = stop["board_text"] or stop["name"]
-                # rail window (F then R): the window owns the whole rotation.
+                # rail window (F then R): rail owns page 1 of the rotation.
                 # Boards pin the end station as dest while via carries ALL
                 # the stations in between as one scrolling line - never the
-                # origin. Euston -> Stockport reads via "Milton Keynes -
-                # Stoke-on-Trent - Macclesfield" scrolling, dest Stockport.
-                # (Without this the destination's own board pages would rebuild
-                # via/dest from the page rows and discard the window.)
+                # origin. Euston -> Stockport reads via "Milton Keynes,
+                # Stoke-on-Trent, Macclesfield" scrolling, dest Stockport.
+                # The destination's own pages after the first stay in the
+                # loop (e.g. a logo page 2); without this their page rows
+                # would rebuild via/dest and discard the window.
                 rail = None
                 win = self._rail_window(pc, st)
                 if win is not None:
@@ -1236,8 +1237,26 @@ class Core:
                     # single board page at position 1: uses the layout's
                     # designed page-1 elements (per-page layouts are keyed
                     # by position, and an empty page list would fall back
-                    # to the base elements, which may be logo-only)
+                    # to the base elements, which may be logo-only).
+                    # The destination's own pages after the first stay in
+                    # the loop behind it - e.g. a page 2 with the train
+                    # company logo keeps showing after the rail page.
                     pages = [{"position": 1, "via": fields["via"], "dest": tname}]
+                    try:
+                        own = list(pc.execute(
+                            "SELECT position, via, dest FROM destination_pages WHERE destination_id=? ORDER BY position",
+                            (st["destination_id"],)))
+                    except Exception:
+                        own = []
+                    for pg in own:
+                        try:
+                            pos = int(pg["position"] or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if pos <= 1:
+                            continue
+                        pages.append({"position": pos, "via": pg["via"] or "",
+                                      "dest": pg["dest"] or ""})
                     rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
                             "from_name": fname, "to_name": tname,
                             "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or "",

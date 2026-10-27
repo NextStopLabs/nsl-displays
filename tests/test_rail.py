@@ -128,9 +128,9 @@ def test_rail_set_clears_departure_lock(tmp_path):
     assert snap["fields"]["via"] == "Branston Road"
 
 
-def test_rail_pages_override_destination_board_pages(tmp_path):
-    """A destination with its own board pages must not swallow the window:
-    the renderer rebuilds via/dest from the snapshot pages."""
+def test_rail_keeps_later_destination_pages_in_loop(tmp_path):
+    """Rail takes over page 1 (dynamic dest + via); the destination's own
+    later pages - e.g. a logo page 2 - stay in the rotation behind it."""
     import sqlite3
     c, stops = _core(tmp_path)
     st = c.state()
@@ -138,12 +138,15 @@ def test_rail_pages_override_destination_board_pages(tmp_path):
     pc.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
                ("pg1", st["destination_id"], 1, "SHOULD NOT SHOW", "SHOULD NOT SHOW"))
     pc.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
-               ("pg2", st["destination_id"], 2, "NEITHER THIS", "NEITHER THIS"))
+               ("pg2", st["destination_id"], 2, "LOGO PAGE", "LOGO PAGE"))
     pc.commit()
     pc.close()
     c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
     snap = c.display_snapshot()
-    assert snap["pages"] == [{"position": 1, "via": "Branston Road", "dest": "Burton New Street"}]
+    assert snap["pages"] == [
+        {"position": 1, "via": "Branston Road", "dest": "Burton New Street"},
+        {"position": 2, "via": "LOGO PAGE", "dest": "LOGO PAGE"},
+    ]
     assert snap["fields"]["via"] == "Branston Road"
     assert snap["fields"]["dest"] == "Burton New Street"
 
