@@ -116,6 +116,41 @@ def test_rail_command_dispatch_and_clear(tmp_path):
     assert c.display_snapshot()["rail"] is None
 
 
+def test_rail_pages_override_destination_board_pages(tmp_path):
+    """A destination with its own board pages must not swallow the window:
+    the renderer rebuilds via/dest from the snapshot pages."""
+    import sqlite3
+    c, stops = _core(tmp_path)
+    st = c.state()
+    pc = sqlite3.connect(c._prog_path(st["program_id"], st["program_version"]))
+    pc.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
+               ("pg1", st["destination_id"], 1, "SHOULD NOT SHOW", "SHOULD NOT SHOW"))
+    pc.execute("INSERT INTO destination_pages VALUES (?,?,?,?,?)",
+               ("pg2", st["destination_id"], 2, "NEITHER THIS", "NEITHER THIS"))
+    pc.commit()
+    pc.close()
+    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+    snap = c.display_snapshot()
+    assert [p["via"] for p in snap["pages"]] == ["Lichfield Bus Station", "Branston Road"]
+    assert all(p["dest"] == "Burton New Street" for p in snap["pages"])
+
+
+def test_rail_pages_drive_board_text_per_page(tmp_path):
+    """End to end through the real renderer: each rotation page shows the
+    next calling point in via with the terminus as dest."""
+    from pi.nsl_pi.renderer import fields_for_page_index, resolve_fields
+    c, stops = _core(tmp_path)
+    c.set_rail(stops[0]["id"], stops[2]["id"], source="test")
+    snap = c.display_snapshot()
+    pages = snap["pages"]
+    assert len(pages) == 2
+    dest = {"num": None, "via": "", "dest": "", "extra_fields": "{}"}
+    got = [(fields_for_page_index(dest, "100", pages, i)["via"],
+            fields_for_page_index(dest, "100", pages, i)["dest"]) for i in range(2)]
+    assert got == [("Lichfield Bus Station", "Burton New Street"),
+                   ("Branston Road", "Burton New Street")]
+
+
 def test_t9_faceplate_mapping():
     assert t9_letters("7") == "STU" and t9_letters("9") == "YZ" and t9_letters("0") == " "
     assert encode_t9("SOT") == "757"  # 7=STU 5=MNO 7=STU

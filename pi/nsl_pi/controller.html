@@ -821,7 +821,7 @@ function renderScreen() {
       <div class="line"><span class="big">${esc(typed || "---")}</span>${state.codeError ? `<span class="small err">${esc(state.codeError)}</span>` : ""}</div>
       <div class="list">${h || `<div class="item"><span>&nbsp;</span><span>NO MATCH</span></div>`}</div>
     </div>`;
-    hint.textContent = "Digits = T9 letters · ▲▼ choose · ENT = pick" + (isFrom ? " · ENT empty = clear rail" : " · ENT empty = back");
+    hint.textContent = "Digits = T9 letters · ▲▼ choose · ENT = pick" + (isFrom ? (state.current.rail ? " · X = clear rail" : "") : " · ◄ = back");
     return;
   }
   if (state.mode === "services") {
@@ -1013,7 +1013,16 @@ function backspace() {
   if (state.mode !== "code" && state.mode !== "insert" && state.mode !== "depart") return;
   state.code.pop(); state.codeError = ""; render();
 }
-function cancelCode() {
+async function cancelCode() {
+  if (state.mode === "rail_from" && state.current.rail) {
+    // X with a window active clears it
+    try {
+      await api("/api/command", {command:"rail_clear"});
+      state.mode = "view"; state.codeError = "";
+      await refresh();
+    } catch(e) { state.codeError = "ERROR"; render(); }
+    return;
+  }
   if (state.mode === "rail_from" || state.mode === "rail_to") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "code" || state.mode === "insert" || state.mode === "depart") { state.mode = "view"; state.codeError = ""; render(); return; }
   if (state.mode === "admin") { state.mode = "view"; state.adminMsg = ""; render(); return; }
@@ -1121,19 +1130,7 @@ async function confirm() {
   }
   if (state.mode === "rail_from") {
     railCommitTap();
-    if (!state.railBuf && !state.railMatches.length) { state.mode = "view"; render(); return; }
-    if (!state.railBuf && state.current.rail) {
-      // ENT with no letters clears an active rail window
-      try {
-        await api("/api/command", {command:"rail_clear"});
-        state.mode = "view"; state.codeError = "";
-        await refresh();
-      } catch(e) {
-        state.codeError = "ERROR"; buzz([35, 40, 35]);
-        render();
-      }
-      return;
-    }
+    // ENT always confirms the highlighted stop (arrows alone are enough)
     const pick = state.railMatches[state.railSel];
     if (!pick) { state.codeError = "NO MATCH"; buzz([35, 40, 35]); render(); return; }
     state.railFrom = pick;
@@ -1142,7 +1139,6 @@ async function confirm() {
   }
   if (state.mode === "rail_to") {
     railCommitTap();
-    if (!state.railBuf) { enterRailFrom(); return; }  // ENT empty = back to FROM
     const pick = state.railMatches[state.railSel];
     if (!pick) { state.codeError = "NO MATCH"; buzz([35, 40, 35]); render(); return; }
     try {
@@ -1189,7 +1185,11 @@ async function confirm() {
 function move(dir) {
   if (state.mode === "rail_from" || state.mode === "rail_to") {
     railCommitTap();
-    if (dir === "left") { railBackspace(); return; }
+    if (dir === "left") {
+      if (state.railBuf) { railBackspace(); return; }
+      if (state.mode === "rail_to") { enterRailFrom(); return; }
+      state.mode = "view"; state.codeError = ""; render(); return;
+    }
     const n = state.railMatches.length;
     if (dir === "up") state.railSel = Math.max(0, state.railSel - 1);
     if (dir === "down") state.railSel = Math.min(Math.max(0, n - 1), state.railSel + 1);
