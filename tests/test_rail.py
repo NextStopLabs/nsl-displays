@@ -54,9 +54,12 @@ def test_set_rail_window_and_snapshot(tmp_path):
     snap = c.display_snapshot()
     assert snap["rail"]["from_name"] == "Lichfield Bus Station"
     assert snap["rail"]["to_name"] == "Burton New Street"
+    # via rotates origin + calling points, dest stays on the terminus
+    assert snap["rail"]["calling"] == ["Lichfield Bus Station", "Branston Road"]
+    assert [p["via"] for p in snap["pages"]] == ["Lichfield Bus Station", "Branston Road"]
+    assert {p["dest"] for p in snap["pages"]} == {"Burton New Street"}
     assert snap["fields"]["via"] == "Lichfield Bus Station"
     assert snap["fields"]["dest"] == "Burton New Street"
-    assert snap["pages"] == []  # single page, no rotation
 
 
 def test_set_rail_auto_swaps_reversed(tmp_path):
@@ -182,6 +185,9 @@ def test_rail_snapshot_carries_crs(tmp_path):
     c.set_rail(sot["id"], man["id"], source="test")
     snap = c.display_snapshot()
     assert snap["rail"]["from_crs"] == "SOT" and snap["rail"]["to_crs"] == "MAN"
+    # Euston -> Stoke shape: via steps origin + middles, dest is the terminus
+    assert [p["via"] for p in snap["pages"]] == ["Stoke-on-Trent", "Stockport"]
+    assert all(p["dest"] == "Manchester Piccadilly" for p in snap["pages"])
 
 
 def test_crs_validation_rules(tmp_path):

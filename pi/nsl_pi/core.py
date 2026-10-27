@@ -1205,19 +1205,38 @@ class Core:
                 if stop:
                     fields["__stop_name"] = stop["name"]
                     fields["__board_text"] = stop["board_text"] or stop["name"]
-                # rail window (F then R): single page FROM -> TO, no rotation.
+                # rail window (F then R): the window owns the whole rotation.
+                # Boards show the end station as dest while via steps through
+                # the origin then every calling point in between, so a
+                # Euston -> Stoke window reads Euston, MK Central, ... -> Stoke.
+                # (Without this the destination's own board pages would rebuild
+                # via/dest from the page rows and discard the window.)
                 rail = None
                 win = self._rail_window(pc, st)
                 if win is not None:
                     fstop, tstop = win
                     fname = fstop["board_text"] or fstop["name"]
                     tname = tstop["board_text"] or tstop["name"]
-                    fields["via"] = fname
+                    try:
+                        lo = min(int(fstop["position"]), int(tstop["position"]))
+                        hi = max(int(fstop["position"]), int(tstop["position"]))
+                        in_window = list(pc.execute(
+                            "SELECT board_text, name FROM stops WHERE destination_id=? AND position>=? AND position<=? ORDER BY position",
+                            (st["destination_id"], lo, hi)))
+                    except Exception:
+                        in_window = []
+                    # via steps: origin + every stop before the terminus
+                    calling = [(r["board_text"] or r["name"]) for r in in_window[:-1]]
+                    if not calling:
+                        calling = [fname]
+                    fields["via"] = calling[0]
                     fields["dest"] = tname
-                    pages = []
+                    pages = [{"position": i + 1, "via": name, "dest": tname}
+                             for i, name in enumerate(calling)]
                     rail = {"from_stop_id": fstop["id"], "to_stop_id": tstop["id"],
                             "from_name": fname, "to_name": tname,
-                            "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or ""}
+                            "from_crs": fstop.get("crs") or "", "to_crs": tstop.get("crs") or "",
+                            "calling": calling}
                 layouts = {}
                 names = {r["id"]: r["name"] for r in pc.execute("SELECT id, name FROM displays")}
                 for lr in pc.execute("SELECT display_id, layout FROM layouts WHERE destination_id=?", (dest["id"],)):
