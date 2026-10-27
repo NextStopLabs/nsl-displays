@@ -189,9 +189,9 @@ def test_rail_via_joins_all_middles_into_scrolling_line(tmp_path):
     c.set_rail(stops[0]["id"], stops[4]["id"], source="test")
     snap = c.display_snapshot()
     assert snap["rail"]["calling"] == ["Milton Keynes Central", "Stoke-on-Trent", "Macclesfield"]
-    assert snap["fields"]["via"] == "Milton Keynes Central - Stoke-on-Trent - Macclesfield"
+    assert snap["fields"]["via"] == "Milton Keynes Central, Stoke-on-Trent, Macclesfield"
     assert snap["fields"]["dest"] == "Stockport"
-    assert snap["pages"] == [{"position": 1, "via": "Milton Keynes Central - Stoke-on-Trent - Macclesfield",
+    assert snap["pages"] == [{"position": 1, "via": "Milton Keynes Central, Stoke-on-Trent, Macclesfield",
                               "dest": "Stockport"}]
     # long enough to scroll rather than sit static on one station
     assert page_scroll_need(autofit_layout(240, 40), snap["fields"], "", 1) > 0

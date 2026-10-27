@@ -1231,7 +1231,7 @@ class Core:
                     # into one scrolling line (layouts scroll via if_too_long)
                     names = [(r["board_text"] or r["name"]) for r in in_window]
                     calling = names[1:-1] if len(names) > 2 else []
-                    fields["via"] = " - ".join(calling)
+                    fields["via"] = ", ".join(calling)
                     fields["dest"] = tname
                     # single board page at position 1: uses the layout's
                     # designed page-1 elements (per-page layouts are keyed
