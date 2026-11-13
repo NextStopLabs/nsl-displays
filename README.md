@@ -466,8 +466,8 @@ The bus brain: core + player + agent + keypad + front HUB75 + AP + bus-LAN serve
 
 ```bash
 # 1) FRONT (Pi 4B) - copy-paste on the flashed front Pi:
-curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh \
-  | sudo bash -s -- --unit bus-1
+curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-controller.sh 
+  | sudo bash -s -- --unit bus-1 --audio jack --portal https://nsldisplays.com
 # 2) SIDE (Pi 3B) - copy-paste on the flashed side Pi:
 curl -fsSL https://raw.githubusercontent.com/NextStopLabs/nsl-displays/main/pi/install-board.sh \
   | sudo bash -s -- --role side --unit bus-1
